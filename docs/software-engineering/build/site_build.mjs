@@ -10,18 +10,17 @@
 // publishing source, which is a level above this directory, and is committed
 // once rather than regenerated.
 //
-//     node site_build.mjs <outdir> [font-stylesheet]
+//     node site_build.mjs <outdir> [site-root, relative to a page]
 import fs from 'node:fs';
 import path from 'node:path';
 
 const OUT = process.argv[2];
-if (!OUT) { console.error('usage: node site_build.mjs <outdir> [font-stylesheet]'); process.exit(2); }
+if (!OUT) { console.error('usage: node site_build.mjs <outdir> [site-root]'); process.exit(2); }
 
-// The artifacts load their fonts from Google -- that is the only host their CSP
-// allows and they have nowhere to put a file. The site does not have to: it
-// serves the same faces itself, so nothing on it needs the network. Relative to
-// the page, because the site must also work opened straight off disk.
-const FONTS = process.argv[3] || '../fonts/fonts.css';
+// Where the site's shared files sit, relative to a page. These pages live one
+// directory down; everything is relative rather than rooted at / because the
+// site must also work opened straight off disk.
+const ROOT = (process.argv[3] || '..').replace(/\/$/, '');
 
 // The hub is the front door of the series, so it becomes the directory index.
 const PAGES = [
@@ -113,8 +112,17 @@ for (const page of PAGES) {
     '<meta name="color-scheme" content="light dark">',
     `<title>${title[1]}</title>`,
     `<meta name="description" content="${attr(description(body))}">`,
+    // The browser UI follows the page, which follows the system; the manifest's
+    // own theme_color is only the fallback before these are read.
+    '<meta name="theme-color" content="#F2F5F7" media="(prefers-color-scheme: light)">',
+    '<meta name="theme-color" content="#0B1218" media="(prefers-color-scheme: dark)">',
     `<link rel="icon" href="${favicon(page.icon)}">`,
-    `<link rel="stylesheet" href="${FONTS}">`,
+    // iOS ignores the manifest's icons for the home screen and wants this one.
+    `<link rel="apple-touch-icon" href="${ROOT}/icons/apple-touch-icon.png">`,
+    `<link rel="manifest" href="${ROOT}/manifest.json">`,
+    // The artifacts load their fonts from Google -- the only host their CSP
+    // allows, and they have nowhere to put a file. The site serves its own.
+    `<link rel="stylesheet" href="${ROOT}/fonts/fonts.css">`,
     '</head>',
     '<body>',
     body.replace(/\n*$/, ''),

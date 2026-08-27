@@ -13,9 +13,11 @@ in `build/`.
 
 `index.html` is the hub page (`build/backend-go-ladder.html`), not a listing.
 
-One level up, `../fonts/` holds the site's self-hosted typefaces and is
-**generated** by `build/fonts_local.mjs`. `../index.html` and `../404.html` are
-the site's front page and error page; they are **hand-written, not generated** -- they belong to the site
+One level up: `../fonts/` holds the site's self-hosted typefaces and `../icons/`
+its app icons -- both **generated**, by `build/fonts_local.mjs` and
+`build/icons_build.mjs`. `../manifest.json`, `../index.html` and `../404.html`
+are the manifest, front page and error page; they are **hand-written, not
+generated** -- they belong to the site
 rather than to this series, and nothing regenerates them. `node
 build/docs_check.mjs ..` checks their links and structure. Adding a page here
 means adding a card to `../index.html` by hand.
@@ -59,6 +61,7 @@ Run what the change touches; run all of them before publishing.
     node verify_aws.mjs               # the Go/Python switch covers every pair
     node site_check.mjs ..            # the built site: links, passes, structure
     node offline_check.mjs ../..      # every page loads with the network blocked
+    node manifest_check.mjs ../..     # the manifest, served over HTTP as a browser sees it
     node print_ink.mjs                # print colours survive Chrome's pipeline
     node print_pdf.mjs && python3 print_check.py 'pdf/*.pdf'
 
@@ -74,6 +77,11 @@ document.
   Google Fonts -- that is the only host their CSP allows and they have nowhere
   to put a file -- so `site_build.mjs` swaps that link when it builds the site,
   and fails if the link it expects is not there.
+- **There is no service worker.** The site needs no network *once you have the
+  files*, but a browser that visited it and then went offline has no guarantee.
+  The manifest is installable except for that: Chrome will not offer to install
+  without a registered service worker with a fetch handler. Adding one is the
+  remaining piece.
 - **Adding a glyph can mean adding a font subset.** `fonts_local.mjs` keeps only
   the subsets the pages' rendered text uses, counted from the DOM (the pages are
   written with entities, and some glyphs exist only as CSS content). Re-run it

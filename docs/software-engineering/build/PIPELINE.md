@@ -62,6 +62,8 @@ artifact CSP is untouched and the reader downloads no extra JavaScript.
 | --- | --- |
 | `site_build.mjs` | Wraps the fragments as standalone HTML and rewrites cross-links |
 | `site_check.mjs` | Loads every built page and checks structure, links and the passes |
+| `icons_build.mjs` | Draws the app icon and renders it at the sizes a manifest needs |
+| `manifest_check.mjs` | Serves the site and checks the manifest as a browser would |
 | `offline_check.mjs` | Asserts every page loads with all network access blocked |
 | `pipeline_check.sh` | Asserts the three passes compose to a fixed point |
 | `manifest.txt` | The files this directory needs; the rest of the working tree is scratch |
@@ -173,5 +175,26 @@ the Google link, since that is the only host their CSP allows.
 
     node fonts_local.mjs ../..        # refresh docs/fonts/ from upstream
     node offline_check.mjs ../..      # every page loads with the network blocked
+
+### Installing
+
+`docs/manifest.json` makes the site installable, and `icons_build.mjs` draws the
+icon it points at -- a ladder whose three rungs are the series' three levels, in
+plain SVG shapes so it does not depend on a font or an emoji set being present.
+It is rendered at 192 and 512 for the manifest, full-bleed at 512 for Android's
+maskable slot, and at 180 for iOS, which ignores manifest icons for the home
+screen.
+
+Named `.json`, not `.webmanifest`: GitHub Pages' MIME mapping for the latter is
+not something to rely on, and `application/json` is accepted everywhere.
+
+The manifest's `theme_color` is only a fallback -- each page carries a pair of
+`<meta name="theme-color">` tags so the browser UI follows the system theme the
+way the page does.
+
+**There is no service worker yet**, so Chrome will not offer to install the site:
+it requires one with a fetch handler. Everything else on the checklist passes.
+
+    node manifest_check.mjs ../..     # served over HTTP, as a browser sees it
 
     node site_check.mjs ..    # loads every built page: structure, links, passes

@@ -1,0 +1,46 @@
+{
+  "name": "Study notes — backend engineering",
+  "short_name": "Study notes",
+  "description": "Long-form notes on backend engineering: systems foundations, Go, the cloud, Python, Java and AWS. Mechanisms drawn, then the code that shows them.",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F2F5F7",
+  "theme_color": "#F2F5F7",
+  "categories": ["education", "books", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    {
+      "name": "The Machine Room",
+      "short_name": "Foundations",
+      "description": "Latency, concurrency, caching, storage, failure and capacity",
+      "url": "software-engineering/foundations.html"
+    },
+    {
+      "name": "Reading Go",
+      "short_name": "Go",
+      "description": "Slices, escape analysis, context and the timeouts a server is missing",
+      "url": "software-engineering/go.html"
+    },
+    {
+      "name": "From Account to Pod",
+      "short_name": "Cloud",
+      "description": "Every hop between a hostname and your handler running",
+      "url": "software-engineering/cloud.html"
+    },
+    {
+      "name": "AWS, Service by Service",
+      "short_name": "AWS",
+      "description": "What each service does when your code calls it, in Go and Python",
+      "url": "software-engineering/aws.html"
+    }
+  ]
+}
