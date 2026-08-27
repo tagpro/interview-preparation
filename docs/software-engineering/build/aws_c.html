@@ -1,0 +1,700 @@
+<section class="part" id="nosql">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part three</span>
+      <h2>Key-value, objects and cache</h2>
+      <p>DynamoDB and S3 are the two services that will still be under your architecture in ten years, and both punish the same mistake: designing for the data you have rather than the access pattern you will run against it a million times a day.</p>
+    </div>
+
+    <section class="topic" id="dynamodb">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>DynamoDB: the partition key is the design</h3>
+        <p class="lede">Every DynamoDB property &mdash; the latency, the throughput ceiling, the queries you can and cannot run, the bill &mdash; follows from one decision: what you hash to choose a partition. Change your mind later and it is a migration, not an <code>ALTER TABLE</code>.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 400" role="img" aria-label="A DynamoDB table: the partition key hashed to choose one of several partitions each with a fixed throughput ceiling, a hot partition receiving most of the traffic, the sort key ordering items within a partition, and a global secondary index maintained asynchronously with its own capacity.">
+          <defs>
+            <marker id="aw-07" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE WRITE, FROM KEY TO PARTITION</text>
+
+          <rect x="20" y="32" width="150" height="46" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="30" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">PutItem</text>
+          <text x="30" y="68" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">pk = TENANT#42</text>
+
+          <g class="svg-l2">
+            <rect x="210" y="32" width="130" height="46" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="220" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">hash(pk)</text>
+            <text x="220" y="68" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">no choice, no skew fix</text>
+            <line x1="174" y1="55" x2="206" y2="55" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-07)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="392" y="24" width="118" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="402" y="43" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">partition A &middot; 8%</text>
+            <rect x="392" y="60" width="118" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="402" y="79" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">partition B &middot; 7%</text>
+            <rect x="392" y="132" width="118" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="402" y="151" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">partition D &middot; 6%</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="392" y="96" width="118" height="30" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="402" y="115" font-family="IBM Plex Mono, monospace" font-size="8.5" font-weight="600" fill="currentColor">partition C &middot; 79%</text>
+            <line x1="344" y1="60" x2="388" y2="106" stroke="currentColor" stroke-width="1.4" marker-end="url(#aw-07)"/>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="540" y="88" width="340" height="46" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="552" y="107" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">CEILING PER PARTITION: 3,000 RCU / 1,000 WCU</text>
+            <text x="552" y="124" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Table capacity is irrelevant once one key is hot.</text>
+            <line x1="514" y1="111" x2="536" y2="111" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-07)"/>
+          </g>
+
+          <text x="540" y="44" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Adaptive capacity moves throughput towards a busy</text>
+          <text x="540" y="60" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">partition and isolates hot items &mdash; but it cannot split</text>
+          <text x="540" y="76" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">a single key. Shard it yourself: TENANT#42#&lt;0-9&gt;.</text>
+
+          <line x1="20" y1="186" x2="880" y2="186" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="208" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Inside a partition, and beside the table</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="224" width="404" height="150" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="244" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">SORT KEY &mdash; THE ONLY ORDERING YOU GET</text>
+            <rect x="32" y="256" width="380" height="24" fill="none" stroke="currentColor" stroke-width="1"/>
+            <text x="42" y="272" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">pk=ORDER#9001 &nbsp; sk=META &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; status, total</text>
+            <rect x="32" y="284" width="380" height="24" fill="none" stroke="currentColor" stroke-width="1"/>
+            <text x="42" y="300" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">pk=ORDER#9001 &nbsp; sk=ITEM#001 &nbsp;&nbsp; sku, qty</text>
+            <rect x="32" y="312" width="380" height="24" fill="none" stroke="currentColor" stroke-width="1"/>
+            <text x="42" y="328" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">pk=ORDER#9001 &nbsp; sk=EVENT#2026-08-25 &nbsp; shipped</text>
+            <text x="32" y="356" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">One Query, begins_with(sk, &ldquo;ITEM#&rdquo;), returns the whole</text>
+            <text x="32" y="370" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">order in one round trip. That is single-table design.</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="452" y="224" width="428" height="150" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="464" y="244" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">GLOBAL SECONDARY INDEX &mdash; A SECOND TABLE</text>
+            <text x="464" y="264" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Its own partition key, its own capacity, its own</text>
+            <text x="464" y="280" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">partitions. Updated asynchronously, so reads from it</text>
+            <text x="464" y="296" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">are eventually consistent &mdash; always.</text>
+            <text x="464" y="322" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Every base write that touches a projected attribute</text>
+            <text x="464" y="338" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">writes here too. Project KEYS_ONLY unless you have</text>
+            <text x="464" y="354" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">measured the extra fetch, and remember: a throttled</text>
+            <text x="464" y="370" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">GSI throttles writes to the base table.</text>
+          </g>
+        </svg>
+        <figcaption><b>&ldquo;It scales infinitely&rdquo; is true of the table and false of any single key.</b> Tenant identifiers, dates, status flags and country codes all look like reasonable partition keys and all produce the picture above. If a key must be hot, add a suffix you control &mdash; then fan the read across the suffixes, paying a few extra reads to buy unlimited writes.</figcaption>
+      </figure>
+
+      <div class="svc">
+        <div><span class="h">Capacity units</span><span class="b">1 WCU = one 1&nbsp;KB write. 1 RCU = one 4&nbsp;KB strongly consistent read, or two eventually consistent. Transactions cost double, both ways.</span></div>
+        <div><span class="h">Hard limits</span><span class="b">Item 400&nbsp;KB. Query or Scan page 1&nbsp;MB <b>before</b> your filter runs. BatchWriteItem 25 items, TransactWriteItems 100.</span></div>
+        <div><span class="h">On-demand</span><span class="b">Pay per request, no planning, instant doubling of the previous peak. Roughly 3&ndash;4&times; the unit price of provisioned since the 2024 price cut &mdash; and worth it below about 30% steady utilisation.</span></div>
+        <div><span class="h">Streams</span><span class="b">A 24-hour ordered log per partition key, with old and new images. The hook for search indexing, audit trails and outbox delivery.</span></div>
+      </div>
+
+      <h4>Write like the retry is guaranteed</h4>
+      <p>Two idioms cover most correctness problems: a condition expression that makes a create idempotent, and a version attribute that makes an update safe against concurrent writers. Both are free &mdash; a failed condition costs capacity but never corrupts.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// Optimistic locking: succeed only if the item is still at the version we read.</span>
+<span class="c">// A lost race returns ConditionalCheckFailed, which is a normal outcome here.</span>
+upd := expression.Set(expression.Name("status"), expression.Value("shipped")).
+    Set(expression.Name("version"), expression.Value(cur.Version+1)).
+    Set(expression.Name("updated_at"), expression.Value(time.Now().UTC().Format(time.RFC3339)))
+
+cond := expression.Name("version").Equal(expression.Value(cur.Version))
+
+expr, err := expression.NewBuilder().WithUpdate(upd).WithCondition(cond).Build()
+if err != nil {
+    return err
+}
+
+_, err = app.ddb.UpdateItem(ctx, &amp;dynamodb.UpdateItemInput{
+    TableName: aws.String("orders"),
+    Key: map[string]types.AttributeValue{
+        "pk": &amp;types.AttributeValueMemberS{Value: "ORDER#" + id},
+        "sk": &amp;types.AttributeValueMemberS{Value: "META"},
+    },
+    UpdateExpression:          expr.Update(),
+    ConditionExpression:       expr.Condition(),
+    ExpressionAttributeNames:  expr.Names(),      <span class="c">// handles reserved words for you</span>
+    ExpressionAttributeValues: expr.Values(),
+    ReturnValues:              types.ReturnValueAllNew,
+})
+
+var stale *types.ConditionalCheckFailedException
+if errors.As(err, &amp;stale) {
+    return ErrConcurrentUpdate                     <span class="c">// re-read and decide, do not blind-retry</span>
+}
+
+<span class="c">// Idempotent create: the same request twice leaves one item and no error.</span>
+_, err = app.ddb.PutItem(ctx, &amp;dynamodb.PutItemInput{
+    TableName:           aws.String("orders"),
+    Item:                item,
+    ConditionExpression: aws.String("attribute_not_exists(pk)"),
+})</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># Optimistic locking: succeed only if the item is still at the version we read.</span>
+<span class="c"># A lost race raises ConditionalCheckFailed, which is a normal outcome here.</span>
+try:
+    DDB.update_item(
+        TableName="orders",
+        Key={"pk": {"S": f"ORDER#{order_id}"}, "sk": {"S": "META"}},
+        UpdateExpression=(
+            "SET #s = :new, version = :next, updated_at = :now"
+        ),
+        ConditionExpression="version = :cur",
+        <span class="c"># "status" is a reserved word — every table hits this eventually</span>
+        ExpressionAttributeNames={"#s": "status"},
+        ExpressionAttributeValues={
+            ":new": {"S": "shipped"},
+            ":cur": {"N": str(current_version)},
+            ":next": {"N": str(current_version + 1)},
+            ":now": {"S": datetime.now(timezone.utc).isoformat()},
+        },
+        ReturnValues="ALL_NEW",
+    )
+except DDB.exceptions.ConditionalCheckFailedException:
+    raise ConcurrentUpdate      <span class="c"># re-read and decide; do not blind-retry</span>
+
+<span class="c"># Idempotent create: the same request twice leaves one item and no error.</span>
+try:
+    DDB.put_item(
+        TableName="orders", Item=item,
+        ConditionExpression="attribute_not_exists(pk)",
+    )
+except DDB.exceptions.ConditionalCheckFailedException:
+    pass                        <span class="c"># already created — that is success</span></pre>
+
+      <h4>Read the page, not the table</h4>
+      <p>A <code>Query</code> stops at 1&nbsp;MB of <i>scanned</i> data and hands back a cursor. A <code>FilterExpression</code> runs after that limit, so filtering never saves you capacity &mdash; it only saves you bandwidth. And a batch write is not a transaction: it can partially succeed, and the items it refused come back for you to send again.</p>
+
+<pre class="l1" data-lang="go"><span class="c">// Paginated query over one partition, newest first, only the fields we need.</span>
+kc := expression.Key("pk").Equal(expression.Value("ORDER#"+id)).
+    And(expression.Key("sk").BeginsWith("EVENT#"))
+expr, _ := expression.NewBuilder().
+    WithKeyCondition(kc).
+    WithProjection(expression.NamesList(
+        expression.Name("sk"), expression.Name("kind"))).
+    Build()
+
+p := dynamodb.NewQueryPaginator(app.ddb, &amp;dynamodb.QueryInput{
+    TableName:                 aws.String("orders"),
+    KeyConditionExpression:    expr.KeyCondition(),
+    ProjectionExpression:      expr.Projection(),
+    ExpressionAttributeNames:  expr.Names(),
+    ExpressionAttributeValues: expr.Values(),
+    ScanIndexForward:          aws.Bool(false),      <span class="c">// descending by sort key</span>
+    Limit:                     aws.Int32(100),       <span class="c">// items per page, not a total</span>
+})
+for p.HasMorePages() {
+    page, err := p.NextPage(ctx)
+    if err != nil {
+        return err
+    }
+    <span class="c">// An empty page with a cursor is normal: 1 MB scanned, nothing matched.</span>
+    var events []Event
+    if err := attributevalue.UnmarshalListOfMaps(page.Items, &amp;events); err != nil {
+        return err
+    }
+    out = append(out, events...)
+}
+
+<span class="c">// BatchWriteItem is NOT atomic. Unprocessed items are the normal case under</span>
+<span class="c">// load, and dropping them silently loses data.</span>
+req := map[string][]types.WriteRequest{"orders": writes}
+for attempt := 0; len(req) &gt; 0 &amp;&amp; attempt &lt; 5; attempt++ {
+    out, err := app.ddb.BatchWriteItem(ctx, &amp;dynamodb.BatchWriteItemInput{
+        RequestItems: req,
+    })
+    if err != nil {
+        return err
+    }
+    req = out.UnprocessedItems
+    if len(req) &gt; 0 {
+        time.Sleep(time.Duration(1&lt;&lt;attempt) * 50 * time.Millisecond)   <span class="c">// back off</span>
+    }
+}
+if len(req) &gt; 0 {
+    return fmt.Errorf("gave up with %d unwritten items", len(req))
+}</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># Paginated query over one partition, newest first, only the fields we need.</span>
+pages = DDB.get_paginator("query").paginate(
+    TableName="orders",
+    KeyConditionExpression="pk = :pk AND begins_with(sk, :prefix)",
+    ExpressionAttributeValues={
+        ":pk": {"S": f"ORDER#{order_id}"},
+        ":prefix": {"S": "EVENT#"},
+    },
+    ProjectionExpression="sk, kind",
+    ScanIndexForward=False,                <span class="c"># descending by sort key</span>
+    PaginationConfig={"PageSize": 100},    <span class="c"># items per request, not a total</span>
+)
+events = []
+for page in pages:
+    <span class="c"># An empty page with a cursor is normal: 1 MB scanned, nothing matched.</span>
+    events.extend(page.get("Items", []))
+
+<span class="c"># BatchWriteItem is NOT atomic. Unprocessed items are the normal case under</span>
+<span class="c"># load, and dropping them silently loses data.</span>
+pending = {"orders": writes}
+for attempt in range(5):
+    res = DDB.batch_write_item(RequestItems=pending)
+    pending = res.get("UnprocessedItems") or {}
+    if not pending:
+        break
+    time.sleep(0.05 * 2 ** attempt)        <span class="c"># back off before resending</span>
+else:
+    raise IncompleteWrite(f"{len(pending.get('orders', []))} items unwritten")</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>You want</th><th>Use</th><th>Not</th><th>Because</th></tr></thead>
+          <tbody>
+            <tr><td>All rows for one entity</td><td><code>Query</code> on the partition key</td><td><code>Scan</code> with a filter</td><td>Scan reads every partition and bills you for all of it, then throws most of it away.</td></tr>
+            <tr><td>A second access pattern</td><td>A GSI, or a second item type in the same partition</td><td>A second table kept in sync by your code</td><td>The index is maintained transactionally with the write. Your synchroniser is not, and will drift.</td></tr>
+            <tr><td>Two items to change together</td><td><code>TransactWriteItems</code></td><td>Two <code>PutItem</code> calls</td><td>All-or-nothing across up to 100 items, at 2&times; the capacity. Cheaper than a reconciliation job.</td></tr>
+            <tr><td>Strong consistency</td><td>A base-table read with <code>ConsistentRead</code></td><td>A GSI read</td><td>GSIs are <b>never</b> strongly consistent, whatever the parameter you pass.</td></tr>
+            <tr><td>To delete old data</td><td>TTL attribute, epoch seconds</td><td>A scheduled delete job</td><td>TTL is free and does not consume write capacity. It deletes within about 48 hours &mdash; it is a cleanup, not a deadline.</td></tr>
+            <tr><td>Sub-millisecond reads</td><td>DAX, or a read-through cache</td><td>Provisioning more RCU</td><td>DynamoDB is single-digit milliseconds by design. Capacity buys throughput, never latency.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <h4>The three metrics to alarm on</h4>
+        <p><code>ThrottledRequests</code> and the per-operation <code>*Throttle*</code> counters catch capacity problems. <code>SuccessfulRequestLatency</code> catches item-size and index problems. And <code>ConsumedWriteCapacityUnits</code> on each <b>GSI</b> compared with the base table catches the projection you over-specified &mdash; usually the difference between a reasonable bill and a strange one.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="s3">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>S3: a flat namespace with strong opinions</h3>
+        <p class="lede">There are no directories, no rename, and no partial update: an object is written whole or not at all. Everything S3 gives you &mdash; versioning, lifecycle, presigned access, event notification &mdash; is built on that immutability.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 392" role="img" aria-label="An S3 object&rsquo;s life: a multipart upload assembling parts, versioning creating new versions and delete markers, lifecycle rules transitioning storage classes over time and aborting incomplete uploads, and event notifications fanning out to a queue.">
+          <defs>
+            <marker id="aw-08" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE KEY, OVER TIME &mdash; s3://orders-archive/2026/08/9001.json</text>
+
+          <line x1="30" y1="120" x2="870" y2="120" stroke="currentColor" stroke-width="1.2"/>
+
+          <g class="svg-l2">
+            <rect x="30" y="40" width="152" height="60" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="40" y="60" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">MULTIPART</text>
+            <text x="40" y="77" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">parts &ge; 5 MiB, in</text>
+            <text x="40" y="92" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">parallel, retried alone</text>
+            <line x1="106" y1="104" x2="106" y2="116" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-08)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="212" y="132" width="152" height="60" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="222" y="152" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">VERSION v1</text>
+            <text x="222" y="169" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">STANDARD &middot; readable</text>
+            <text x="222" y="184" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">immediately, always</text>
+            <line x1="288" y1="124" x2="288" y2="128" stroke="currentColor" stroke-width="1.2"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="394" y="132" width="152" height="60" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="404" y="152" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">VERSION v2</text>
+            <text x="404" y="169" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">a PUT never edits &mdash;</text>
+            <text x="404" y="184" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">it adds</text>
+            <line x1="470" y1="124" x2="470" y2="128" stroke="currentColor" stroke-width="1.2"/>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="576" y="132" width="152" height="60" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="586" y="152" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">DELETE MARKER</text>
+            <text x="586" y="169" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">GET now 404s, but</text>
+            <text x="586" y="184" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">you still pay for v1, v2</text>
+            <line x1="652" y1="124" x2="652" y2="128" stroke="currentColor" stroke-width="1.2"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="758" y="40" width="122" height="60" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="768" y="60" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">EVENT</text>
+            <text x="768" y="77" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">to SQS, at least</text>
+            <text x="768" y="92" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">once, unordered</text>
+            <line x1="819" y1="116" x2="819" y2="104" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-08)"/>
+          </g>
+
+          <text x="30" y="218" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">Lifecycle is the only thing that ever removes data. Nothing above expires on its own.</text>
+
+          <line x1="20" y1="238" x2="880" y2="238" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="260" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">The four lifecycle rules every bucket should have</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="276" width="208" height="98" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="296" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">ABORT INCOMPLETE</text>
+            <text x="32" y="314" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Failed multipart uploads</text>
+            <text x="32" y="330" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">are invisible in a listing</text>
+            <text x="32" y="346" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">and billed forever. Seven</text>
+            <text x="32" y="362" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">days. Free money.</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="240" y="276" width="208" height="98" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="252" y="296" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">EXPIRE OLD VERSIONS</text>
+            <text x="252" y="314" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Versioning without this</text>
+            <text x="252" y="330" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">rule is a bucket that only</text>
+            <text x="252" y="346" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">grows. Keep 30&ndash;90 days</text>
+            <text x="252" y="362" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">of noncurrent versions.</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="460" y="276" width="208" height="98" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="472" y="296" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">TRANSITION</text>
+            <text x="472" y="314" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Standard &rarr; IA at 30 days,</text>
+            <text x="472" y="330" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Glacier later &mdash; but only</text>
+            <text x="472" y="346" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">for objects big enough</text>
+            <text x="472" y="362" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">to beat the per-object fee.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="680" y="276" width="200" height="98" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="692" y="296" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">OR: INTELLIGENT-TIERING</text>
+            <text x="692" y="314" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">A small monitoring fee</text>
+            <text x="692" y="330" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">per object, and no</text>
+            <text x="692" y="346" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">retrieval charges or</text>
+            <text x="692" y="362" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">minimum durations.</text>
+          </g>
+        </svg>
+        <figcaption><b>The abort rule is the most commonly missing configuration in AWS.</b> A client that dies halfway through a large upload leaves parts that no <code>ListObjects</code> will ever show you, and they are charged at full Standard rates indefinitely. One lifecycle rule, seven days, every bucket, no exceptions.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Concept</th><th>What is actually true</th></tr></thead>
+          <tbody>
+            <tr><td>Consistency</td><td>Strong read-after-write for PUT, DELETE and LIST, in all regions, with no performance penalty. The old &ldquo;eventually consistent, add a retry&rdquo; advice is obsolete.</td></tr>
+            <tr><td>Prefixes</td><td>Not folders &mdash; just key strings. Rate limits scale <i>per prefix</i>: 3,500 writes and 5,500 reads per second, automatically partitioned. Randomised key prefixes are no longer necessary, but a single hot prefix still throttles.</td></tr>
+            <tr><td>Conditional writes</td><td><code>If-None-Match: *</code> makes a PUT fail if the key exists &mdash; a real compare-and-swap, and the basis for a leader lock or a write-once ledger. <code>If-Match</code> on an ETag gives you optimistic concurrency.</td></tr>
+            <tr><td>ETags</td><td>An MD5 for a single-part upload; for multipart it is a hash of hashes with a <code>-N</code> suffix. Never use it as a content checksum &mdash; ask for a CRC32C instead.</td></tr>
+            <tr><td>Encryption</td><td>SSE-S3 is on by default for every new object. SSE-KMS adds an audited, revocable key &mdash; enable <b>bucket keys</b> with it, or a busy prefix will generate a KMS call per object and a surprising KMS bill.</td></tr>
+            <tr><td>Public access</td><td>Block Public Access is on by default for every new bucket, and ACLs are disabled &mdash; but the account-level setting is still yours to switch on. If you need public reads, put CloudFront in front with an origin access control instead of opening the bucket.</td></tr>
+            <tr><td>Express One Zone</td><td>Single-AZ, directory buckets, several times the storage price but cheaper requests, and roughly a tenth of the latency. For shuffle and scratch data, not for anything you need to survive an AZ.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Presign the upload, and never proxy the bytes</h4>
+      <p>The default architecture for user uploads is wrong: bytes flow through your service, consuming memory, request time and NAT charges. A presigned URL moves them directly to S3 with a signature that constrains the method, the key and the expiry &mdash; and the conditional PUT below makes the write idempotent as well.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// A presigned PUT: the browser uploads straight to S3, we never see the bytes.</span>
+ps := s3.NewPresignClient(app.s3)
+
+req, err := ps.PresignPutObject(ctx, &amp;s3.PutObjectInput{
+    Bucket:      aws.String("orders-uploads"),
+    Key:         aws.String("tenant/" + tenantID + "/" + uuid.NewString()),
+    ContentType: aws.String("application/pdf"),
+    <span class="c">// Signed headers are constraints: a client that sends a different</span>
+    <span class="c">// content type or length gets a 403, not a surprise object. Note that</span>
+    <span class="c">// this pins an EXACT length; a MAXIMUM needs a presigned POST, below.</span>
+    ContentLength:        aws.Int64(size),
+    ServerSideEncryption: types.ServerSideEncryptionAwsKms,
+    SSEKMSKeyId:          aws.String(kmsKeyARN),
+}, s3.WithPresignExpires(10*time.Minute))       <span class="c">// bounded by the caller&rsquo;s own session</span>
+if err != nil {
+    return err
+}
+return json.NewEncoder(w).Encode(map[string]string{"url": req.URL})
+
+<span class="c">// Write-once semantics without a lock: If-None-Match fails if the key exists,</span>
+<span class="c">// so two workers racing to produce the same artefact cannot overwrite it.</span>
+_, err = app.s3.PutObject(ctx, &amp;s3.PutObjectInput{
+    Bucket:      aws.String("orders-archive"),
+    Key:         aws.String(key),
+    Body:        bytes.NewReader(payload),
+    IfNoneMatch: aws.String("*"),
+    ChecksumAlgorithm: types.ChecksumAlgorithmCrc32c,   <span class="c">// verified end to end</span>
+})
+<span class="c">// S3 does not model 412 as a typed error in the Go SDK, so match the code.</span>
+var api smithy.APIError
+if errors.As(err, &amp;api) &amp;&amp; api.ErrorCode() == "PreconditionFailed" {
+    return ErrAlreadyWritten        <span class="c">// somebody else got there; that is fine</span>
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># A presigned PUT: the browser uploads straight to S3, we never see the bytes.</span>
+url = S3.generate_presigned_url(
+    "put_object",
+    Params={
+        "Bucket": "orders-uploads",
+        "Key": f"tenant/{tenant_id}/{uuid4()}",
+        "ContentType": "application/pdf",
+        <span class="c"># Signed parameters are constraints: a client that sends a different</span>
+        <span class="c"># content type gets a 403, not a surprise object.</span>
+        "ServerSideEncryption": "aws:kms",
+        "SSEKMSKeyId": KMS_KEY_ARN,
+    },
+    ExpiresIn=600,           <span class="c"># bounded by the caller&rsquo;s own session length</span>
+)
+
+<span class="c"># For browser form uploads, presigned POST is better: it can enforce a</span>
+<span class="c"># maximum size, which a presigned PUT cannot.</span>
+post = S3.generate_presigned_post(
+    Bucket="orders-uploads", Key=f"tenant/{tenant_id}/${{filename}}",
+    Conditions=[["content-length-range", 1, 20 * 1024 * 1024],
+                {"Content-Type": "application/pdf"}],
+    ExpiresIn=600,
+)
+
+<span class="c"># Write-once semantics without a lock: If-None-Match fails if the key exists,</span>
+<span class="c"># so two workers racing to produce the same artefact cannot overwrite it.</span>
+try:
+    S3.put_object(
+        Bucket="orders-archive", Key=key, Body=payload,
+        IfNoneMatch="*",
+        ChecksumAlgorithm="CRC32C",      <span class="c"># verified end to end</span>
+    )
+except ClientError as e:
+    if e.response["Error"]["Code"] != "PreconditionFailed":
+        raise
+    <span class="c"># somebody else got there; that is fine</span></pre>
+
+      <h4>Big objects: let the transfer manager do it</h4>
+
+<pre class="l1" data-lang="go"><span class="c">// The uploader splits, parallelises and retries individual parts. It also</span>
+<span class="c">// aborts the multipart upload on failure — the one thing hand-rolled code</span>
+<span class="c">// forgets, and the reason the abort lifecycle rule exists.</span>
+up := manager.NewUploader(app.s3, func(u *manager.Uploader) {
+    u.PartSize = 16 * 1024 * 1024      <span class="c">// 16 MiB parts; minimum is 5 MiB</span>
+    u.Concurrency = 8
+})
+_, err := up.Upload(ctx, &amp;s3.PutObjectInput{
+    Bucket:       aws.String("orders-archive"),
+    Key:          aws.String(key),
+    Body:         file,                <span class="c">// any io.Reader — no need to know the size</span>
+    StorageClass: types.StorageClassIntelligentTiering,
+})
+
+<span class="c">// Downloading a slice of a large object beats downloading all of it:</span>
+<span class="c">// a range GET is billed on bytes transferred, not on object size.</span>
+obj, err := app.s3.GetObject(ctx, &amp;s3.GetObjectInput{
+    Bucket: aws.String("orders-archive"),
+    Key:    aws.String(key),
+    Range:  aws.String("bytes=0-8191"),      <span class="c">// just the header of the file</span>
+})</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># upload_fileobj splits, parallelises and retries individual parts. It also</span>
+<span class="c"># aborts the multipart upload on failure — the one thing hand-rolled code</span>
+<span class="c"># forgets, and the reason the abort lifecycle rule exists.</span>
+from boto3.s3.transfer import TransferConfig
+
+TRANSFER = TransferConfig(
+    multipart_threshold=16 * 1024 * 1024,   <span class="c"># switch to multipart above this</span>
+    multipart_chunksize=16 * 1024 * 1024,   <span class="c"># minimum part size is 5 MiB</span>
+    max_concurrency=8,
+    use_threads=True,
+)
+
+with open(path, "rb") as fh:
+    S3.upload_fileobj(
+        fh, "orders-archive", key,
+        ExtraArgs={"StorageClass": "INTELLIGENT_TIERING"},
+        Config=TRANSFER,
+    )
+
+<span class="c"># Downloading a slice of a large object beats downloading all of it:</span>
+<span class="c"># a range GET is billed on bytes transferred, not on object size.</span>
+head = S3.get_object(
+    Bucket="orders-archive", Key=key, Range="bytes=0-8191"
+)["Body"].read()                            <span class="c"># just the header of the file</span></pre>
+
+      <div class="pair">
+        <div class="note">
+          <h4>Events are at-least-once and unordered</h4>
+          <p>An S3 notification can arrive twice and out of order, and a rapid overwrite can deliver the second event first. Carry the <code>versionId</code> in the event and fetch <i>that</i> version, or make the handler idempotent on the key. Routing events through EventBridge instead gives you filtering, replay and multiple consumers for the same cost.</p>
+        </div>
+        <div class="note warn">
+          <h4>Requests are not free</h4>
+          <p>Roughly $0.0004 per thousand GETs sounds like nothing until a job lists a million-key prefix in a loop. On a bucket of small objects, request charges and per-object overheads regularly exceed storage. Aggregate small files before you archive them.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="topic" id="cache">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>ElastiCache: a cache is a load-bearing dependency</h3>
+        <p class="lede">Adding a cache changes your failure modes as much as your latency. The two questions that matter are what happens on a miss storm, and what happens when the cache itself is gone.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 356" role="img" aria-label="Cache-aside flow with a single-flight lock preventing a stampede on expiry, contrasted with an unprotected cache where many concurrent misses all hit the database, plus the ElastiCache cluster topology of shards and replicas.">
+          <defs>
+            <marker id="aw-09" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE POPULAR KEY EXPIRES, 500 REQUESTS IN FLIGHT</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="34" width="418" height="126" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">WITHOUT PROTECTION</text>
+            <rect x="32" y="66" width="110" height="34" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="42" y="87" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">500 misses</text>
+            <rect x="180" y="66" width="110" height="34" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="190" y="87" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">500 queries</text>
+            <line x1="146" y1="83" x2="176" y2="83" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-09)"/>
+            <rect x="328" y="66" width="98" height="34" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="338" y="87" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">pool empty</text>
+            <line x1="294" y1="83" x2="324" y2="83" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-09)"/>
+            <text x="32" y="122" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The database was fine a second ago. Now every request</text>
+            <text x="32" y="138" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">in the fleet is queued behind the same missing key, and</text>
+            <text x="32" y="152" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the cache filling up does not drain the queue.</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="462" y="34" width="418" height="126" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="474" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">WITH SINGLE FLIGHT</text>
+            <rect x="474" y="66" width="110" height="34" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="484" y="87" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">500 misses</text>
+            <rect x="622" y="66" width="110" height="34" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="632" y="87" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">1 query</text>
+            <line x1="588" y1="83" x2="618" y2="83" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-09)"/>
+            <rect x="770" y="66" width="98" height="34" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="780" y="87" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">499 wait</text>
+            <line x1="736" y1="83" x2="766" y2="83" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-09)"/>
+            <text x="474" y="122" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">One caller per key does the work; the rest wait on its</text>
+            <text x="474" y="138" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">result. Add jitter to the TTL so a batch written together</text>
+            <text x="474" y="152" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">does not expire together.</text>
+          </g>
+
+          <line x1="20" y1="188" x2="880" y2="188" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="210" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">What you are actually buying</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="226" width="272" height="112" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="246" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">CLUSTER MODE DISABLED</text>
+            <text x="32" y="266" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">One shard: a primary plus up to</text>
+            <text x="32" y="282" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">five replicas. Simple clients work.</text>
+            <text x="32" y="304" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Ceiling is one node&rsquo;s memory and</text>
+            <text x="32" y="320" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">one core for the main thread.</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="314" y="226" width="272" height="112" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="326" y="246" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">CLUSTER MODE ENABLED</text>
+            <text x="326" y="266" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Keys hashed into 16,384 slots</text>
+            <text x="326" y="282" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">across shards. Scales sideways.</text>
+            <text x="326" y="304" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Your client must follow MOVED,</text>
+            <text x="326" y="320" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">and multi-key ops need hash tags.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="608" y="226" width="272" height="112" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="620" y="246" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">THE METRICS THAT MATTER</text>
+            <text x="620" y="266" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Evictions above zero means the</text>
+            <text x="620" y="282" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">cache is too small for its TTLs.</text>
+            <text x="620" y="304" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">EngineCPUUtilization, not CPU:</text>
+            <text x="620" y="320" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">one thread does the real work.</text>
+          </g>
+        </svg>
+        <figcaption><b>A cache that fails closed converts a cache outage into a total outage.</b> Every call into the cache needs a timeout in the tens of milliseconds and an error path that goes to the origin, and the origin needs enough capacity to survive that. If it does not, you no longer have a cache &mdash; you have a database with an availability multiplier attached.</figcaption>
+      </figure>
+
+<pre class="l2" data-lang="go"><span class="c">// Cache-aside with single flight and fail-open. golang.org/x/sync/singleflight</span>
+<span class="c">// collapses concurrent misses of the same key into one origin call.</span>
+type Cache struct {
+    rdb *redis.Client
+    sf  singleflight.Group
+}
+
+func (c *Cache) Order(ctx context.Context, id string) (*Order, error) {
+    key := "order:" + id
+
+    <span class="c">// A cache read gets a much tighter deadline than the request itself.</span>
+    rctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+    defer cancel()
+
+    if b, err := c.rdb.Get(rctx, key).Bytes(); err == nil {
+        var o Order
+        if json.Unmarshal(b, &amp;o) == nil {
+            return &amp;o, nil
+        }
+    } else if !errors.Is(err, redis.Nil) {
+        cacheErrors.Inc()          <span class="c">// FAIL OPEN: log it, fall through to origin</span>
+    }
+
+    v, err, _ := c.sf.Do(key, func() (any, error) {
+        o, err := loadFromDB(ctx, id)
+        if err != nil {
+            return nil, err
+        }
+        b, _ := json.Marshal(o)
+        <span class="c">// Jitter: 10 minutes +/- 10%, so a batch cached together does not</span>
+        <span class="c">// expire together and rebuild the stampede you just prevented.</span>
+        ttl := 10*time.Minute + time.Duration(rand.Int63n(int64(2*time.Minute))) - time.Minute
+        _ = c.rdb.Set(ctx, key, b, ttl).Err()
+        return o, nil
+    })
+    if err != nil {
+        return nil, err
+    }
+    return v.(*Order), nil
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># Cache-aside with single flight and fail-open. One asyncio task per key does</span>
+<span class="c"># the work; everyone else awaits the same future.</span>
+import asyncio, json, random
+
+_inflight: dict[str, asyncio.Future] = {}
+
+
+async def get_order(order_id: str) -&gt; Order:
+    key = f"order:{order_id}"
+
+    <span class="c"># A cache read gets a much tighter deadline than the request itself.</span>
+    try:
+        raw = await asyncio.wait_for(redis.get(key), timeout=0.05)
+        if raw is not None:
+            return Order(**json.loads(raw))
+    except (asyncio.TimeoutError, RedisError):
+        CACHE_ERRORS.inc()      <span class="c"># FAIL OPEN: count it, fall through to origin</span>
+
+    <span class="c"># Single flight: first caller creates the future, the rest await it.</span>
+    fut = _inflight.get(key)
+    if fut is not None:
+        return await asyncio.shield(fut)
+
+    fut = asyncio.get_running_loop().create_future()
+    _inflight[key] = fut
+    try:
+        order = await load_from_db(order_id)
+        <span class="c"># Jitter: 10 minutes +/- 10%, so a batch cached together does not</span>
+        <span class="c"># expire together and rebuild the stampede you just prevented.</span>
+        ttl = int(600 * random.uniform(0.9, 1.1))
+        await redis.set(key, json.dumps(order.dict()), ex=ttl)
+        fut.set_result(order)
+        return order
+    except Exception as exc:
+        fut.set_exception(exc)
+        raise
+    finally:
+        _inflight.pop(key, None)</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Decision</th><th>Guidance</th></tr></thead>
+          <tbody>
+            <tr><td>Engine</td><td>Valkey is the default now: same protocol, materially cheaper than the Redis OSS option, and Serverless removes node sizing entirely. Memcached only if you genuinely want nothing but a hash table with multiple threads.</td></tr>
+            <tr><td>Eviction policy</td><td>The ElastiCache default is <code>volatile-lru</code>, which only evicts keys that have a TTL &mdash; so a cache holding any TTL-less keys can fill and start rejecting writes. For a pure cache, set <code>allkeys-lru</code>.</td></tr>
+            <tr><td>What to cache</td><td>Expensive reads with a tolerable staleness, not everything. A cached row that must be correct will produce a bug you debug at the wrong layer.</td></tr>
+            <tr><td>Invalidation</td><td>Write-through on the same code path as the write, or delete-on-write and let the next reader repopulate. Never a background job that hopes to keep up.</td></tr>
+            <tr><td>Failover</td><td>Multi-AZ with automatic failover takes tens of seconds and returns errors during the switch. Client-side retries plus fail-open turn that into a latency bump.</td></tr>
+            <tr><td>DAX</td><td>Only for DynamoDB, and it caches by request shape: an item cache plus a query cache, write-through on the item side. Microseconds instead of milliseconds, at the price of another cluster to run.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</section>

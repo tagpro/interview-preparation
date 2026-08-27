@@ -1,0 +1,49 @@
+<style>
+/* ---------- Java-page additions: the stage chip and run boxes ---------- */
+.stage{
+  display:inline-flex;align-items:center;gap:9px;align-self:flex-start;
+  font-family:"IBM Plex Mono",monospace;font-size:0.7rem;font-weight:600;
+  letter-spacing:0.13em;text-transform:uppercase;
+  margin:2px 0 0;padding:5px 12px;border:1px solid var(--line);
+}
+.stage::before{content:"";width:8px;height:8px;background:currentColor}
+.stage.s1{color:var(--l1);background:var(--l1-wash)}
+.stage.s2{color:var(--l2);background:var(--l2-wash)}
+.stage.s3{color:var(--l3);background:var(--l3-wash)}
+.note.run{--lc:var(--l1)}
+.note.run h4{color:var(--l1)}
+.note.run h4::before{content:"\25B8\00a0"}
+.ladder-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid var(--line);background:var(--surface);margin-top:28px}
+.ladder-strip div{padding:16px 18px;border-right:1px solid var(--line)}
+.ladder-strip div:last-child{border-right:none}
+.ladder-strip .b{font-family:"IBM Plex Mono",monospace;font-size:0.68rem;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;display:block;margin-bottom:6px}
+.ladder-strip .s1x .b{color:var(--l1)}
+.ladder-strip .s2x .b{color:var(--l2)}
+.ladder-strip .s3x .b{color:var(--l3)}
+.ladder-strip p{margin:0;font-size:0.88rem;color:var(--ink-soft)}
+@media (max-width:720px){.ladder-strip{grid-template-columns:1fr}.ladder-strip div{border-right:none;border-bottom:1px solid var(--line)}}
+</style>
+
+<header class="hero">
+  <div class="shell">
+    <p class="crumb">Foundations &nbsp;&middot;&nbsp; a tutorial, beginner to advanced</p>
+    <h1>Java,<br>then Spring.</h1>
+    <p class="lede">Java is two things stacked: a language with a compiler that actually says no, and a runtime that has been tuned for twenty-five years. Spring Boot is what most of the industry runs on top of both. This page is a tutorial &mdash; every grey block is meant to be typed into a terminal and run, and the service you start building in part six is the one you take to a real database, real tests and a real container by part nine.</p>
+    <div class="numbers">
+      <div><span class="v">21 &middot; 25</span><span class="k">The LTS pair</span><span class="d">Java 21 is what production runs; 25 is the newest long-term-support release. Everything here targets 21.</span></div>
+      <div><span class="v">1 jar</span><span class="k">The whole service</span><span class="d">A Spring Boot jar carries its own web server. Deployment is <code>java -jar</code> &mdash; the app server died a decade ago.</span></div>
+      <div><span class="v">0 XML</span><span class="k">Configuration you will write</span><span class="d">Modern Spring is annotations, one YAML file, and a build file. The XML era is a museum piece.</span></div>
+    </div>
+
+    <div class="ladder-strip">
+      <div class="s1x"><span class="b">Parts 1&ndash;3 &middot; L1</span><p>The language: the JVM, objects and values, records, collections, interfaces, exceptions. Nothing but a JDK required.</p></div>
+      <div class="s2x"><span class="b">Parts 4&ndash;7 &middot; L2</span><p>The craft: streams, Maven, JUnit &mdash; then Spring Boot, a running REST service, configuration, and a real Postgres behind it.</p></div>
+      <div class="s3x"><span class="b">Parts 8&ndash;10 &middot; L3</span><p>The machine and production: threads and the JVM&rsquo;s memory, error contracts, HTTP clients, the test ladder, Docker, and the review lens.</p></div>
+    </div>
+
+    <div class="note run">
+      <h4>How to use this page</h4>
+      <p>Unlike its siblings, this page has one ladder instead of three columns per topic: part one is the ground floor and part ten is the roof, so read it in order and <strong>run everything</strong>. You need a terminal, Docker (from part seven), and about ten minutes for the setup in part one. Every command block starts with <code>$</code>; the grey <code>&larr;</code> lines show what success looks like.</p>
+    </div>
+  </div>
+</header>

@@ -1,0 +1,168 @@
+/* ---------- print ----------
+   These pages are read on a screen and kept as a reference, so they should
+   also survive Ctrl-P. Everything below only exists on paper.
+
+   Four things break a long screen document when it is printed: the palette (a
+   printer has no dark mode), the parts of the page that only work while
+   scrolling, overflow (a scroll bar is a clip on paper, so anything wider than
+   the page is simply lost), and layout that sized itself from the viewport. */
+@media print {
+
+  @page { margin: 14mm 13mm 16mm; }
+
+  /* --- 1. one palette, whatever the reader's theme --------------------------
+     Forced with !important because the dark tokens live behind
+     :root:not([data-theme="light"]), which outranks a plain :root. */
+  :root, :root[data-theme="dark"], :root[data-theme="light"] { /*TOKENS*/ }
+
+  html, body { background: #fff !important; }
+
+  /* --- 2. drop what only works while scrolling ---------------------------- */
+  .topbar,            /* sticky bar: progress, contents button, language switch */
+  .toc-backdrop,
+  .toc-foot,          /* "N of 28 sections" -- the reader's own scroll position */
+  #gloss              /* the abbreviation tooltip */
+  { display: none !important; }
+
+  .toc ol a.active { background: none; border-left-color: transparent; font-weight: 400; }
+  .toc ol a.active .n { color: var(--ink-faint); }
+  .toc ol a.done .n::after { content: none; }
+
+  /* --- 3. page geometry ---------------------------------------------------
+     Body becomes a flex column purely to reorder: the contents rail is last in
+     the DOM (it is a fixed side rail on screen) and belongs at the front of a
+     printed document, right after the title page. The bare `body > *` is the
+     default so that anything added later stays in document order instead of
+     sorting to the front on order 0. */
+  body {
+    display: flex; flex-direction: column;
+    margin: 0; padding: 0 !important;
+    font-size: 10pt; line-height: 1.5;
+  }
+  body > * { order: 3; }
+  .hero   { order: 1; }
+  .toc    { order: 2; }
+  .part   { order: 3; }
+  .footer { order: 4; }
+
+  .shell { max-width: none; padding: 0; }
+  .col { max-width: none; }
+  section[id], .part[id] { scroll-margin-top: 0; }
+
+  /* --- 4. front matter ---------------------------------------------------- */
+  .hero { padding: 0 0 16pt; break-after: page; }
+  .hero .lede { font-size: 11pt; max-width: none; margin-top: 14pt; }
+  .numbers { margin: 16pt 0 0; }
+
+  .toc {
+    position: static; width: auto; inset: auto; z-index: auto;
+    border: 0; padding: 0; overflow: visible; transform: none; box-shadow: none;
+    break-after: page;
+  }
+  .toc h2 {
+    font-family: "Bricolage Grotesque", sans-serif; font-size: 15pt; font-weight: 700;
+    letter-spacing: -0.015em; text-transform: none; color: var(--ink);
+    padding: 0; margin: 0 0 12pt;
+  }
+  .toc-group { break-inside: avoid; margin-bottom: 12pt; }
+  .toc-group > a { padding: 0 0 4pt; font-size: 7.5pt; }
+  .toc ol a { padding: 3pt 0; color: var(--ink); border-left: 0; font-size: 9.5pt; }
+  .toc-series { padding: 12pt 0 0; margin-top: 14pt; break-inside: avoid; }
+  .toc-series a { padding: 5pt 0; }
+
+  /* --- 5. typography for paper ------------------------------------------- */
+  h1 { font-size: 30pt; }
+  h2 { font-size: 19pt; }
+  h3 { font-size: 13.5pt; }
+  h4 { font-size: 10.5pt; }
+  h1, h2, h3, h4 { break-after: avoid; break-inside: avoid; }
+  p, li { orphans: 3; widows: 3; }
+  .kicker { font-size: 7.5pt; }
+  a { text-decoration: none; }
+
+  /* A link is dead on paper, so print where it went. Only links that leave the
+     page qualify -- the contents rail and the series list are already labelled. */
+  .deeper a[href^="http"]::after,
+  p a[href^="http"]::after,
+  .toc-series a[href^="http"]::after {
+    content: attr(href);
+    font-family: "IBM Plex Mono", monospace; font-size: 7pt;
+    color: var(--ink-faint); word-break: break-all;
+    text-transform: none; letter-spacing: 0;   /* a URL path is case-sensitive */
+  }
+  .toc-series a[href^="http"]::after { display: block; margin-top: 2pt; }
+  /* inline-flex on screen, so the address would sit beside the label as a third
+     flex item instead of wrapping under it */
+  .deeper a { display: block; }
+  .deeper a[href^="http"]::after { display: block; margin-top: 3pt; }
+  .toc-series .here { opacity: 0.75; }
+
+  /* --- 6. pagination ----------------------------------------------------- */
+  .part { break-before: page; padding: 0; border-top: 0; }
+  .part-head { break-after: avoid; }
+  .topic { padding: 20pt 0 0; }
+  .topic-head { break-after: avoid; break-inside: avoid; }
+  figure, figcaption, .lvl, .note, .callout, .numbers, .svc, .ladder-strip,
+  .pillars, .steps li, .deeper, tr, thead { break-inside: avoid; }
+  .footer { break-inside: avoid; margin-top: 20pt; padding: 12pt 0 0; }
+
+  /* --- 7. overflow: a scrollbar is a clip on paper ------------------------ */
+  pre {
+    white-space: pre-wrap; overflow-wrap: break-word; overflow: visible;
+    font-size: 8pt; line-height: 1.45; padding: 8pt 10pt; margin: 10pt 0;
+    orphans: 4; widows: 4;
+  }
+  figure { overflow: visible; padding: 10pt 12pt 8pt; margin: 14pt 0; }
+  figure svg { max-width: 100%; height: auto; }
+  figcaption { font-size: 8.5pt; max-width: none; margin-top: 9pt; }
+  .tablewrap { overflow: visible; }
+  table { min-width: 0; font-size: 8.5pt; }
+  th, td { padding: 5pt 7pt; }
+  thead { display: table-header-group; }        /* repeat the header on every page */
+  thead th { background: none; border-bottom: 1.4pt solid var(--line); }
+  /* Auto table layout hands each column a share of the slack in proportion to
+     its longest line, so the columns holding code take most of the page and the
+     prose column is squeezed into a ribbon. Asking the key column for the
+     narrowest fit, and letting a snippet in a later column wrap anywhere (which
+     drops that column's minimum to nothing), hands the slack to the prose. The
+     first column names things, so it keeps its identifiers whole. */
+  td:first-child { width: 1%; }
+  td code, th code { font-size: 7.2pt; overflow-wrap: break-word; }
+  td:not(:first-child) code { overflow-wrap: anywhere; }
+
+  /* --- 8. grids that were sized for a screen ----------------------------
+     auto-fit picks its column count from the available width, and a printed
+     page is narrower than the desktop layout these were drawn for. Left alone,
+     every three-card set becomes 2 + 1 and each one spills half a page of
+     white: Chrome will not split a grid row across pages, so a row that does
+     not fit moves whole. Pinning the counts restores the intended reading --
+     the three levels side by side -- and packs the pages. */
+  .levels, .pillars { grid-template-columns: repeat(3, 1fr); }
+  .svc { grid-template-columns: repeat(2, 1fr); }
+  .lvl { padding: 12pt 12pt 14pt; }
+  .lvl h4 { font-size: 9.6pt; }
+  .lvl .badge { font-size: 7pt; }
+  .lvl ul { font-size: 8.8pt; padding-left: 0.95em; }
+  .pillar p { font-size: 8.8pt; }
+
+  /* --- 9. colour that carried meaning as a fill --------------------------
+     Chrome prints with background graphics off by default, so anything whose
+     only cue was a fill is redrawn as an outline, which always prints. */
+  .lvl .badge .dot { background: none; border: 1px solid var(--lc); }
+  .stage { background: none; border: 1px solid currentColor; }
+  .stage::before { background: none; border: 1px solid currentColor; }
+  code { background: none; }
+
+  /* --- 10. abbreviations --------------------------------------------------
+     The expansion lives in a tooltip, which paper cannot show. Each term is
+     wrapped at its first mention in a section, so spelling it out inline puts
+     the definition exactly where a reader first needs it. */
+  abbr.gl { border-bottom: 0 !important; white-space: normal !important; }
+  abbr.gl::after {
+    content: " (" attr(data-full) ")"; color: var(--ink-soft);
+    text-transform: none;        /* the kickers uppercase; an expansion should not shout */
+  }
+  /* except where a parenthetical would break a display line rather than inform */
+  h1 abbr.gl::after, h2 abbr.gl::after, h3 abbr.gl::after, h4 abbr.gl::after,
+  .numbers .v abbr.gl::after, .lvl .badge abbr.gl::after { content: none; }
+}

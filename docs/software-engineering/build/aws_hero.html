@@ -1,0 +1,12 @@
+<header class="hero">
+  <div class="shell">
+    <p class="crumb">Deep dive &nbsp;&middot;&nbsp; one service at a time, in Go and Python</p>
+    <h1>AWS,<br>service by service.</h1>
+    <p class="lede">The console teaches you where the buttons are. This page teaches you what the service actually does when your code calls it &mdash; how Aurora survives a lost writer, why a Lambda in a private subnet cannot reach S3, what a DynamoDB partition key costs you three years later, and which knob on an ECS deployment decides whether a bad build takes production with it. Every service gets its concepts, its defaults, its failure modes and working code. Use the switch in the bar above to read every snippet in <b>Go</b> or in <b>Python</b>.</p>
+    <div class="numbers">
+      <div><span class="v">6 copies</span><span class="k">Every Aurora write</span><span class="d">Three availability zones, two copies each, quorum of four to commit. The database is the storage layer; the instance is a cache with a query planner attached.</span></div>
+      <div><span class="v">3,000 RCU</span><span class="k">One DynamoDB partition</span><span class="d">Table-level capacity is a fiction the moment one key is hot. Design for the partition, not the table.</span></div>
+      <div><span class="v">$0.045/GB</span><span class="k">Through a NAT gateway</span><span class="d">The most expensive line on a small company&rsquo;s bill is usually not compute. It is bytes taking the wrong path out of a private subnet.</span></div>
+    </div>
+  </div>
+</header>

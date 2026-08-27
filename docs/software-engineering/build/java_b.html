@@ -1,0 +1,1175 @@
+<section class="part" id="streams">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>Lambdas, streams, and the functional layer</h2>
+      <p class="stage s2">L2 &middot; Intermediate</p>
+      <p>Java bolted a functional layer onto a language of classes, and it shows &mdash; in a good way. A lambda is not a new kind of value; it is a terse way to make an instance of an interface you already understand. Once that clicks, streams stop being magic syntax and become what they are: a pull-based pipeline over the collections you built in the earlier parts.</p>
+    </div>
+
+    <section class="topic" id="lambdas">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Functional interfaces and lambdas</h3>
+        <p class="lede">There is no function type in Java. A lambda is an instance of an interface with exactly one abstract method, and the compiler picks which interface from the position you use it in. Everything else &mdash; composition, method references, capture rules &mdash; follows from that one fact.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 310" role="img" aria-label="Left: the lambda expression you write and the one-method interface it must fit. Right: the object the runtime actually holds, an instance whose single test method contains your expression body. Below: Java copies captured values at creation, unlike Python's late-binding closures.">
+          <defs>
+            <marker id="jab-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A LAMBDA IS AN INSTANCE OF A ONE-METHOD INTERFACE</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="32" width="390" height="74" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="50" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">// what you write</text>
+            <text x="32" y="68" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">Predicate&lt;Task&gt; open =</text>
+            <text x="32" y="86" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">    t -&gt; !t.done();</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="20" y="120" width="390" height="74" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="138" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">// the shape it must fit</text>
+            <text x="32" y="156" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">@FunctionalInterface</text>
+            <text x="32" y="174" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">interface Predicate&lt;T&gt; { boolean test(T t); }</text>
+          </g>
+
+          <text x="414" y="78" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.8">becomes</text>
+          <path d="M414 90 L466 90" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#jab-1)" opacity="0.75"/>
+
+          <g class="svg-l1">
+            <rect x="470" y="32" width="410" height="162" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="482" y="50" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">// what the runtime holds: an object</text>
+            <text x="482" y="70" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">new Predicate&lt;Task&gt;() {</text>
+            <text x="482" y="88" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">  public boolean test(Task t) {</text>
+            <text x="482" y="106" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">    return !t.done();  // your body</text>
+            <text x="482" y="124" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">  }</text>
+            <text x="482" y="142" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">}</text>
+            <text x="482" y="166" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">no anonymous-class file on disk: the JVM spins</text>
+            <text x="482" y="182" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">the instance up at first use, via invokedynamic</text>
+          </g>
+
+          <line x1="20" y1="212" x2="880" y2="212" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="236" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Capture copies the value, once</text>
+          <text x="20" y="258" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9"><tspan font-weight="600">Java:</tspan> a captured local must be effectively final &mdash; the lambda owns a copy taken when the lambda is created.</text>
+          <text x="20" y="276" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9"><tspan font-weight="600">Python (sibling page):</tspan> the closure reads the variable when it is called &mdash; the late-binding loop trap you met there.</text>
+          <text x="20" y="294" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Java refuses to compile the trap instead of running it wrongly. Annoying on Tuesday, correct on Friday.</text>
+        </svg>
+        <figcaption><b>The desugaring is the whole model.</b> Any interface with one abstract method accepts a lambda &mdash; your own interfaces included. <code>@FunctionalInterface</code> only makes the compiler enforce the one-method rule; the four interfaces below cover almost every signature you will actually need.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>Interface</th><th>The one method</th><th>Reads as</th><th>On our <code>Task</code></th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>Function&lt;T, R&gt;</code></td><td><code>R apply(T t)</code></td><td>turn a T into an R</td><td><code>Task::title</code> is a <code>Function&lt;Task, String&gt;</code></td></tr>
+            <tr><td><code>Predicate&lt;T&gt;</code></td><td><code>boolean test(T t)</code></td><td>a yes/no about a T</td><td><code>t -&gt; !t.done()</code></td></tr>
+            <tr><td><code>Supplier&lt;T&gt;</code></td><td><code>T get()</code></td><td>produce a T on demand</td><td><code>() -&gt; Task.of("untitled", false)</code></td></tr>
+            <tr><td><code>Consumer&lt;T&gt;</code></td><td><code>void accept(T t)</code></td><td>do something with a T</td><td><code>System.out::println</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Two-argument variants exist (<code>BiFunction</code>, <code>BinaryOperator</code>), and the primitive specialisations (<code>IntPredicate</code>, <code>LongFunction</code>) avoid boxing in hot paths &mdash; you will meet those again inside streams. Here is the whole family working over tasks; note the composition methods <code>and</code>, <code>or</code>, <code>negate</code> and <code>andThen</code>, which are just default methods on the interfaces.</p>
+
+      <pre class="l2"><span class="c">// Lambdas.java — one file, runnable directly (single-file launch, Java 11+)</span>
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import java.util.function.*;
+
+record Task(UUID id, String title, boolean done, Instant createdAt) {
+    static Task of(String title, boolean done) {
+        return new Task(UUID.randomUUID(), title, done, Instant.now());
+    }
+}
+
+public class Lambdas {
+    public static void main(String[] args) {
+        var tasks = List.of(
+            Task.of("write the docs", false),
+            Task.of("ship v2", true),
+            Task.of("fix the flaky test", false));
+
+        Predicate&lt;Task&gt; open        = t -&gt; !t.done();
+        Function&lt;Task, String&gt; name = Task::title;         <span class="c">// method reference</span>
+        Supplier&lt;Task&gt; blank        = () -&gt; Task.of("untitled", false);
+        Consumer&lt;String&gt; print      = System.out::println;
+
+        Predicate&lt;Task&gt; openAndUrgent =
+            open.and(t -&gt; t.title().contains("fix"));      <span class="c">// composition</span>
+
+        for (var t : tasks) {
+            if (openAndUrgent.test(t)) print.accept(name.apply(t));
+        }
+        print.accept(blank.get().title());
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Save as <code>Lambdas.java</code> and run it directly &mdash; no compile step needed for a single file. Only the open task whose title contains &ldquo;fix&rdquo; survives the composed predicate.</p>
+      </div>
+      <pre class="l1">$ java Lambdas.java
+<span class="c">fix the flaky test</span>
+<span class="c">untitled</span></pre>
+
+      <p>A method reference is a lambda the compiler writes for you, and there are exactly four shapes. Read the left column as &ldquo;the thing before <code>::</code>&rdquo;:</p>
+
+      <pre class="l1">Task::title           <span class="c">// instance method, receiver comes later:  t -&gt; t.title()</span>
+System.out::println   <span class="c">// instance method on a captured object:   s -&gt; System.out.println(s)</span>
+Task::of              <span class="c">// static method:                          (t, d) -&gt; Task.of(t, d)</span>
+ArrayList::new        <span class="c">// constructor:                            () -&gt; new ArrayList&lt;&gt;()</span></pre>
+
+      <p>Capture is where Java and Python genuinely differ, not just in syntax. A Java lambda may read local variables from the enclosing method, but only if they are <em>effectively final</em> &mdash; assigned exactly once. The lambda gets a copy at creation time, so there is nothing to bind late and nothing to race on. The compile error below is the Python late-binding loop trap, refused at build time:</p>
+
+      <pre class="l3">int seen = 0;
+Consumer&lt;Task&gt; count = t -&gt; seen++;
+<span class="c">// error: local variables referenced from a lambda expression</span>
+<span class="c">// must be final or effectively final</span>
+
+var cell = new int[] { 0 };            <span class="c">// the classic dodge: a mutable box</span>
+Consumer&lt;Task&gt; c2 = t -&gt; cell[0]++;    <span class="c">// compiles — and is a design smell;</span>
+                                       <span class="c">// prefer a collector or a plain loop</span>
+
+<span class="c">// Python, for contrast: fns = [lambda: i for i in range(3)] gives 2, 2, 2</span>
+<span class="c">// because the closure reads i when CALLED. Java cannot express that bug:</span>
+<span class="c">// each lambda would need its own effectively-final copy of i.</span></pre>
+
+      <p>Finally, <code>var</code>. It is local type inference, not dynamic typing: the compiler writes the exact static type in for you, and it never changes. Use it when the type is already visible on the right-hand side; avoid it when the reader would have to open another file to know what you have.</p>
+
+      <pre class="l2">var tasks = new ArrayList&lt;Task&gt;();   <span class="c">// fine: the type is right there</span>
+var byId  = new HashMap&lt;UUID, Task&gt;();
+
+var result = service.process(id);    <span class="c">// avoid: what is result? go look it up</span>
+var xs = new ArrayList&lt;&gt;();          <span class="c">// trap: infers ArrayList&lt;Object&gt; — the</span>
+                                     <span class="c">// diamond has nothing to infer FROM</span>
+<span class="c">// var is locals-only: never fields, parameters or return types.</span></pre>
+
+      <div class="note">
+        <h4>Where Go readers land</h4>
+        <p>If you came via the Go page: a Java functional interface plays the role of a one-method Go interface, and a lambda is the literal that satisfies it. The difference is inference direction &mdash; Go infers the interface from the concrete type; Java infers the lambda&rsquo;s type from the interface expected at that position (the <em>target type</em>). That is why a bare <code>t -&gt; t.done()</code> on its own line does not compile: with no target, there is no type.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="pipeline">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Streams: a lazy pipeline over your collections</h3>
+        <p class="lede"><code>stream()</code> builds a description of work; nothing touches an element until a terminal operation starts pulling. If you internalised generators on the Python page, you already have the model &mdash; the terminal operation is the for-loop that drives the pipeline.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 350" role="img" aria-label="Top: a stream pipeline from a task list through filter and map into a joining collector, with demand flowing backwards from the terminal operation. Middle: a per-element trace showing filter and map interleaving. Bottom: a chain without a terminal operation does nothing until collect is called.">
+          <defs>
+            <marker id="jab-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A &middot; NOTHING RUNS UNTIL THE TERMINAL OPERATION PULLS</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="150" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">List&lt;Task&gt;</text>
+            <text x="32" y="68" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor" opacity="0.8">5 elements, at rest</text>
+            <rect x="205" y="34" width="180" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="217" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">.filter(</text>
+            <text x="217" y="68" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">  t -&gt; !t.done())</text>
+            <rect x="420" y="34" width="170" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="432" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">.map(</text>
+            <text x="432" y="68" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">  Task::title)</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="625" y="34" width="255" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="637" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">.collect(joining(", "))</text>
+            <text x="637" y="68" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor">terminal &mdash; the engine</text>
+          </g>
+          <path d="M174 56 L201 56" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-2)" opacity="0.7"/>
+          <path d="M389 56 L416 56" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-2)" opacity="0.7"/>
+          <path d="M594 56 L621 56" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-2)" opacity="0.7"/>
+          <g class="svg-l1">
+            <path d="M700 82 L700 96 L95 96 L95 84" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-2)" opacity="0.8"/>
+          </g>
+          <text x="330" y="110" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.85">demand flows backwards: one element at a time, pulled from the end</text>
+
+          <text x="20" y="138" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">B &middot; THE TRACE, PER ELEMENT</text>
+          <g class="svg-l1">
+            <text x="20" y="158" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">filter  "write the docs"      open  &rarr;  map  &rarr;  joined</text>
+          </g>
+          <g class="svg-l3">
+            <text x="20" y="176" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">filter  "ship v2"             done  &rarr;  dropped; map never sees it</text>
+          </g>
+          <g class="svg-l1">
+            <text x="20" y="194" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">filter  "fix the flaky test"  open  &rarr;  map  &rarr;  joined</text>
+          </g>
+          <text x="20" y="214" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.85">The stages interleave per element &mdash; the remaining two of the five follow the same paths. No intermediate list is ever built.</text>
+
+          <line x1="20" y1="230" x2="880" y2="230" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+
+          <text x="20" y="252" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">C &middot; WITHOUT A TERMINAL, IT IS ONLY A PLAN</text>
+          <g class="svg-l3">
+            <rect x="20" y="262" width="410" height="52" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="32" y="282" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">var s = tasks.stream().filter(open);</text>
+            <text x="32" y="300" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">nothing filtered, nothing printed &mdash; a value of type Stream</text>
+          </g>
+          <path d="M434 288 L466 288" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-2)" opacity="0.7"/>
+          <g class="svg-l1">
+            <rect x="470" y="262" width="410" height="52" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="482" y="282" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">s.toList();</text>
+            <text x="482" y="300" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">the terminal operation starts the pull and drains the source</text>
+          </g>
+          <text x="20" y="338" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">Same engine as the Python page&rsquo;s generators &mdash; and the reason .limit(1) can stop after one element.</text>
+        </svg>
+        <figcaption><b>Laziness buys short-circuiting.</b> Because elements are pulled on demand, <code>findFirst()</code>, <code>anyMatch()</code> and <code>limit(n)</code> stop the moment they have an answer &mdash; over a five-element list that is a curiosity; over a stream of lines from a two-gigabyte file it is the difference between milliseconds and minutes. A stream is also single-use: once a terminal operation drains it, a second one throws <code>IllegalStateException</code>.</figcaption>
+      </figure>
+
+      <p>The collectors are where streams earn their keep for service code: grouping, counting and joining are the three you will write weekly once the task-tracker has an API. All three appear here, plus <code>toMap</code> and a primitive stream for the numeric tail:</p>
+
+      <pre class="l2"><span class="c">// Pipeline.java — run with: java Pipeline.java</span>
+import java.time.Instant;
+import java.util.*;
+import java.util.stream.Collectors;
+
+record Task(UUID id, String title, boolean done, Instant createdAt) {
+    static Task of(String title, boolean done) {
+        return new Task(UUID.randomUUID(), title, done, Instant.now());
+    }
+}
+
+public class Pipeline {
+    public static void main(String[] args) {
+        var tasks = List.of(
+            Task.of("write the docs", false),
+            Task.of("ship v2", true),
+            Task.of("fix the flaky test", false),
+            Task.of("review PR 41", false),
+            Task.of("rotate the API keys", true));
+
+        Map&lt;Boolean, Long&gt; counts = tasks.stream()
+            .collect(Collectors.groupingBy(Task::done, Collectors.counting()));
+
+        String open = tasks.stream()
+            .filter(t -&gt; !t.done())
+            .map(Task::title)
+            .sorted()
+            .collect(Collectors.joining(", ", "[", "]"));
+
+        Map&lt;UUID, String&gt; titleById = tasks.stream()
+            .collect(Collectors.toMap(Task::id, Task::title));
+            <span class="c">// duplicate keys throw IllegalStateException — pass a merge fn if possible</span>
+
+        long titleChars = tasks.stream()
+            .mapToLong(t -&gt; t.title().length())   <span class="c">// LongStream: no boxing</span>
+            .sum();
+
+        System.out.println(counts);
+        System.out.println(open);
+        System.out.println("title characters: " + titleChars);
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>The grouping map counts two done and three open tasks; the join sorts the open titles and brackets them; the primitive stream sums character counts without creating five <code>Long</code> objects.</p>
+      </div>
+      <pre class="l1">$ java Pipeline.java
+<span class="c">{false=3, true=2}</span>
+<span class="c">[fix the flaky test, review PR 41, write the docs]</span>
+<span class="c">title characters: 70</span></pre>
+
+      <p>To see the laziness rather than take it on faith, put a print inside the intermediate stages. Nothing appears until the terminal operation, and with <code>limit(1)</code> only the first element is ever touched:</p>
+
+      <pre class="l3">var s = tasks.stream()
+    .filter(t -&gt; { System.out.println("filter " + t.title()); return !t.done(); })
+    .map(t -&gt; { System.out.println("map    " + t.title()); return t.title(); });
+<span class="c">// nothing printed yet — the pipeline is a plan, not a loop</span>
+
+var first = s.limit(1).toList();
+<span class="c">// filter write the docs</span>
+<span class="c">// map    write the docs</span>
+<span class="c">// — and it stops. The other four tasks are never examined.</span></pre>
+
+      <div class="pair">
+        <div class="note">
+          <h4>When a plain for-loop is clearer</h4>
+          <p>Side effects (writing to a file per element), early exit with a value plus an index, and anything that throws a checked exception &mdash; a lambda cannot throw <code>IOException</code> through <code>Function</code>, so people smuggle it out in a <code>RuntimeException</code> wrapper, which is worse than the loop. Streams are for transformation; loops are for procedure. The Go page&rsquo;s position &mdash; just write the loop &mdash; is the right default whenever the pipeline stops reading as a sentence.</p>
+        </div>
+        <div class="note warn">
+          <h4>parallelStream()</h4>
+          <p>It splits the work across the common ForkJoinPool &mdash; one pool shared by the whole JVM &mdash; so in a web service it steals threads from every other request, and for the list sizes a request handles the coordination costs more than it saves. Reach for it only for CPU-bound work over large in-memory data, measured before and after.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="build">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>Maven, JUnit, and the project skeleton</h2>
+      <p class="stage s2">L2 &middot; Intermediate</p>
+      <p>Everything so far ran as single files. Real Java is a project: a directory layout every tool agrees on, a <code>pom.xml</code> that names your dependencies, and a lifecycle that compiles, tests and packages in one command. Maven is convention-over-configuration taken seriously &mdash; learn the conventions and the configuration nearly disappears.</p>
+    </div>
+
+    <section class="topic" id="maven">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Maven: the pom, the layout, the lifecycle</h3>
+        <p class="lede">A pom declares <em>what</em> your project is &mdash; coordinates, dependencies, Java version &mdash; and Maven derives <em>how</em> to build it from a fixed lifecycle. You do not write build steps; you name a phase and get every phase before it.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 300" role="img" aria-label="Top: the six main Maven lifecycle phases from validate through install, each pulling in every phase to its left. Middle: what mvn test, package and install each cover. Bottom left: the local repository cache under .m2. Bottom right: how version conflicts resolve nearest-wins.">
+          <defs>
+            <marker id="jab-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">NAME A PHASE, GET EVERY PHASE BEFORE IT</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="32" width="118" height="46" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="30" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">validate</text>
+            <text x="30" y="66" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor" opacity="0.85">pom is sane</text>
+            <rect x="162" y="32" width="118" height="46" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="172" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">compile</text>
+            <text x="172" y="66" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor" opacity="0.85">main &rarr; classes</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="304" y="32" width="118" height="46" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="314" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">test</text>
+            <text x="314" y="66" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor" opacity="0.85">surefire runs tests</text>
+            <rect x="446" y="32" width="118" height="46" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="456" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">package</text>
+            <text x="456" y="66" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor" opacity="0.85">jar in target/</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="588" y="32" width="118" height="46" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="598" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">verify</text>
+            <text x="598" y="66" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor" opacity="0.85">integration checks</text>
+            <rect x="730" y="32" width="150" height="46" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="740" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">install</text>
+            <text x="740" y="66" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor" opacity="0.85">copy into ~/.m2</text>
+          </g>
+          <path d="M141 55 L158 55" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-3)" opacity="0.7"/>
+          <path d="M283 55 L300 55" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-3)" opacity="0.7"/>
+          <path d="M425 55 L442 55" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-3)" opacity="0.7"/>
+          <path d="M567 55 L584 55" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-3)" opacity="0.7"/>
+          <path d="M709 55 L726 55" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-3)" opacity="0.7"/>
+
+          <g class="svg-l1">
+            <path d="M20 90 L564 90" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M20 86 L20 94" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M564 86 L564 94" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          </g>
+          <text x="200" y="108" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.85">mvn package runs all of these, in order</text>
+
+          <text x="20" y="134" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">mvn test     = validate + compile + test</text>
+          <text x="20" y="152" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">mvn package  = the above + package        (the jar you ship)</text>
+          <text x="20" y="170" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">mvn install  = the above + verify + install  (usable by other local projects)</text>
+
+          <line x1="20" y1="188" x2="880" y2="188" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+
+          <g class="svg-l2">
+            <rect x="20" y="202" width="420" height="84" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="220" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">~/.m2/repository/</text>
+            <text x="32" y="238" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">  org/junit/jupiter/junit-jupiter/5.11.4/*.jar</text>
+            <text x="32" y="254" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">  org/assertj/assertj-core/3.27.3/*.jar</text>
+            <text x="32" y="274" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.9">downloaded once, cached, shared by every project you build</text>
+          </g>
+          <g class="svg-l3">
+            <text x="470" y="220" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">two versions of one library requested?</text>
+            <text x="470" y="240" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">Maven keeps the NEAREST in the dependency</text>
+            <text x="470" y="256" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">tree &mdash; not the newest. Silent downgrades come</text>
+            <text x="470" y="272" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">from here; pin winners in dependencyManagement.</text>
+          </g>
+        </svg>
+        <figcaption><b>The lifecycle is the contract.</b> Every Maven project on earth builds with the same commands, which is why CI configuration for a Java service is three lines. Plugins bind work to phases &mdash; surefire binds to <code>test</code>, the jar plugin to <code>package</code> &mdash; and the pom only appears when you need a version newer than the default.</figcaption>
+      </figure>
+
+      <p>Install Maven with the same tool that installed your JDK, then lay out a small library &mdash; <code>tasklib</code> &mdash; by hand once, so the conventions stick. The layout is not a suggestion: the compiler plugin looks in <code>src/main/java</code>, surefire looks in <code>src/test/java</code>, and neither is configurable in any project you should work on.</p>
+
+      <pre class="l1">$ sdk install maven
+$ mvn -v
+<span class="c">Apache Maven 3.9.9   &larr; any 3.9.x is fine</span>
+
+tasklib/
+  pom.xml
+  src/
+    main/java/dev/ladder/tasklib/Titles.java    <span class="c"># production code</span>
+    test/java/dev/ladder/tasklib/TitlesTest.java <span class="c"># tests, same package, never shipped</span></pre>
+
+      <p>The pom below is complete &mdash; it builds. Read it top to bottom: the GAV coordinates (group, artifact, version) name the project uniquely; <code>properties</code> hold versions in one place; each dependency carries a <em>scope</em> saying which classpaths it joins; plugins are pinned so the build does not change under you.</p>
+
+      <pre class="l2">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd"&gt;
+  &lt;modelVersion&gt;4.0.0&lt;/modelVersion&gt;
+
+  &lt;groupId&gt;dev.ladder&lt;/groupId&gt;        <span class="c">&lt;!-- the GAV: who owns it --&gt;</span>
+  &lt;artifactId&gt;tasklib&lt;/artifactId&gt;     <span class="c">&lt;!-- what it is called --&gt;</span>
+  &lt;version&gt;0.1.0&lt;/version&gt;             <span class="c">&lt;!-- which build of it --&gt;</span>
+  &lt;packaging&gt;jar&lt;/packaging&gt;
+
+  &lt;properties&gt;
+    &lt;maven.compiler.release&gt;21&lt;/maven.compiler.release&gt;
+    &lt;project.build.sourceEncoding&gt;UTF-8&lt;/project.build.sourceEncoding&gt;
+    &lt;junit.version&gt;5.11.4&lt;/junit.version&gt;
+  &lt;/properties&gt;
+
+  &lt;dependencies&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.junit.jupiter&lt;/groupId&gt;
+      &lt;artifactId&gt;junit-jupiter&lt;/artifactId&gt;
+      &lt;version&gt;${junit.version}&lt;/version&gt;
+      &lt;scope&gt;test&lt;/scope&gt;              <span class="c">&lt;!-- test classpath only --&gt;</span>
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.assertj&lt;/groupId&gt;
+      &lt;artifactId&gt;assertj-core&lt;/artifactId&gt;
+      &lt;version&gt;3.27.3&lt;/version&gt;
+      &lt;scope&gt;test&lt;/scope&gt;
+    &lt;/dependency&gt;
+  &lt;/dependencies&gt;
+
+  &lt;build&gt;
+    &lt;plugins&gt;
+      &lt;plugin&gt;
+        &lt;groupId&gt;org.apache.maven.plugins&lt;/groupId&gt;
+        &lt;artifactId&gt;maven-surefire-plugin&lt;/artifactId&gt;
+        &lt;version&gt;3.5.2&lt;/version&gt;       <span class="c">&lt;!-- pin: old defaults miss JUnit 5 --&gt;</span>
+      &lt;/plugin&gt;
+    &lt;/plugins&gt;
+  &lt;/build&gt;
+&lt;/project&gt;</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>Scope</th><th>Compiling main code</th><th>Inside the shipped artifact</th><th>Typical use</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>compile</code> (default)</td><td>yes</td><td>needed at runtime</td><td>your actual libraries</td></tr>
+            <tr><td><code>test</code></td><td>no &mdash; tests only</td><td>never</td><td>junit, assertj, mockito</td></tr>
+            <tr><td><code>provided</code></td><td>yes</td><td>no &mdash; the platform supplies it</td><td>servlet API, Lombok</td></tr>
+            <tr><td><code>runtime</code></td><td>no</td><td>yes</td><td>a JDBC driver: you code to the interface</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The library itself is one class, small enough that the point stays the build, not the code:</p>
+
+      <pre class="l2"><span class="c">// src/main/java/dev/ladder/tasklib/Titles.java</span>
+package dev.ladder.tasklib;
+
+import java.util.List;
+
+public final class Titles {
+    private Titles() {}
+
+    public static String summary(List&lt;String&gt; titles) {
+        return titles.size() + " tasks: " + String.join(", ", titles);
+    }
+
+    public static void main(String[] args) {
+        System.out.println(summary(List.of("write the docs", "ship v2")));
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Create the tree, drop in the pom and the class, package, and run the jar off the classpath. The first build downloads the world into <code>~/.m2</code>; every later build is quiet and quick.</p>
+      </div>
+      <pre class="l1">$ mkdir -p tasklib/src/main/java/dev/ladder/tasklib
+$ mkdir -p tasklib/src/test/java/dev/ladder/tasklib
+$ cd tasklib                       <span class="c"># pom.xml from above at the root</span>
+$ mvn -q package
+$ java -cp target/tasklib-0.1.0.jar dev.ladder.tasklib.Titles
+<span class="c">2 tasks: write the docs, ship v2</span></pre>
+
+      <p>When a build behaves oddly, the first question is always &ldquo;what is actually on the classpath?&rdquo;, and the answer is one command:</p>
+
+      <pre class="l1">$ mvn dependency:tree
+<span class="c">[INFO] dev.ladder:tasklib:jar:0.1.0</span>
+<span class="c">[INFO] +- org.junit.jupiter:junit-jupiter:jar:5.11.4:test</span>
+<span class="c">[INFO] |  +- org.junit.jupiter:junit-jupiter-api:jar:5.11.4:test</span>
+<span class="c">[INFO] |  \- org.junit.jupiter:junit-jupiter-engine:jar:5.11.4:test</span>
+<span class="c">[INFO] \- org.assertj:assertj-core:jar:3.27.3:test</span></pre>
+
+      <div class="note">
+        <h4>Version conflicts, in one paragraph</h4>
+        <p>Your dependencies have dependencies, and two of them will eventually want different versions of the same library. Maven resolves by <em>nearest wins</em> &mdash; the version declared closest to your pom in the tree &mdash; which is deterministic but not &ldquo;newest&rdquo;. When something fails with a <code>NoSuchMethodError</code> at runtime, run <code>dependency:tree</code>, find the loser marked <code>omitted for conflict</code>, and pin the version you need in a <code>dependencyManagement</code> block. Spring Boot&rsquo;s parent pom, coming in the next part, is exactly that: several hundred pre-pinned versions that are tested together.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="junit">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>JUnit 5 and AssertJ: tests that read as behaviour</h3>
+        <p class="lede">Surefire finds every class ending in <code>Test</code>, and JUnit runs each <code>@Test</code> method on a <em>fresh instance</em> of the class. That one design decision is why JUnit tests cannot leak state through fields the way a careless pytest module can.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 330" role="img" aria-label="Two columns showing two tests from the same class: for each test JUnit constructs a brand-new instance, runs BeforeEach, then the test method, then AfterEach. Below, a note that fields cannot leak between tests because the second instance is constructed fresh.">
+          <defs>
+            <marker id="jab-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE NEW TEST-CLASS INSTANCE PER @Test</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="400" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="56" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">new TitlesTest()          <tspan opacity="0.7">// instance #1</tspan></text>
+            <rect x="20" y="86" width="400" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="108" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">@BeforeEach freshTitles()</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="20" y="138" width="400" height="34" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="32" y="160" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">@Test summary_counts_and_joins()</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="20" y="190" width="400" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="212" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">@AfterEach                <tspan opacity="0.7">// then #1 is garbage</tspan></text>
+          </g>
+          <path d="M220 68 L220 82" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-4)" opacity="0.7"/>
+          <path d="M220 120 L220 134" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-4)" opacity="0.7"/>
+          <path d="M220 172 L220 186" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-4)" opacity="0.7"/>
+
+          <g class="svg-l2">
+            <rect x="480" y="34" width="400" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="492" y="56" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">new TitlesTest()          <tspan opacity="0.7">// instance #2</tspan></text>
+            <rect x="480" y="86" width="400" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="492" y="108" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">@BeforeEach freshTitles()</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="480" y="138" width="400" height="34" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="492" y="160" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">@Test summary_of_nothing_says_no_tasks()</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="480" y="190" width="400" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="492" y="212" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">@AfterEach</text>
+          </g>
+          <path d="M680 68 L680 82" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-4)" opacity="0.7"/>
+          <path d="M680 120 L680 134" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-4)" opacity="0.7"/>
+          <path d="M680 172 L680 186" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-4)" opacity="0.7"/>
+          <path d="M424 155 L476 155" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-4)" opacity="0.6"/>
+
+          <line x1="20" y1="244" x2="880" y2="244" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="268" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Why fields cannot leak between tests</text>
+          <text x="20" y="290" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Anything a test writes to an instance field dies with instance #1. Instance #2 is constructed from scratch,</text>
+          <text x="20" y="306" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">then its own @BeforeEach runs. pytest, for contrast, happily shares module-level state across tests unless</text>
+          <text x="20" y="322" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">a fixture recreates it &mdash; in JUnit the isolation is the default and sharing (static fields) is the mistake.</text>
+        </svg>
+        <figcaption><b>The lifecycle explains the annotations.</b> <code>@BeforeEach</code> exists because the constructor runs before JUnit can inject anything and cannot be shared with subclasses cleanly; <code>@AfterEach</code> exists for resources the garbage collector will not close for you. If you truly need one instance across tests &mdash; expensive setup &mdash; that is <code>@TestInstance(Lifecycle.PER_CLASS)</code>, an explicit opt-in you will rarely want.</figcaption>
+      </figure>
+
+      <p>Test names are documentation that cannot go stale, so write them as behaviour: <code>summary_of_nothing_says_no_tasks</code> reads as a sentence in the failure report, where <code>testSummary2</code> reads as homework. Inside each test, keep the three phases visible &mdash; arrange, act, assert &mdash; and let AssertJ&rsquo;s <code>assertThat(actual).isEqualTo(expected)</code> carry the assertions: it reads left to right, it cannot get expected and actual backwards, and its failure messages show diffs instead of <code>expected: true but was: false</code>.</p>
+
+      <pre class="l2"><span class="c">// src/test/java/dev/ladder/tasklib/TitlesTest.java</span>
+package dev.ladder.tasklib;
+
+import java.util.Collections;
+import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class TitlesTest {
+
+    private List&lt;String&gt; titles;
+
+    @BeforeEach
+    void freshTitles() {                       <span class="c">// arrange, shared</span>
+        titles = List.of("write the docs", "ship v2");
+    }
+
+    @Test
+    void summary_counts_and_joins() {
+        String s = Titles.summary(titles);     <span class="c">// act</span>
+        assertThat(s).isEqualTo("2 tasks: write the docs, ship v2");  <span class="c">// assert</span>
+    }
+
+    @Test
+    void summary_of_nothing_says_no_tasks() {
+        assertThat(Titles.summary(List.of())).isEqualTo("no tasks");
+    }
+
+    @ParameterizedTest                         <span class="c">// one method, many cases —</span>
+    @CsvSource({                               <span class="c">// each row is its own test</span>
+        "1, 1 tasks",
+        "3, 3 tasks",
+        "9, 9 tasks",
+    })
+    void summary_starts_with_the_count(int n, String prefix) {
+        var many = Collections.nCopies(n, "x");
+        assertThat(Titles.summary(many)).startsWith(prefix);
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p><code>mvn test</code> compiles main, compiles tests, and hands both to surefire. One test fails on purpose &mdash; the empty-list behaviour does not exist yet &mdash; and the report tells you precisely how:</p>
+      </div>
+      <pre class="l1">$ mvn test
+<span class="c">[INFO] Running dev.ladder.tasklib.TitlesTest</span>
+<span class="c">[ERROR] TitlesTest.summary_of_nothing_says_no_tasks -- Time elapsed: 0.031 s &lt;&lt;&lt; FAILURE!</span>
+<span class="c">org.opentest4j.AssertionFailedError:</span>
+<span class="c">expected: "no tasks"</span>
+<span class="c"> but was: "0 tasks: "</span>
+<span class="c">[ERROR] Tests run: 5, Failures: 1, Errors: 0, Skipped: 0</span>
+<span class="c">[INFO] BUILD FAILURE</span></pre>
+
+      <p>The failure is the specification. Make it pass with the smallest honest change to <code>Titles.summary</code>:</p>
+
+      <pre class="l2">public static String summary(List&lt;String&gt; titles) {
+    if (titles.isEmpty()) return "no tasks";     <span class="c">// the fix the test demanded</span>
+    return titles.size() + " tasks: " + String.join(", ", titles);
+}</pre>
+
+      <pre class="l1">$ mvn test
+<span class="c">[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0</span>
+<span class="c">[INFO] BUILD SUCCESS</span></pre>
+
+      <div class="note">
+        <h4>The assertions worth memorising</h4>
+        <p><code>isEqualTo</code>, <code>isNull</code>/<code>isNotNull</code>, <code>startsWith</code>/<code>contains</code> for strings, <code>containsExactly(&hellip;)</code> and <code>hasSize(n)</code> for collections, and <code>assertThatThrownBy(() -&gt; svc.byId(bad)).isInstanceOf(NotFound.class)</code> for the unhappy path. Plain JUnit <code>assertEquals(expected, actual)</code> works everywhere AssertJ does &mdash; it is simply easier to get the argument order wrong, and its collection failures are harder to read.</p>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="spring">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>Spring Boot: a service that runs</h2>
+      <p class="stage s2">L2 &middot; Intermediate</p>
+      <p>Spring is two ideas wearing one framework: a container that constructs and wires your objects so your classes stop doing it themselves, and auto-configuration that sets up the boring infrastructure by looking at what is on the classpath. This part generates the real <code>tasks</code> service, gives it the four endpoints, and teaches it to read configuration like a production citizen.</p>
+    </div>
+
+    <section class="topic" id="boot">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>The container: why Spring exists at all</h3>
+        <p class="lede">Dependency injection is a compile-visible discipline, not magic: every class declares what it needs as constructor parameters, and exactly one piece of the system &mdash; the container &mdash; decides what gets constructed, in what order, once.</p>
+      </div>
+
+      <p>First the disease, then the cure. Without a container, every class constructs its own dependencies, which welds the object graph shut:</p>
+
+      <pre class="l3"><span class="c">// Without a container: each class builds its own world</span>
+class TaskController {
+    private final TaskService service = new TaskService(new InMemoryStore());
+    <span class="c">// - a test cannot hand in a fake TaskService or a fake store</span>
+    <span class="c">// - every change to TaskService's constructor edits every class that news it</span>
+    <span class="c">// - two controllers construct two stores: two copies of the truth</span>
+}</pre>
+
+      <p>Inversion of control flips the arrow: <code>TaskController</code> says <em>&ldquo;I need a TaskService&rdquo;</em> and stops caring where it comes from. The container scans your package for stereotyped classes, works out the dependency graph from constructor signatures, and instantiates each bean exactly once, in dependency order.</p>
+
+      <figure>
+        <svg viewBox="0 0 900 360" role="img" aria-label="Left: component scan of the dev.ladder.tasks package finds stereotyped classes. Centre: the application context wires taskController to taskService to the store, with auto-configured beans alongside. Right: the classpath of starters that auto-configuration reacts to. Bottom: inversion summarised in one sentence.">
+          <defs>
+            <marker id="jab-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">COMPONENT SCAN FINDS CLASSES; THE CONTAINER WIRES OBJECTS</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="250" height="150" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="54" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">scan of dev.ladder.tasks</text>
+            <text x="32" y="76" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">TaskController @RestController</text>
+            <text x="32" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">TaskService    @Service</text>
+            <text x="32" y="112" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">TimeConfig     @Configuration</text>
+            <text x="32" y="140" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.9">classes carrying a stereotype</text>
+            <text x="32" y="156" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.9">become bean definitions</text>
+          </g>
+          <path d="M274 100 L306 100" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#jab-5)" opacity="0.75"/>
+
+          <g class="svg-l1">
+            <rect x="310" y="34" width="340" height="230" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="326" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">ApplicationContext</text>
+            <text x="326" y="68" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor" opacity="0.85">one object of each, wired once</text>
+            <rect x="330" y="80" width="170" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="340" y="99" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">taskController</text>
+            <rect x="330" y="132" width="170" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="340" y="151" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">taskService</text>
+            <rect x="330" y="184" width="220" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="340" y="203" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">clock (Clock, from TimeConfig)</text>
+            <path d="M415 110 L415 128" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-5)"/>
+            <path d="M415 162 L415 180" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-5)"/>
+            <text x="326" y="240" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor" opacity="0.9">constructor parameters ARE the arrows</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="512" y="76" width="126" height="96" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3"/>
+            <text x="520" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">dispatcherServlet</text>
+            <text x="520" y="112" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">tomcatWebServer</text>
+            <text x="520" y="130" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">objectMapper</text>
+            <text x="520" y="152" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor" opacity="0.9">from auto-config</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="680" y="34" width="200" height="150" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="692" y="54" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">classpath</text>
+            <text x="692" y="76" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">starter-web</text>
+            <text x="692" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">starter-validation</text>
+            <text x="692" y="112" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">starter-actuator</text>
+            <text x="692" y="140" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.9">each starter is only a</text>
+            <text x="692" y="156" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.9">curated dependency list</text>
+          </g>
+          <path d="M676 120 L654 120" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#jab-5)" opacity="0.75"/>
+          <text x="660" y="204" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.85">auto-configuration reacts to what is</text>
+          <text x="660" y="220" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.85">present: web on the classpath &rarr; an</text>
+          <text x="660" y="236" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.85">embedded Tomcat bean appears</text>
+
+          <line x1="20" y1="284" x2="880" y2="284" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="308" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Inversion, in one sentence</text>
+          <text x="20" y="330" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Your classes declare what they need in their constructors; the container &mdash; not your code &mdash; decides construction</text>
+          <text x="20" y="346" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">order and calls new exactly once per bean. Tests call the same constructors by hand, passing fakes.</text>
+        </svg>
+        <figcaption><b>Every arrow in the graph is a constructor parameter.</b> That is why constructor injection is the house rule: the dependency graph is visible in plain Java, a bean cannot exist half-wired, and a class with seven constructor parameters announces its own design problem. Field injection (<code>@Autowired</code> on a private field) hides all three and is the review flag.</figcaption>
+      </figure>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Generate the real project from start.spring.io &mdash; the same generator the web UI uses &mdash; and boot it. First run downloads dependencies; then the banner, then Tomcat announcing port 8080, then your application name and startup time. Ctrl-C stops it.</p>
+      </div>
+      <pre class="l1">$ curl https://start.spring.io/starter.tgz \
+    -d dependencies=web,validation,actuator \
+    -d javaVersion=21 -d type=maven-project \
+    -d groupId=dev.ladder -d artifactId=tasks -d baseDir=tasks | tar -xzf -
+$ cd tasks
+$ ./mvnw spring-boot:run          <span class="c"># mvnw: the project carries its own Maven</span>
+<span class="c">  .   ____          _            __ _ _</span>
+<span class="c"> :: Spring Boot ::                (v3.5.5)</span>
+<span class="c">...Tomcat started on port 8080 (http) with context path '/'</span>
+<span class="c">...Started TasksApplication in 1.84 seconds (process running for 2.1)</span></pre>
+
+      <p>Those two log lines are the contract: an embedded servlet container is listening &mdash; there is no separate application server to install, the jar <em>is</em> the server &mdash; and the context started, meaning every bean constructed and wired without error. The whole application bootstrap is one class:</p>
+
+      <pre class="l2"><span class="c">// src/main/java/dev/ladder/tasks/TasksApplication.java — generated for you</span>
+package dev.ladder.tasks;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication      <span class="c">// = @Configuration           (this class may declare beans)</span>
+                            <span class="c">// + @EnableAutoConfiguration (react to the classpath)</span>
+                            <span class="c">// + @ComponentScan           (scan THIS package and below)</span>
+public class TasksApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(TasksApplication.class, args);
+    }
+}</pre>
+
+      <p>The scan starts at the package of this class, which is why your code lives in <code>dev.ladder.tasks</code> or below it &mdash; a class in a sibling package is silently invisible to the container, a classic first-week bug. There are three ways a bean comes to exist, and you will use all three:</p>
+
+      <pre class="l2">@Service                                  <span class="c">// stereotype: "scan me in" — @Component</span>
+public class TaskService {                <span class="c">// with a role name; @Repository is the third</span>
+    private final Clock clock;            <span class="c">// one final field per dependency</span>
+
+    public TaskService(Clock clock) {     <span class="c">// single constructor: no @Autowired needed,</span>
+        this.clock = clock;               <span class="c">// Spring uses it automatically</span>
+    }
+}
+
+@Configuration
+class TimeConfig {
+    @Bean                                 <span class="c">// @Bean: for types you don't own and can't</span>
+    Clock clock() {                       <span class="c">// annotate — the method body is the recipe</span>
+        return Clock.systemUTC();
+    }
+}</pre>
+
+      <div class="note warn">
+        <h4>The review flag, spelled out</h4>
+        <p><code>@Autowired private TaskService service;</code> on a field means: the field cannot be <code>final</code>, the class can be constructed in an invalid half-empty state, and a plain unit test needs reflection to install a fake. Constructor injection costs four lines and removes all three problems. If a constructor grows past four or five parameters, that is the design talking &mdash; split the class, do not reach for field injection to hide the count.</p>
+      </div>
+
+      <p>If you came from the Go or Python pages: this is the same &ldquo;accept interfaces at the edges, wire in main&rdquo; discipline you already know &mdash; FastAPI&rsquo;s <code>Depends</code> plays the same role &mdash; except the wiring code you wrote by hand in Go&rsquo;s <code>main()</code> is derived from constructor signatures here. The trade: you write less plumbing, and in exchange the construction order lives in a framework you must trust and occasionally debug.</p>
+    </section>
+
+    <section class="topic" id="rest">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>The Task API: records in, records out</h3>
+        <p class="lede">A controller is a thin translation layer: HTTP in, domain call, HTTP out. Records make both edges honest &mdash; the request record says exactly what a client may send, the response record exactly what it will get back, and validation runs before your method is even called.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 340" role="img" aria-label="A POST to /tasks travels from curl through the DispatcherServlet to the controller and the service, which stores a new task; the response travels back as a 201 with a Location header and JSON body. A separate hazard path shows a blank title being rejected with a 400 before the controller method runs.">
+          <defs>
+            <marker id="jab-6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE POST /tasks, HOP BY HOP</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="30" width="160" height="70" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="30" y="48" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">curl</text>
+            <text x="30" y="64" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">POST /tasks</text>
+            <text x="30" y="80" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">{"title":"write the docs"}</text>
+            <rect x="220" y="30" width="180" height="70" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="230" y="48" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">DispatcherServlet</text>
+            <text x="230" y="64" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor">route: POST /tasks</text>
+            <text x="230" y="80" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor">Jackson: body &rarr; record, @Valid</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="440" y="30" width="190" height="70" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="450" y="48" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">TaskController</text>
+            <text x="450" y="64" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">.create(req)</text>
+            <text x="450" y="80" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor">validation already passed</text>
+            <rect x="670" y="30" width="210" height="70" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="680" y="48" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">TaskService</text>
+            <text x="680" y="64" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">store.put(id, task)</text>
+            <text x="680" y="80" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">Task(id, title, false, now)</text>
+          </g>
+          <path d="M184 65 L216 65" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-6)" opacity="0.7"/>
+          <path d="M404 65 L436 65" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-6)" opacity="0.7"/>
+          <path d="M634 65 L666 65" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-6)" opacity="0.7"/>
+
+          <path d="M775 104 L775 142" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-6)" opacity="0.7"/>
+          <text x="790" y="128" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor" opacity="0.8">and back</text>
+
+          <g class="svg-l1">
+            <rect x="670" y="146" width="210" height="70" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="680" y="164" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">returns Task</text>
+            <text x="680" y="180" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor">the immutable record</text>
+            <rect x="440" y="146" width="190" height="70" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="450" y="164" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">ResponseEntity</text>
+            <text x="450" y="180" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">.created(uri)</text>
+            <text x="450" y="196" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor">status 201 + Location</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="220" y="146" width="180" height="70" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="230" y="164" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Jackson</text>
+            <text x="230" y="180" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor">TaskResponse</text>
+            <text x="230" y="194" font-family="IBM Plex Sans, sans-serif" font-size="8.5" fill="currentColor">&rarr; JSON body</text>
+            <rect x="20" y="146" width="160" height="70" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="30" y="164" font-family="IBM Plex Mono, monospace" font-size="8.5" font-weight="600" fill="currentColor">HTTP/1.1 201</text>
+            <text x="30" y="180" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">Location: /tasks/{id}</text>
+            <text x="30" y="196" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">{"id":"...","done":false}</text>
+          </g>
+          <path d="M666 181 L634 181" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-6)" opacity="0.7"/>
+          <path d="M436 181 L404 181" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-6)" opacity="0.7"/>
+          <path d="M216 181 L184 181" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-6)" opacity="0.7"/>
+
+          <g class="svg-l3">
+            <path d="M310 104 L310 246" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jab-6)" opacity="0.8"/>
+            <rect x="220" y="250" width="480" height="48" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="232" y="270" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">title blank &rarr; @Valid throws before create() runs</text>
+            <text x="232" y="288" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">MethodArgumentNotValidException &rarr; HTTP 400 with a JSON error body</text>
+          </g>
+          <text x="20" y="326" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">The controller method never sees a request that failed validation &mdash; the same edge-validation doctrine as pydantic on the Python page.</text>
+        </svg>
+        <figcaption><b>Why two records instead of exposing <code>Task</code>?</b> The request record exists so a client cannot set <code>id</code>, <code>done</code> or <code>createdAt</code> &mdash; fields the server owns. The response record exists so the wire format can stay stable when the domain type later grows fields the API should not leak. The pairs of ten-second classes are the cheapest API-stability insurance you will ever buy.</figcaption>
+      </figure>
+
+      <p>Four small files, all in <code>dev.ladder.tasks</code>. The domain record and the two API records first:</p>
+
+      <pre class="l2"><span class="c">// Task.java — the domain record: immutable, equality by value</span>
+package dev.ladder.tasks;
+
+import java.time.Instant;
+import java.util.UUID;
+
+public record Task(UUID id, String title, boolean done, Instant createdAt) {}
+
+<span class="c">// CreateTaskRequest.java — what a client MAY send</span>
+package dev.ladder.tasks;
+
+import jakarta.validation.constraints.NotBlank;
+
+public record CreateTaskRequest(@NotBlank String title) {}
+
+<span class="c">// TaskResponse.java — what a client WILL receive</span>
+package dev.ladder.tasks;
+
+import java.time.Instant;
+import java.util.UUID;
+
+public record TaskResponse(UUID id, String title, boolean done, Instant createdAt) {
+    static TaskResponse from(Task t) {
+        return new TaskResponse(t.id(), t.title(), t.done(), t.createdAt());
+    }
+}</pre>
+
+      <p>The service owns the store &mdash; a <code>ConcurrentHashMap</code> for now; part seven of the series swaps it for Postgres behind the same method signatures, which is the whole reason the controller never touches the map directly. Note <code>markDone</code> replaces the record rather than mutating it: records have no setters, so &ldquo;update&rdquo; means &ldquo;new value, same key&rdquo;, and <code>computeIfPresent</code> makes the read-modify-write atomic:</p>
+
+      <pre class="l2"><span class="c">// TaskService.java</span>
+package dev.ladder.tasks;
+
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.stereotype.Service;
+
+@Service
+public class TaskService {
+    private final Map&lt;UUID, Task&gt; store = new ConcurrentHashMap&lt;&gt;();
+
+    public Task create(String title) {
+        var task = new Task(UUID.randomUUID(), title, false, Instant.now());
+        store.put(task.id(), task);
+        return task;
+    }
+
+    public List&lt;Task&gt; all() {
+        return store.values().stream()
+            .sorted(Comparator.comparing(Task::createdAt))   <span class="c">// part two, earning rent</span>
+            .toList();
+    }
+
+    public Optional&lt;Task&gt; byId(UUID id) {
+        return Optional.ofNullable(store.get(id));
+    }
+
+    public Optional&lt;Task&gt; markDone(UUID id) {
+        return Optional.ofNullable(store.computeIfPresent(id,
+            (k, t) -&gt; new Task(t.id(), t.title(), true, t.createdAt())));
+    }
+}</pre>
+
+      <p>The controller maps the four endpoints. Where the happy path is the only path (<code>GET /tasks</code>), return the value and let Spring produce the 200; where the status code carries meaning &mdash; 201 with a <code>Location</code>, 404 for a missing id &mdash; return <code>ResponseEntity</code> and say so explicitly:</p>
+
+      <pre class="l2"><span class="c">// TaskController.java</span>
+package dev.ladder.tasks;
+
+import jakarta.validation.Valid;
+import java.net.URI;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController                      <span class="c">// @Controller + @ResponseBody: returns become JSON</span>
+@RequestMapping("/tasks")
+public class TaskController {
+    private final TaskService service;
+
+    public TaskController(TaskService service) {   <span class="c">// constructor injection, again</span>
+        this.service = service;
+    }
+
+    @PostMapping
+    ResponseEntity&lt;TaskResponse&gt; create(@Valid @RequestBody CreateTaskRequest req) {
+        var task = service.create(req.title());
+        return ResponseEntity
+            .created(URI.create("/tasks/" + task.id()))   <span class="c">// 201 + Location header</span>
+            .body(TaskResponse.from(task));
+    }
+
+    @GetMapping
+    List&lt;TaskResponse&gt; all() {
+        return service.all().stream().map(TaskResponse::from).toList();
+    }
+
+    @GetMapping("/{id}")
+    ResponseEntity&lt;TaskResponse&gt; byId(@PathVariable UUID id) {
+        return service.byId(id)
+            .map(TaskResponse::from)
+            .map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());   <span class="c">// empty Optional &rarr; 404</span>
+    }
+
+    @PatchMapping("/{id}/done")
+    ResponseEntity&lt;TaskResponse&gt; done(@PathVariable UUID id) {
+        return service.markDone(id)
+            .map(TaskResponse::from)
+            .map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Restart <code>./mvnw spring-boot:run</code>, then exercise all four endpoints from a second terminal. Copy the <code>id</code> from the first response into the later calls. The final request proves <code>@Valid</code> is on duty: a blank title never reaches your code.</p>
+      </div>
+      <pre class="l1">$ curl -si -X POST localhost:8080/tasks \
+    -H 'Content-Type: application/json' -d '{"title":"write the docs"}'
+<span class="c">HTTP/1.1 201</span>
+<span class="c">Location: /tasks/8b6c2f1a-6f9d-4c3e-9b1a-2d7e5a4c9f10</span>
+<span class="c">{"id":"8b6c2f1a-...","title":"write the docs","done":false,"createdAt":"2026-08-24T09:14:02.113Z"}</span>
+
+$ curl -s localhost:8080/tasks
+<span class="c">[{"id":"8b6c2f1a-...","title":"write the docs","done":false,"createdAt":"..."}]</span>
+
+$ curl -s -X PATCH localhost:8080/tasks/8b6c2f1a-6f9d-4c3e-9b1a-2d7e5a4c9f10/done
+<span class="c">{"id":"8b6c2f1a-...","title":"write the docs","done":true,"createdAt":"..."}</span>
+
+$ curl -si -X POST localhost:8080/tasks \
+    -H 'Content-Type: application/json' -d '{"title":""}'
+<span class="c">HTTP/1.1 400</span>
+<span class="c">{"timestamp":"...","status":400,"error":"Bad Request","path":"/tasks"}</span></pre>
+
+      <div class="note">
+        <h4>Where the 400 body comes from</h4>
+        <p>You wrote no error handler; Spring&rsquo;s default one caught the validation exception and rendered that JSON. When you want your own shape &mdash; field names and messages per violation &mdash; that is a <code>@RestControllerAdvice</code> class with an <code>@ExceptionHandler(MethodArgumentNotValidException.class)</code> method: one place, every controller, same doctrine as FastAPI&rsquo;s exception handlers on the Python page.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="config">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Configuration, profiles and the actuator</h3>
+        <p class="lede">Configuration is layered, and the layers have a fixed precedence: a YAML default, a profile file over it, an environment variable over both, a command-line flag over everything. Bind the result to a typed record once, at start-up &mdash; a bad value should kill the boot, not the 3 a.m. request.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 330" role="img" aria-label="A precedence ladder for the property tasks.max-open: the built-in default of 100 is overridden by application.yml at 50, then the prod profile file at 20, then the environment variable at 10, then the command-line argument at 5, which wins. Below, the relaxed binding rule for environment variable names.">
+          <defs>
+            <marker id="jab-7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE PROPERTY, FIVE SOURCES &mdash; THE LAST WORD WINS</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="32" width="600" height="32" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="52" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">1 &middot; code default            new TasksProperties(100, ...)</text>
+            <rect x="650" y="32" width="130" height="32" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="660" y="52" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">max-open: 100</text>
+            <rect x="20" y="74" width="600" height="32" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="94" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">2 &middot; application.yml         tasks.max-open: 50</text>
+            <rect x="650" y="74" width="130" height="32" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="660" y="94" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">max-open: 50</text>
+            <rect x="20" y="116" width="600" height="32" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="136" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">3 &middot; application-prod.yml    only when the prod profile is active</text>
+            <rect x="650" y="116" width="130" height="32" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="660" y="136" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">max-open: 20</text>
+            <rect x="20" y="158" width="600" height="32" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="178" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">4 &middot; env var                 TASKS_MAX_OPEN=10</text>
+            <rect x="650" y="158" width="130" height="32" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="660" y="178" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">max-open: 10</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="20" y="200" width="600" height="32" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="220" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">5 &middot; command line            --tasks.max-open=5</text>
+            <rect x="650" y="200" width="130" height="32" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="660" y="220" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">max-open: 5 wins</text>
+          </g>
+          <g class="svg-l1">
+            <path d="M810 36 L810 226" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#jab-7)" opacity="0.8"/>
+          </g>
+          <text x="822" y="120" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.85">later</text>
+          <text x="822" y="136" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.85">sources</text>
+          <text x="822" y="152" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.85">override</text>
+
+          <line x1="20" y1="252" x2="880" y2="252" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="276" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Relaxed binding: how an env var finds a property</text>
+          <text x="20" y="298" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Upper-case the name, turn dots into underscores, drop or underscore the dashes: tasks.max-open binds from</text>
+          <text x="20" y="314" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">TASKS_MAX_OPEN and from TASKS_MAXOPEN alike. Deployment scripts stop caring about your key style.</text>
+        </svg>
+        <figcaption><b>The ladder is why the same jar runs everywhere.</b> Committed YAML holds the defaults and the per-environment shape; the environment injects secrets and machine-specific values at the last minute; a flag wins for one-off debugging. Nothing is rebuilt between laptop and production &mdash; the same idea the Python page reached with pydantic-settings, with the same rule: resolve and validate once, at start-up.</figcaption>
+      </figure>
+
+      <p>YAML over properties files, for one reason: nesting reads as structure instead of repeated prefixes. Replace the generated <code>application.properties</code> with <code>application.yml</code>, and add a prod overlay next to it:</p>
+
+      <pre class="l2"><span class="c"># src/main/resources/application.yml — the defaults, committed</span>
+tasks:
+  max-open: 50
+  banner: "task-tracker (dev)"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info    <span class="c"># expose deliberately — never "*" in prod</span>
+
+<span class="c"># src/main/resources/application-prod.yml — only the differences</span>
+tasks:
+  max-open: 20
+  banner: "task-tracker"
+management:
+  server:
+    port: 9090                  <span class="c"># actuator on its own port, off the public LB</span></pre>
+
+      <p>Now the binding. A record plus one annotation turns that YAML subtree into a typed, immutable object; the container constructs it at start-up and fails the boot &mdash; with the offending key in the message &mdash; if a value is missing or the wrong type. Inject it like any other bean; never read <code>System.getenv</code> from business code:</p>
+
+      <pre class="l2"><span class="c">// TasksProperties.java — kebab-case keys bind to camelCase components</span>
+package dev.ladder.tasks;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(prefix = "tasks")
+public record TasksProperties(int maxOpen, String banner) {}
+
+<span class="c">// TasksApplication.java — register it (or use @ConfigurationPropertiesScan)</span>
+@SpringBootApplication
+@EnableConfigurationProperties(TasksProperties.class)
+public class TasksApplication { ... }
+
+<span class="c">// TaskService.java — configuration arrives by constructor, like everything else</span>
+@Service
+public class TaskService {
+    private final Map&lt;UUID, Task&gt; store = new ConcurrentHashMap&lt;&gt;();
+    private final TasksProperties props;
+
+    public TaskService(TasksProperties props) {
+        this.props = props;
+    }
+
+    public Task create(String title) {
+        long open = store.values().stream().filter(t -&gt; !t.done()).count();
+        if (open &gt;= props.maxOpen()) {
+            throw new IllegalStateException("open-task limit reached: " + props.maxOpen());
+        }
+        var task = new Task(UUID.randomUUID(), title, false, Instant.now());
+        store.put(task.id(), task);
+        return task;
+    }
+    <span class="c">// all(), byId(), markDone() unchanged</span>
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Activate the prod profile through the environment and watch the log confirm it; then hit the actuator. With the prod overlay above, management moved to 9090 &mdash; a health check the public load balancer cannot reach by accident.</p>
+      </div>
+      <pre class="l1">$ SPRING_PROFILES_ACTIVE=prod TASKS_MAX_OPEN=10 ./mvnw spring-boot:run
+<span class="c">...The following 1 profile is active: "prod"</span>
+<span class="c">...Tomcat started on port 8080 (http)</span>
+<span class="c">...Exposing 2 endpoints beneath base path '/actuator'</span>
+
+$ curl -s localhost:9090/actuator/health
+<span class="c">{"status":"UP"}</span>
+$ curl -s localhost:9090/actuator/info
+<span class="c">{}</span>                                  <span class="c"># empty until you add info.* properties</span>
+$ curl -s localhost:8080/actuator/health
+<span class="c">{"timestamp":"...","status":404,"error":"Not Found","path":"/actuator/health"}</span>
+<span class="c">                                  # 8080 still serves the API, but actuator moved — good</span></pre>
+
+      <p>Which value of <code>tasks.max-open</code> won? The env var: 10 beats the prod file&rsquo;s 20, which beat the default file&rsquo;s 50 &mdash; rungs four, three, two of the ladder. Add <code>--tasks.max-open=5</code> after <code>spring-boot:run</code> (as <code>-Dspring-boot.run.arguments</code>) and rung five wins instead.</p>
+
+      <div class="pair">
+        <div class="note">
+          <h4>What the actuator is for</h4>
+          <p><code>/actuator/health</code> is what Kubernetes probes and load balancers poll &mdash; it aggregates checks (disk, and later your database) into one <code>UP</code>/<code>DOWN</code>. <code>/actuator/info</code> publishes build metadata &mdash; git commit, version &mdash; so you can ask a running instance what it is. Both come from the starter you added at generation time; you wrote none of it.</p>
+        </div>
+        <div class="note warn">
+          <h4>Exposure is opt-in for a reason</h4>
+          <p>The actuator also offers <code>/env</code>, <code>/heapdump</code> and <code>/threaddump</code> &mdash; a gift to an attacker if left on the public port. Keep <code>exposure.include</code> to the endpoints you actually poll, and put management on its own port in prod, as above. Treat any deployment with <code>include: "*"</code> on 8080 as an incident waiting for its date.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>

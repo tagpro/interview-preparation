@@ -1,0 +1,518 @@
+<section class="part" id="ops">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part seven</span>
+      <h2>Operating it</h2>
+      <p>The three things you will be asked about at three in the morning and at the end of the quarter: what is happening, who is allowed to see it, and why the bill went up.</p>
+    </div>
+
+    <section class="topic" id="observe">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>CloudWatch: metrics from logs, and alarms worth waking for</h3>
+        <p class="lede">CloudWatch charges for what you send it, in three different currencies &mdash; per custom metric, per gigabyte ingested, per query scanned. The embedded metric format lets you pay one of those and get two.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 380" role="img" aria-label="Two paths for getting a metric into CloudWatch: a synchronous PutMetricData call on the request path versus a structured log line in embedded metric format that CloudWatch parses asynchronously; below, the three CloudWatch cost currencies and an alarm configuration.">
+          <defs>
+            <marker id="aw-18" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">TWO WAYS TO RECORD &ldquo;ORDER PLACED, 43 ms, TENANT 42&rdquo;</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="34" width="418" height="112" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">PutMetricData &mdash; A NETWORK CALL YOU WAIT FOR</text>
+            <rect x="32" y="66" width="110" height="32" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="42" y="86" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">handler</text>
+            <rect x="180" y="66" width="110" height="32" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="190" y="86" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">CloudWatch</text>
+            <line x1="146" y1="82" x2="176" y2="82" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-18)"/>
+            <text x="304" y="86" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">+10&ndash;30 ms</text>
+            <text x="32" y="120" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">On the request path, throttled at high volume, and</text>
+            <text x="32" y="136" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the log line that explains it lives somewhere else.</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="462" y="34" width="418" height="112" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="474" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">EMBEDDED METRIC FORMAT &mdash; JUST A LOG LINE</text>
+            <rect x="474" y="66" width="110" height="32" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="484" y="86" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">stdout</text>
+            <rect x="622" y="66" width="150" height="32" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="632" y="86" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">parsed for you, later</text>
+            <line x1="588" y1="82" x2="618" y2="82" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-18)"/>
+            <text x="786" y="86" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">+0 ms</text>
+            <text x="474" y="120" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The metric and the context that explains it are the</text>
+            <text x="474" y="136" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">same record, so you can query from alarm to cause.</text>
+          </g>
+
+          <line x1="20" y1="172" x2="880" y2="172" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="194" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Three meters running at once</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="210" width="278" height="94" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="230" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">CUSTOM METRICS</text>
+            <text x="32" y="250" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Priced per metric per month.</text>
+            <text x="32" y="270" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">A metric is one unique set of</text>
+            <text x="32" y="286" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">dimension values &mdash; so a user</text>
+            <text x="32" y="300" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">id dimension is a fortune.</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="311" y="210" width="278" height="94" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="323" y="230" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">LOG INGESTION</text>
+            <text x="323" y="250" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Priced per gigabyte in, then</text>
+            <text x="323" y="270" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">per gigabyte stored. Retention</text>
+            <text x="323" y="286" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">defaults to <tspan font-weight="600">never expire</tspan>, which</text>
+            <text x="323" y="300" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">is a bill that only grows.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="602" y="210" width="278" height="94" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="614" y="230" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">INSIGHTS QUERIES</text>
+            <text x="614" y="250" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Priced per gigabyte scanned.</text>
+            <text x="614" y="270" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Narrow the time range before</text>
+            <text x="614" y="286" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">you widen the filter, or an</text>
+            <text x="614" y="300" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">incident gets its own invoice.</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="20" y="322" width="860" height="46" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="5 4"/>
+            <text x="32" y="342" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">ALARM ON THE THING A CUSTOMER WOULD NOTICE</text>
+            <text x="32" y="360" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Error rate, p99 latency, queue age, iterator age, DLQ depth. Not CPU &mdash; CPU is how you explain the page, not why you send it.</text>
+          </g>
+        </svg>
+        <figcaption><b>Cardinality is the whole cost model.</b> A metric with a <code>tenant_id</code> dimension across 5,000 tenants is 5,000 metrics, billed monthly, for ever &mdash; even after the tenants leave. Keep dimensions to the handful you would actually alarm on, and put the high-cardinality identifiers in the log fields beside them, where they cost per gigabyte instead of per series.</figcaption>
+      </figure>
+
+<pre class="l2" data-lang="go"><span class="c">// EMF: a metric and its context in one stdout line. CloudWatch parses the</span>
+<span class="c">// _aws block and creates the metrics; every other field stays queryable in</span>
+<span class="c">// Logs Insights. No API call, no added latency, no throttling.</span>
+type metricDef struct {
+    Name string `json:"Name"`
+    Unit string `json:"Unit"`
+}
+
+type directive struct {
+    Namespace  string      `json:"Namespace"`
+    Dimensions [][]string  `json:"Dimensions"`
+    Metrics    []metricDef `json:"Metrics"`
+}
+
+func emit(op string, d time.Duration, tenant, order, trace string) {
+    rec := map[string]any{
+        "_aws": map[string]any{
+            "Timestamp": time.Now().UnixMilli(),
+            "CloudWatchMetrics": []directive{{
+                Namespace: "Orders",
+                <span class="c">// TWO dimensions, not five: every unique combination is a</span>
+                <span class="c">// separate billed metric series, for ever.</span>
+                Dimensions: [][]string{{"service", "operation"}},
+                Metrics:    []metricDef{{Name: "latency", Unit: "Milliseconds"}},
+            }},
+        },
+        <span class="c">// Dimensions must also appear as top-level fields.</span>
+        "service":   "orders-api",
+        "operation": op,
+        "latency":   d.Milliseconds(),
+        <span class="c">// High-cardinality context: searchable in Logs Insights, but NOT a</span>
+        <span class="c">// dimension, so not billed as thousands of metric series.</span>
+        "tenantId": tenant,
+        "orderId":  order,
+        "traceId":  trace,
+    }
+    _ = json.NewEncoder(os.Stdout).Encode(rec)
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># EMF: a metric and its context in one stdout line. CloudWatch parses it and</span>
+<span class="c"># creates the metrics; every other field stays queryable in Logs Insights.</span>
+<span class="c"># No API call, no added latency, no throttling. Powertools writes the format.</span>
+from aws_lambda_powertools import Metrics
+from aws_lambda_powertools.metrics import MetricUnit
+
+metrics = Metrics(namespace="Orders", service="orders-api")
+
+
+def place_order(tenant_id: str, order_id: str, elapsed_ms: float):
+    <span class="c"># Dimensions: the two or three you would actually alarm on. Every unique</span>
+    <span class="c"># combination is a separate billed metric series, for ever.</span>
+    metrics.add_dimension(name="operation", value="place_order")
+    metrics.add_metric(name="latency", unit=MetricUnit.Milliseconds, value=elapsed_ms)
+
+    <span class="c"># High-cardinality context goes in metadata: searchable in Logs Insights,</span>
+    <span class="c"># attached to the same record, and NOT a billed metric series.</span>
+    metrics.add_metadata(key="tenantId", value=tenant_id)
+    metrics.add_metadata(key="orderId", value=order_id)
+
+
+<span class="c"># Correlate logs with traces so one click goes from alarm to request:</span>
+logger = Logger(service="orders-api")
+logger.info("order placed", extra={"orderId": order_id})
+<span class="c"># Powertools injects xray_trace_id automatically when tracing is enabled.</span>
+
+<span class="c"># The Logs Insights query that turns those lines into an answer:</span>
+<span class="c">#   fields @timestamp, tenantId, latency</span>
+<span class="c">#   | filter operation = "place_order" and latency &gt; 1000</span>
+<span class="c">#   | stats count(*) as slow, pct(latency, 99) as p99 by bin(5m), tenantId</span>
+<span class="c">#   | sort slow desc | limit 20</span></pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Alarm on</th><th>Threshold shape</th><th>Because</th></tr></thead>
+          <tbody>
+            <tr><td>Error rate, as a ratio</td><td>Metric maths: <code>5xx / requests</code>, over 3 of 5 datapoints</td><td>An absolute count alarms at 3&nbsp;a.m. on a traffic spike and stays silent during a quiet-hours outage.</td></tr>
+            <tr><td>p99 latency</td><td>Above your SLO, sustained</td><td>Averages hide everything. If you alarm on one latency statistic, make it the tail.</td></tr>
+            <tr><td>Queue age</td><td><code>ApproximateAgeOfOldestMessage</code></td><td>Depth tells you how much work there is; age tells you whether anyone is doing it. Age is the one that means &ldquo;stuck&rdquo;.</td></tr>
+            <tr><td>DLQ depth</td><td>Any value above zero</td><td>Every message there is a bug with a reproduction attached.</td></tr>
+            <tr><td>Iterator age</td><td>A fraction of your retention</td><td>Rising age has a deadline: when it reaches retention, data is gone.</td></tr>
+            <tr><td>Missing data</td><td>Treat as <code>notBreaching</code> for spiky metrics, <code>breaching</code> for heartbeats</td><td>The default of <code>missing</code> means a job that stopped emitting entirely never alarms &mdash; the exact failure you cared about.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>Set log retention on every group, today</h4>
+        <p>New log groups keep data for ever unless told otherwise, and the ones created implicitly by Lambda and ECS are the easiest to forget. Thirty days for application logs and a year for audit trails is a defensible default; anything you truly need for longer belongs in S3 through a subscription filter, at a twentieth of the price.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="secrets">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>Secrets, parameters and KMS</h3>
+        <p class="lede">KMS never gives you a key &mdash; it gives you a key encrypted under a key, and a decrypted copy to use immediately. Everything above it, Secrets Manager included, is that trick plus a place to keep the ciphertext.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 372" role="img" aria-label="Envelope encryption: a data key generated by KMS returned in both plaintext and encrypted form, used locally to encrypt data, with the encrypted copy stored alongside; plus the rotation staging labels of Secrets Manager and a comparison with Parameter Store.">
+          <defs>
+            <marker id="aw-19" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ENVELOPE ENCRYPTION &mdash; WHY KMS SCALES AT ALL</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="170" height="56" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="30" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">GenerateDataKey</text>
+            <text x="30" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">one call to KMS</text>
+            <text x="30" y="84" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">the master key never leaves</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="230" y="26" width="200" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="240" y="46" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">plaintext key &middot; use, then wipe</text>
+            <line x1="194" y1="56" x2="226" y2="44" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-19)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="230" y="68" width="200" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="240" y="88" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">encrypted key &middot; store it</text>
+            <line x1="194" y1="68" x2="226" y2="80" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-19)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="470" y="26" width="180" height="72" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="480" y="46" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">YOUR OBJECT</text>
+            <text x="480" y="64" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">ciphertext + the wrapped</text>
+            <text x="480" y="80" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">key, side by side</text>
+            <line x1="434" y1="41" x2="466" y2="52" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-19)"/>
+            <line x1="434" y1="83" x2="466" y2="72" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-19)"/>
+          </g>
+
+          <text x="676" y="46" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Bulk data is encrypted locally at</text>
+          <text x="676" y="62" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">memory speed. KMS is called once</text>
+          <text x="676" y="78" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">per key, not once per byte &mdash; and</text>
+          <text x="676" y="94" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">that is what S3 bucket keys reuse.</text>
+
+          <line x1="20" y1="126" x2="880" y2="126" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="148" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Rotation, and the window where both are valid</text>
+
+          <line x1="40" y1="200" x2="860" y2="200" stroke="currentColor" stroke-width="1.4"/>
+          <g class="svg-l1">
+            <line x1="110" y1="188" x2="110" y2="212" stroke="currentColor" stroke-width="1.6"/>
+            <text x="66" y="182" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">createSecret</text>
+            <text x="60" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">new value stored</text>
+            <text x="60" y="244" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">as AWSPENDING</text>
+          </g>
+          <g class="svg-l2">
+            <line x1="360" y1="188" x2="360" y2="212" stroke="currentColor" stroke-width="1.6"/>
+            <text x="326" y="182" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">setSecret</text>
+            <text x="300" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">the database now accepts</text>
+            <text x="300" y="244" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">BOTH old and new</text>
+          </g>
+          <g class="svg-l2">
+            <line x1="600" y1="188" x2="600" y2="212" stroke="currentColor" stroke-width="1.6"/>
+            <text x="566" y="182" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">testSecret</text>
+            <text x="540" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">connect with the pending</text>
+            <text x="540" y="244" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">value, or roll back</text>
+          </g>
+          <g class="svg-l1">
+            <line x1="830" y1="188" x2="830" y2="212" stroke="currentColor" stroke-width="1.6"/>
+            <text x="790" y="182" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">finishSecret</text>
+            <text x="734" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">AWSPENDING becomes</text>
+            <text x="734" y="244" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">AWSCURRENT</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="20" y="272" width="860" height="82" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="32" y="292" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">THE APPLICATION&rsquo;S JOB IN ALL OF THIS</text>
+            <text x="32" y="312" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Cache the secret &mdash; a fetch per request costs money and latency and will eventually throttle. But re-fetch on an</text>
+            <text x="32" y="328" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">authentication failure rather than only on a timer, or the pods that cached the old password keep failing until the</text>
+            <text x="32" y="344" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">TTL happens to expire. Both halves are required; one without the other is the outage.</text>
+          </g>
+        </svg>
+        <figcaption><b>Rotation breaks applications that only refresh on a timer.</b> The safe pattern is a cache with a moderate TTL <i>plus</i> an explicit invalidation triggered by an authentication error, so a rotated credential costs you one failed connection rather than an hour of them. The AWS Parameters and Secrets Lambda extension implements exactly this as a local HTTP cache, if you would rather not write it.</figcaption>
+      </figure>
+
+<pre class="l2" data-lang="go"><span class="c">// Cache with a TTL, and refresh on demand when authentication fails.</span>
+<span class="c">// Both halves matter: the cache saves money, the invalidation survives rotation.</span>
+type SecretCache struct {
+    mu    sync.RWMutex
+    sm    *secretsmanager.Client
+    ttl   time.Duration
+    value string
+    at    time.Time
+}
+
+func (c *SecretCache) Get(ctx context.Context, force bool) (string, error) {
+    c.mu.RLock()
+    if !force &amp;&amp; c.value != "" &amp;&amp; time.Since(c.at) &lt; c.ttl {
+        v := c.value
+        c.mu.RUnlock()
+        return v, nil
+    }
+    c.mu.RUnlock()
+
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    if !force &amp;&amp; c.value != "" &amp;&amp; time.Since(c.at) &lt; c.ttl {
+        return c.value, nil                    <span class="c">// another goroutine refreshed it</span>
+    }
+
+    out, err := c.sm.GetSecretValue(ctx, &amp;secretsmanager.GetSecretValueInput{
+        SecretId:     aws.String("orders/db"),
+        VersionStage: aws.String("AWSCURRENT"),   <span class="c">// never pin a version id</span>
+    })
+    if err != nil {
+        return "", err
+    }
+    c.value, c.at = aws.ToString(out.SecretString), time.Now()
+    return c.value, nil
+}
+
+<span class="c">// At the call site: one retry with force=true turns a rotation from an outage</span>
+<span class="c">// into a single failed connection.</span>
+pw, _ := cache.Get(ctx, false)
+if err := connect(ctx, pw); errors.Is(err, ErrAuth) {
+    pw, _ = cache.Get(ctx, true)
+    err = connect(ctx, pw)
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># Cache with a TTL, and refresh on demand when authentication fails.</span>
+<span class="c"># Both halves matter: the cache saves money, the invalidation survives rotation.</span>
+import threading, time
+
+SM = boto3.client("secretsmanager", config=CFG)
+
+
+class SecretCache:
+    def __init__(self, secret_id: str, ttl: float = 900.0):
+        self._id, self._ttl = secret_id, ttl
+        self._lock = threading.Lock()
+        self._value: str | None = None
+        self._at = 0.0
+
+    def get(self, force: bool = False) -&gt; str:
+        fresh = self._value is not None and time.monotonic() - self._at &lt; self._ttl
+        if fresh and not force:
+            return self._value
+        with self._lock:
+            <span class="c"># re-check: another thread may have refreshed while we waited</span>
+            fresh = self._value is not None and time.monotonic() - self._at &lt; self._ttl
+            if fresh and not force:
+                return self._value
+            res = SM.get_secret_value(
+                SecretId=self._id,
+                VersionStage="AWSCURRENT",     <span class="c"># never pin a version id</span>
+            )
+            self._value, self._at = res["SecretString"], time.monotonic()
+            return self._value
+
+
+<span class="c"># At the call site: one retry with force=True turns a rotation from an outage</span>
+<span class="c"># into a single failed connection.</span>
+cache = SecretCache("orders/db")
+try:
+    connect(cache.get())
+except AuthError:
+    connect(cache.get(force=True))</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th></th><th>Secrets Manager</th><th>SSM Parameter Store</th></tr></thead>
+          <tbody>
+            <tr><td>Price</td><td>Per secret per month, plus per API call</td><td>Standard tier is free; the advanced tier is charged per parameter</td></tr>
+            <tr><td>Rotation</td><td>Built in, with a Lambda and staging labels</td><td>None &mdash; you write it</td></tr>
+            <tr><td>Native integrations</td><td>RDS, Redshift, DocumentDB rotation; ECS and Lambda injection</td><td>ECS and Lambda injection, and almost every IaC tool</td></tr>
+            <tr><td>Structure</td><td>Flat names, JSON values, cross-region replicas</td><td>Hierarchical paths, and <code>GetParametersByPath</code> to fetch a whole tree</td></tr>
+            <tr><td>Use it for</td><td>Anything that rotates: database credentials, third-party API keys</td><td>Configuration, feature flags, ARNs, and secrets that never rotate</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pair">
+        <div class="note">
+          <h4>Key policies come first</h4>
+          <p>A KMS key&rsquo;s own policy is authoritative: an IAM policy granting <code>kms:Decrypt</code> does nothing unless the key policy delegates to IAM in that account. This is the reason cross-account S3 reads fail with a KMS error that names a role which visibly has the permission.</p>
+        </div>
+        <div class="note warn">
+          <h4>Never put a secret in a task definition</h4>
+          <p>Plain <code>environment</code> values are visible to anyone with <code>ecs:DescribeTaskDefinition</code>, and they live in every revision for ever. Use the <code>secrets</code> block, which resolves an ARN at task start using the execution role &mdash; the value never appears in the definition, the API, or the console.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="topic" id="cost">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>The bill, and where it actually comes from</h3>
+        <p class="lede">On a small-to-medium account the top of the bill is rarely compute. It is data movement, log ingestion, and things nobody deleted &mdash; all of which are invisible in the architecture diagram.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 356" role="img" aria-label="A ranked list of the costs that surprise teams — NAT gateway processing, cross-availability-zone traffic, CloudWatch log ingestion, unattached storage, over-provisioned tasks — with the fix beside each, and a note on data transfer directions and prices.">
+          <defs>
+            <marker id="aw-20" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE LINES THAT SURPRISE PEOPLE, ROUGHLY IN ORDER</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="32" width="530" height="30" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">NAT gateway &middot; hourly per AZ + every gigabyte processed</text>
+            <text x="566" y="52" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Gateway endpoints for S3 and</text>
+            <text x="566" y="64" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">DynamoDB are free. Add them.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="20" y="76" width="530" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="96" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">cross-AZ traffic &middot; charged in BOTH directions</text>
+            <text x="566" y="96" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Keep chatty pairs zone-local;</text>
+            <text x="566" y="108" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">know what cross-zone costs.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="20" y="120" width="530" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="140" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">CloudWatch Logs &middot; per GB ingested, then stored for ever</text>
+            <text x="566" y="140" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Set retention. Drop debug logs</text>
+            <text x="566" y="152" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">at the source, not in a filter.</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="20" y="164" width="530" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="184" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">nobody deleted it &middot; EBS volumes, snapshots, idle endpoints</text>
+            <text x="566" y="184" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">A monthly sweep, scripted,</text>
+            <text x="566" y="196" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">beats an annual panic.</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="20" y="208" width="530" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="228" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">over-provisioned tasks &middot; 4 vCPU using 0.3</text>
+            <text x="566" y="228" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Right-size from p95 usage,</text>
+            <text x="566" y="240" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">then move to Graviton.</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="20" y="252" width="530" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="272" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">actual compute &middot; the thing you thought you were buying</text>
+            <text x="566" y="272" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Savings Plans once the shape</text>
+            <text x="566" y="284" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">is stable. Not before.</text>
+          </g>
+
+          <line x1="20" y1="300" x2="880" y2="300" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="322" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor"><tspan font-weight="600">Data transfer, in one line:</tspan> in from the internet is free; out to the internet is charged; between zones is charged both ways;</text>
+          <text x="20" y="340" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">within a zone using private addresses is free; and out through CloudFront is cheaper than out through anything else.</text>
+        </svg>
+        <figcaption><b>Tag before you optimise.</b> Without cost allocation tags every conversation about the bill is anecdotal. One required tag &mdash; the owning team or service, enforced by a tag policy and checked in CI &mdash; converts a single opaque invoice into a set of per-service numbers that the people who can act on them actually see.</figcaption>
+      </figure>
+
+<pre class="l1" data-lang="go"><span class="c">// Month over month, by service, biggest increase first. Ten seconds of API</span>
+<span class="c">// calls that answers "why is the bill up" better than any dashboard.</span>
+ce := costexplorer.NewFromConfig(cfg)
+
+get := func(start, end string) (map[string]float64, error) {
+    out, err := ce.GetCostAndUsage(ctx, &amp;costexplorer.GetCostAndUsageInput{
+        TimePeriod:  &amp;types.DateInterval{Start: aws.String(start), End: aws.String(end)},
+        Granularity: types.GranularityMonthly,
+        Metrics:     []string{"UnblendedCost"},
+        GroupBy: []types.GroupDefinition{
+            {Type: types.GroupDefinitionTypeDimension, Key: aws.String("SERVICE")},
+        },
+    })
+    if err != nil {
+        return nil, err
+    }
+    m := map[string]float64{}
+    for _, r := range out.ResultsByTime {
+        for _, g := range r.Groups {
+            v, _ := strconv.ParseFloat(aws.ToString(g.Metrics["UnblendedCost"].Amount), 64)
+            m[g.Keys[0]] += v
+        }
+    }
+    return m, nil
+}
+
+prev, _ := get("2026-07-01", "2026-08-01")
+curr, _ := get("2026-08-01", "2026-09-01")
+type row struct {
+    svc           string
+    amount, delta float64
+}
+rows := make([]row, 0, len(curr))
+for svc, amount := range curr {
+    rows = append(rows, row{svc, amount, amount - prev[svc]})
+}
+<span class="c">// a map has no order, so sort — otherwise "biggest increase first" is a lie</span>
+sort.Slice(rows, func(i, j int) bool { return rows[i].delta &gt; rows[j].delta })
+
+for _, r := range rows {
+    if r.delta &gt; 50 {                        <span class="c">// only what is worth a conversation</span>
+        fmt.Printf("%-42s %8.2f  (%+.2f)\n", r.svc, r.amount, r.delta)
+    }
+}</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># Month over month, by service, biggest increase first. Ten seconds of API</span>
+<span class="c"># calls that answers "why is the bill up" better than any dashboard.</span>
+CE = boto3.client("ce", region_name="us-east-1")   <span class="c"># Cost Explorer is us-east-1</span>
+
+
+def by_service(start: str, end: str) -&gt; dict[str, float]:
+    res = CE.get_cost_and_usage(
+        TimePeriod={"Start": start, "End": end},
+        Granularity="MONTHLY",
+        Metrics=["UnblendedCost"],
+        GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
+    )
+    out: dict[str, float] = {}
+    for period in res["ResultsByTime"]:
+        for g in period["Groups"]:
+            out[g["Keys"][0]] = out.get(g["Keys"][0], 0.0) + float(
+                g["Metrics"]["UnblendedCost"]["Amount"]
+            )
+    return out
+
+
+prev = by_service("2026-07-01", "2026-08-01")
+curr = by_service("2026-08-01", "2026-09-01")
+
+rows = [(svc, amt, amt - prev.get(svc, 0.0)) for svc, amt in curr.items()]
+for svc, amt, delta in sorted(rows, key=lambda r: -r[2]):
+    if delta &gt; 50:                     <span class="c"># only what is worth a conversation</span>
+        print(f"{svc:&lt;42} {amt:8.2f}  ({delta:+.2f})")</pre>
+
+      <div class="callout">
+        <h4>Three habits worth more than any optimisation</h4>
+        <p>Turn on <b>Cost Anomaly Detection</b> the day you open the account &mdash; it is free, and it emails you about the mistake rather than letting the invoice do it. Put a <b>budget with an alert</b> at 80% of what you expect to spend, so a runaway loop is a notification instead of a quarter. And run a <b>monthly sweep</b> for unattached volumes, forgotten snapshots, idle load balancers, empty NAT gateways and log groups with no retention. Between them these cost nothing and catch nearly everything.</p>
+      </div>
+    </section>
+  </div>
+</section>

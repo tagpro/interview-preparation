@@ -1,0 +1,396 @@
+<section class="part" id="ecosystem">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part eight</span>
+      <h2>The ecosystem, and the taste that goes with it</h2>
+      <p>Python&rsquo;s standard library is famously large and famously not enough. Almost every job has a conventional answer &mdash; knowing which one, and what arrives in your image alongside it, is most of what &ldquo;experienced in Python&rdquo; means in practice.</p>
+    </div>
+
+    <section class="topic" id="libraries">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>The library map</h3>
+        <p class="lede">There is a default choice for nearly every job. Deviating from it is completely fine &mdash; it just needs a reason you can say out loud, because the default is what the next person on the team will already know how to debug.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 292" role="img" aria-label="One HTTP request travelling through uvicorn, FastAPI, pydantic and a handler, which then fans out to SQLAlchemy, httpx and a task queue, with structlog and OpenTelemetry wired across all of it.">
+          <defs>
+            <marker id="pe-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE REQUEST, AND THE LIBRARY AT EACH HOP</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="32" width="90" height="44" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="59" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">client</text>
+            <line x1="112" y1="54" x2="136" y2="54" stroke="currentColor" stroke-width="1.3" marker-end="url(#pe-1)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="140" y="32" width="130" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="152" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">uvicorn</text>
+            <text x="152" y="68" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">ASGI server</text>
+            <line x1="272" y1="54" x2="296" y2="54" stroke="currentColor" stroke-width="1.3" marker-end="url(#pe-1)"/>
+            <rect x="300" y="32" width="140" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="312" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">FastAPI</text>
+            <text x="312" y="68" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">routing, DI, OpenAPI</text>
+            <line x1="442" y1="54" x2="466" y2="54" stroke="currentColor" stroke-width="1.3" marker-end="url(#pe-1)"/>
+            <rect x="470" y="32" width="140" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="482" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">pydantic v2</text>
+            <text x="482" y="68" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">parse, coerce, reject</text>
+            <line x1="612" y1="54" x2="636" y2="54" stroke="currentColor" stroke-width="1.3" marker-end="url(#pe-1)"/>
+            <rect x="640" y="32" width="150" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="652" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">your handler</text>
+            <text x="652" y="68" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">the only novel part</text>
+          </g>
+
+          <g class="svg-l2">
+            <line x1="715" y1="78" x2="715" y2="100" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="145" y1="100" x2="715" y2="100" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="145" y1="100" x2="145" y2="118" stroke="currentColor" stroke-width="1.3" marker-end="url(#pe-1)"/>
+            <line x1="425" y1="100" x2="425" y2="118" stroke="currentColor" stroke-width="1.3" marker-end="url(#pe-1)"/>
+            <line x1="705" y1="100" x2="705" y2="118" stroke="currentColor" stroke-width="1.3" marker-end="url(#pe-1)"/>
+            <rect x="20" y="122" width="250" height="48" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="142" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">SQLAlchemy 2.0</text>
+            <text x="32" y="160" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">+ asyncpg, Alembic for migrations</text>
+            <rect x="300" y="122" width="250" height="48" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="312" y="142" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">httpx</text>
+            <text x="312" y="160" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">async client, timeouts always set</text>
+            <rect x="580" y="122" width="250" height="48" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="592" y="142" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">arq / Celery</text>
+            <text x="592" y="160" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">work that must outlive the request</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="20" y="190" width="860" height="58" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="34" y="212" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">structlog &rarr; one JSON object per line on stdout</text>
+            <text x="34" y="234" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">OpenTelemetry SDK &rarr; spans carrying one correlation id across every hop above</text>
+          </g>
+          <text x="866" y="212" text-anchor="end" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">cross-cutting,</text>
+          <text x="866" y="234" text-anchor="end" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">wired once in main</text>
+
+          <text x="20" y="276" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Everything above the handler parses and routes; everything below it does input and output. The novel code is one box wide.</text>
+        </svg>
+        <figcaption><b>A conventional Python service is mostly assembly.</b> Five well-known libraries and one box of your own logic &mdash; which is the point: the boring parts are boring because thousands of people already debugged them.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Job</th><th>The default</th><th>Also common</th><th>What to know</th></tr></thead>
+          <tbody>
+            <tr><td>HTTP API</td><td><code>FastAPI</code></td><td><code>Django</code>, <code>Flask</code>, <code>Litestar</code></td><td>FastAPI derives validation and OpenAPI from your type hints. Django when you want the admin, auth and ORM as one decision</td></tr>
+            <tr><td>Serving it</td><td><code>uvicorn</code> (ASGI)</td><td><code>gunicorn</code> (WSGI), <code>granian</code></td><td>In production, <code>uvicorn --workers N</code> &mdash; it grew a real multiprocess manager, so gunicorn is no longer the assumed supervisor (if you do keep it, the worker class now lives in the separate <code>uvicorn-worker</code> package); one worker per core as a starting point</td></tr>
+            <tr><td>Validation</td><td><code>pydantic</code> v2</td><td><code>attrs</code>+<code>cattrs</code>, <code>msgspec</code></td><td>v2&rsquo;s core is Rust and roughly 5&ndash;20&times; faster than v1. Validate at the edge only &mdash; not on every internal call</td></tr>
+            <tr><td>Database</td><td><code>SQLAlchemy</code> 2.0</td><td>Django ORM, <code>SQLModel</code>, raw <code>psycopg</code></td><td>2.0 style is typed and async-capable. Know how to see the emitted SQL, and what N+1 looks like in a log</td></tr>
+            <tr><td>Migrations</td><td><code>alembic</code></td><td>Django migrations</td><td>Autogenerate drafts, humans edit. Every migration needs to be safe to run while the old code is still serving</td></tr>
+            <tr><td>HTTP client</td><td><code>httpx</code></td><td><code>requests</code>, <code>aiohttp</code></td><td><code>requests</code> is sync-only and has no default timeout &mdash; the single most common source of a hung worker</td></tr>
+            <tr><td>Background work</td><td><code>Celery</code></td><td><code>arq</code>, <code>dramatiq</code>, <code>RQ</code>, Temporal</td><td>At-least-once delivery, so tasks must be idempotent. <code>arq</code> is the small asyncio-native option</td></tr>
+            <tr><td>Testing</td><td><code>pytest</code></td><td><code>unittest</code> (stdlib)</td><td>Plus <code>pytest-asyncio</code>, <code>hypothesis</code> for property tests, <code>testcontainers</code> for a real database, <code>respx</code>/<code>responses</code> for HTTP</td></tr>
+            <tr><td>CLI</td><td><code>typer</code> / <code>click</code></td><td><code>argparse</code> (stdlib)</td><td><code>typer</code> builds the parser from type hints; <code>argparse</code> is fine and adds no dependency</td></tr>
+            <tr><td>Config</td><td><code>pydantic-settings</code></td><td><code>environs</code>, <code>dynaconf</code></td><td>One settings object, validated at start-up, failing loudly. Never <code>os.environ[...]</code> scattered through the code</td></tr>
+            <tr><td>Logging</td><td><code>structlog</code></td><td><code>logging</code> + a JSON formatter</td><td>Structured fields, not formatted strings. Configure once in <code>main</code>; libraries only ever call <code>getLogger(__name__)</code></td></tr>
+            <tr><td>Observability</td><td>OpenTelemetry</td><td><code>prometheus-client</code>, <code>sentry-sdk</code></td><td>Auto-instrumentation covers the popular frameworks. Traces answer &ldquo;where did the time go&rdquo;; metrics answer &ldquo;how often&rdquo;</td></tr>
+            <tr><td>Data work</td><td><code>polars</code> or <code>pandas</code></td><td><code>duckdb</code>, <code>pyarrow</code></td><td><code>pandas</code> has the ecosystem; <code>polars</code> has a query optimiser and far lower memory. <code>duckdb</code> when SQL is simply the better language</td></tr>
+            <tr><td>Numerics</td><td><code>numpy</code></td><td><code>scipy</code>, <code>scikit-learn</code>, <code>torch</code></td><td>Vectorised operations sidestep both the interpreter and the GIL &mdash; the loop runs in C, with the lock released</td></tr>
+            <tr><td>Odds and ends</td><td>&mdash;</td><td><code>tenacity</code>, <code>orjson</code>, <code>zoneinfo</code></td><td>Retries with backoff and jitter; fast JSON; stdlib time zones &mdash; and <code>datetime.now(UTC)</code>, never <code>utcnow()</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Reach for the standard library first</h4>
+          <ul>
+            <li><strong>It is genuinely large</strong> &mdash; <code>pathlib</code>, <code>dataclasses</code>, <code>itertools</code>, <code>functools</code>, <code>collections</code>, <code>json</code>, <code>datetime</code>, <code>subprocess</code>, <code>sqlite3</code>, <code>secrets</code>.</li>
+            <li><strong><code>collections</code> earns its keep</strong>: <code>Counter</code>, <code>defaultdict</code>, <code>deque</code> for an O(1) queue.</li>
+            <li><strong><code>pathlib</code> over <code>os.path</code></strong> &mdash; <code>path / "sub" / "file.txt"</code> reads better and handles platforms for you.</li>
+            <li><strong>A dependency is a permanent cost.</strong> Ten lines you own beat a package you must patch, audit and upgrade forever.</li>
+            <li>Check when a package was last released before adopting it. Python has a long tail of dead but well-ranked libraries.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Know the default and why it won</h4>
+          <ul>
+            <li><strong>FastAPI + pydantic + SQLAlchemy + pytest</strong> is the modern service stack; Django is the other coherent answer, and mixing the halves of the two is the usual mistake.</li>
+            <li><strong>Async is all-or-nothing per call path.</strong> One synchronous database driver inside an async handler blocks the whole event loop &mdash; see the earlier asyncio topic.</li>
+            <li><strong>Set timeouts on every client</strong> &mdash; HTTP, database, cache. A default of &ldquo;wait forever&rdquo; is how one slow dependency takes down a whole fleet.</li>
+            <li><strong>Pin the framework major version</strong> and read its migration guide before bumping. Pydantic v1&rarr;v2 was a genuine rewrite.</li>
+            <li>Prefer libraries that ship <code>py.typed</code>; untyped dependencies punch holes straight through your type checking.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Evaluate before you adopt</h4>
+          <ul>
+            <li><strong>Read the release notes and the issue tracker</strong>, not the landing page. Open-issue age and maintainer count predict your next two years better than benchmarks do.</li>
+            <li><strong>Rust-backed cores</strong> (<code>pydantic-core</code>, <code>ruff</code>, <code>polars</code>, <code>orjson</code>) are the defining shift of the last few years: Python at the edges, native code where the loop is hot.</li>
+            <li><strong>C extensions constrain you</strong> &mdash; wheels for your platform, ABI compatibility, and how the package behaves under free-threaded builds.</li>
+            <li><strong>Wrap third-party clients behind your own thin interface</strong> at the boundaries you expect to churn. Not everywhere &mdash; only where you have a real reason to think the library will change.</li>
+            <li><strong>Measure before adopting a &ldquo;faster&rdquo; library.</strong> <code>orjson</code> is genuinely quicker, and irrelevant if you spend 40&nbsp;ms in the database and 0.4&nbsp;ms in JSON.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="supplychain">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>The dependencies you did not choose</h3>
+        <p class="lede">You pick six packages and install eighty-four. Every one of the other seventy-eight runs arbitrary code at install time and at import time, with your credentials in the environment. That is not paranoia, it is just what <code>pip install</code> does.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 336" role="img" aria-label="Six chosen dependencies expanding into eighty-four installed packages, most of them transitive, and four controls below: a hash-pinned lockfile, an auditing tool, an update bot and human review of new dependencies.">
+          <defs>
+            <marker id="pe-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT YOU CHOSE, AND WHAT YOU INSTALLED</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="34" width="180" height="76" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="56" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">pyproject.toml</text>
+            <text x="32" y="76" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">6 direct dependencies</text>
+            <text x="32" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">you read about all six</text>
+            <line x1="202" y1="72" x2="226" y2="72" stroke="currentColor" stroke-width="1.3" marker-end="url(#pe-2)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="236" y="40" width="16" height="16" fill="currentColor"/>
+            <rect x="258" y="40" width="16" height="16" fill="currentColor"/>
+            <rect x="280" y="40" width="16" height="16" fill="currentColor"/>
+            <rect x="302" y="40" width="16" height="16" fill="currentColor"/>
+            <rect x="324" y="40" width="16" height="16" fill="currentColor"/>
+            <rect x="346" y="40" width="16" height="16" fill="currentColor"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="236" y="62" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="258" y="62" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="280" y="62" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="302" y="62" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="324" y="62" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="346" y="62" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="236" y="84" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="258" y="84" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="280" y="84" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="302" y="84" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="324" y="84" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="346" y="84" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="380" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">84 packages on disk</text>
+            <text x="380" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">78 arrived uninvited</text>
+            <text x="380" y="90" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">each runs code at import</text>
+            <line x1="562" y1="72" x2="586" y2="72" stroke="currentColor" stroke-width="1.3" marker-end="url(#pe-2)"/>
+            <rect x="596" y="34" width="284" height="76" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="610" y="56" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">the blast radius</text>
+            <text x="610" y="76" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Any one of them can read the same</text>
+            <text x="610" y="94" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">environment your credentials live in.</text>
+          </g>
+
+          <line x1="20" y1="130" x2="880" y2="130" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="154" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">FOUR CONTROLS, EACH CATCHING A DIFFERENT THING</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="168" width="205" height="106" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="190" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">lockfile + hashes</text>
+            <text x="32" y="212" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.7">CATCHES</text>
+            <text x="32" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">an artefact changing</text>
+            <text x="32" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">underneath a version</text>
+            <text x="32" y="262" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">you already reviewed</text>
+
+            <rect x="239" y="168" width="205" height="106" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="251" y="190" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">pip-audit in CI</text>
+            <text x="251" y="212" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.7">CATCHES</text>
+            <text x="251" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">published CVEs, deep in</text>
+            <text x="251" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">the tree, in packages</text>
+            <text x="251" y="262" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">you never named</text>
+
+            <rect x="458" y="168" width="205" height="106" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="470" y="190" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Dependabot</text>
+            <text x="470" y="212" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.7">CATCHES</text>
+            <text x="470" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">drift &mdash; the two-year</text>
+            <text x="470" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">upgrade that has to</text>
+            <text x="470" y="262" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">happen all at once</text>
+
+          </g>
+
+          <g class="svg-l1">
+            <rect x="677" y="168" width="203" height="106" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="689" y="190" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">reviewing new deps</text>
+            <text x="689" y="212" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.7">CATCHES</text>
+            <text x="689" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">typosquats, abandoned</text>
+            <text x="689" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">projects, and the ones</text>
+            <text x="689" y="262" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">nothing else can see</text>
+          </g>
+
+          <text x="20" y="304" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Only the fourth is a human control, and it is the only one that catches a package that is malicious rather than merely out of date.</text>
+        </svg>
+        <figcaption><b>The tree is the attack surface, not the manifest.</b> Three of these four controls are configuration you set once. The fourth is a habit: someone reads the name, the release history and the maintainer before a new import lands on <code>main</code>.</figcaption>
+      </figure>
+
+      <pre class="l3"><span class="c"># the supply-chain job, in about six lines of CI</span>
+- run: uv sync --frozen                <span class="c"># fail if the lock is stale</span>
+- run: uv run pip-audit                <span class="c"># known CVEs in the whole tree</span>
+- run: uv run ruff check --select S    <span class="c"># shell=True, weak hashes, secrets</span>
+- run: uv run mypy .
+- run: uv run pytest --cov --cov-fail-under=80
+
+<span class="c"># and in the Dockerfile: resolve in one stage, run in a slim one</span>
+FROM python:3.13-slim AS runtime
+COPY --from=build /app/.venv /app/.venv
+USER 1000                              <span class="c"># never root</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Know what installing actually does</h4>
+          <ul>
+            <li><strong>Installing runs code.</strong> A source distribution executes its build script; every package executes its <code>__init__</code> on first import.</li>
+            <li><strong>Check the name character by character.</strong> Typosquats live on PyPI on purpose &mdash; <code>python-dateutil</code> is real, plausible neighbours are not.</li>
+            <li><strong>Never commit a secret</strong>, even in a test fixture; use <code>.env</code> files that are git-ignored, and a real secret manager in production.</li>
+            <li><strong>Do not <code>pip install</code> as root</strong> in an image, and do not run the container as root either.</li>
+            <li><code>pip list --outdated</code> once a month beats a two-year upgrade in one sitting.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Automate the boring three</h4>
+          <ul>
+            <li><strong><code>pip-audit</code></strong> checks the resolved tree against the Python advisory database; run it in CI and on a schedule, since new CVEs land against code you have not touched.</li>
+            <li><strong>Dependabot or Renovate</strong> for grouped, automatic upgrade PRs. Small and frequent, so the diff is readable.</li>
+            <li><strong>Slim base images</strong> &mdash; <code>python:3.13-slim</code> over full, and be wary of <code>alpine</code>: musl means no <code>manylinux</code> wheels and long source builds.</li>
+            <li><strong>Separate build and runtime stages</strong> so compilers never ship to production.</li>
+            <li><strong>SBOM</strong> generation (CycloneDX) is increasingly a procurement requirement, and is one CI step.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Reduce what you have to trust</h4>
+          <ul>
+            <li><strong>Hash-pinned installs</strong> (<code>--require-hashes</code>, or a lockfile that stores digests) mean a compromised index cannot substitute an artefact for a version you already approved.</li>
+            <li><strong>A private index with an allowlist</strong> removes dependency confusion &mdash; the attack where an internal package name is registered publicly at a higher version.</li>
+            <li><strong>Trusted publishing</strong> via OIDC replaces long-lived PyPI tokens in CI; <strong>Sigstore</strong> attestations are the emerging provenance layer on top.</li>
+            <li><strong>Count what you actually import.</strong> Dropping one convenience wrapper often removes a dozen transitive packages.</li>
+            <li><strong>Vendoring is a legitimate answer</strong> for a small, stable, rarely-updated dependency &mdash; you trade upgrades for a tree you can read.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="idioms">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>What &ldquo;idiomatic&rdquo; means in review</h3>
+        <p class="lede">Idiomatic Python is not a style preference. Each of these rewrites removes a way for the code to be wrong &mdash; an index that can drift, a resource that can leak, an exception that can vanish. That is why reviewers keep asking for them.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 344" role="img" aria-label="Five pairs of code: on the left the version a reviewer will flag, on the right the idiomatic rewrite, with the name of each transformation between them.">
+          <defs>
+            <marker id="pe-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT GETS FLAGGED</text>
+          <text x="548" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT IS WANTED</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="34" width="336" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="61" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">for i in range(len(xs)): use(xs[i])</text>
+            <rect x="20" y="90" width="336" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="117" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">if len(items) &gt; 0:</text>
+            <rect x="20" y="146" width="336" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="173" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">if k not in d: d[k] = []</text>
+            <rect x="20" y="202" width="336" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="229" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">f = open(p); data = f.read(); f.close()</text>
+            <rect x="20" y="258" width="336" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="285" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">except Exception: pass</text>
+          </g>
+
+          <g class="svg-l2">
+            <text x="450" y="50" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.9">iterate the thing</text>
+            <line x1="362" y1="66" x2="538" y2="66" stroke="currentColor" stroke-width="1.2" marker-end="url(#pe-3)"/>
+            <text x="450" y="106" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.9">truthiness</text>
+            <line x1="362" y1="122" x2="538" y2="122" stroke="currentColor" stroke-width="1.2" marker-end="url(#pe-3)"/>
+            <text x="450" y="162" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.9">the stdlib has it</text>
+            <line x1="362" y1="178" x2="538" y2="178" stroke="currentColor" stroke-width="1.2" marker-end="url(#pe-3)"/>
+            <text x="450" y="218" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.9">context manager</text>
+            <line x1="362" y1="234" x2="538" y2="234" stroke="currentColor" stroke-width="1.2" marker-end="url(#pe-3)"/>
+            <text x="450" y="274" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.9">catch what you handle</text>
+            <line x1="362" y1="290" x2="538" y2="290" stroke="currentColor" stroke-width="1.2" marker-end="url(#pe-3)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="548" y="34" width="332" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="61" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">for x in xs: use(x)</text>
+            <rect x="548" y="90" width="332" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="117" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">if items:</text>
+            <rect x="548" y="146" width="332" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="173" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">d = defaultdict(list)</text>
+            <rect x="548" y="202" width="332" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="229" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">with open(p) as f: data = f.read()</text>
+            <rect x="548" y="258" width="332" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="285" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">except TimeoutError: log.warning(&hellip;)</text>
+          </g>
+
+          <text x="20" y="330" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">None of these are shorter for the sake of it. Each one deletes a state the wrong version could reach &mdash; a stale index, a leaked handle, a swallowed error.</text>
+        </svg>
+        <figcaption><b>Idiom as defect removal.</b> Ruff catches four of these five automatically; the fifth &mdash; which exception to catch &mdash; is a judgement about what your code can actually recover from, and no tool can make it for you.</figcaption>
+      </figure>
+
+      <div class="pair">
+        <div class="note">
+          <h4>The Zen, minus the poetry</h4>
+          <p><code>import this</code> prints nineteen lines. Three of them do real work in review. <strong>Explicit is better than implicit</strong> &mdash; pass the dependency, do not reach for a global. <strong>Flat is better than nested</strong> &mdash; guard clauses and early returns instead of an arrowhead of <code>if</code>s. <strong>Errors should never pass silently</strong> &mdash; the one that <code>except Exception: pass</code> violates every time.</p>
+        </div>
+        <div class="note warn">
+          <h4>Idioms that have quietly expired</h4>
+          <p><code>%</code> and <code>.format()</code> &rarr; f-strings. <code>os.path</code> &rarr; <code>pathlib</code>. <code>typing.List[int]</code> &rarr; <code>list[int]</code>, and <code>Optional[X]</code> &rarr; <code>X | None</code>. <code>datetime.utcnow()</code> &rarr; <code>datetime.now(UTC)</code>, because the old one returned a na&iuml;ve datetime that merely claimed to be UTC. <code>setup.py</code> &rarr; <code>pyproject.toml</code>. Ruff&rsquo;s <code>UP</code> rules fix most of this for you.</p>
+        </div>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Let the language do the work</h4>
+          <ul>
+            <li><strong>Iterate objects, not indices</strong>; <code>enumerate</code> when you genuinely need the position, <code>zip</code> when you have two sequences.</li>
+            <li><strong>Comprehensions for transform-and-filter</strong>, a loop for anything with side effects. If it needs a comment to read, make it a loop.</li>
+            <li><strong>Unpack</strong>: <code>a, b = b, a</code>, <code>first, *rest = items</code>.</li>
+            <li><strong>f-strings for everything</strong>, including <code>f"{value=}"</code> for debugging, which prints the expression and its result.</li>
+            <li><strong>t-strings (3.14+)</strong> &mdash; <code>t"where id = {user_id}"</code> builds a <code>Template</code> object instead of a string, so a library can escape or parameterise each interpolation before anything is joined. The answer to injection wherever an f-string would leave your program (SQL, HTML, shell).</li>
+            <li>Name things for what they are. <code>data</code>, <code>result</code> and <code>temp</code> tell the next reader nothing.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Structure the function itself</h4>
+          <ul>
+            <li><strong>Guard clauses first.</strong> Handle the impossible cases and return, so the happy path is at one indent level and reads top to bottom.</li>
+            <li><strong>Return one type.</strong> A function that returns a <code>dict</code>, or <code>None</code>, or raises, has three contracts and no callers who handle all of them.</li>
+            <li><strong>Keyword-only arguments</strong> (<code>*</code> in the signature) for booleans and options &mdash; <code>charge(amount, retry=True)</code> reads; <code>charge(amount, True)</code> does not.</li>
+            <li><strong>Small, pure core; thin, effectful shell.</strong> Push I/O to the edges and the middle becomes trivial to test.</li>
+            <li><strong>Docstring the why.</strong> The what is in the signature and the types; the why is the only thing a reader cannot reconstruct.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Know when to stop being clever</h4>
+          <ul>
+            <li><strong>Metaclasses, <code>__getattr__</code> magic and dynamic imports</strong> all work, and all defeat the type checker, the IDE and the next reader. The bar is high and it is rarely met.</li>
+            <li><strong>Prefer composition and <code>Protocol</code></strong> to deep inheritance; Python&rsquo;s MRO is well defined and still nobody wants to reason about it at 3am.</li>
+            <li><strong>Make illegal states unrepresentable</strong> &mdash; frozen dataclasses, enums instead of string flags, and a parsed type at the boundary rather than a validated <code>dict</code> passed onward.</li>
+            <li><strong>Consistency beats personal preference.</strong> In an existing codebase, the local convention wins; change it deliberately and everywhere, or not at all.</li>
+            <li><strong>Optimise for the reader who is on call.</strong> The next person to open this file will be tired, in a hurry and looking for one specific thing. Clever code charges them at exactly the worst moment.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </div>
+</section>

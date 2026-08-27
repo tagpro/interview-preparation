@@ -1,0 +1,815 @@
+<section class="part" id="perf">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part six</span>
+      <h2>Memory and speed</h2>
+      <p>Python costs roughly 10&ndash;100&times; a compiled language per operation, and every value is a heap object with a header. Neither fact is fixable by rewriting a loop more cleverly. What is fixable: doing fewer operations, holding fewer objects, and knowing which measurement answers which question.</p>
+    </div>
+
+    <section class="topic" id="memory">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>How CPython holds an object, and what that costs</h3>
+        <p class="lede">Every value is a separately allocated heap object carrying a reference count and a type pointer, and every container holds pointers to those objects rather than the values themselves. That is why an <code>int</code> is 28 bytes and a list of a million of them is not eight megabytes.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 392" role="img" aria-label="An integer object drawn as a header of refcount, type pointer and size followed by its digit, with a list holding pointers to such objects; below, a normal instance with a separate dictionary compared to the same class using slots, where the dictionary disappears and the values sit inside the object.">
+          <defs>
+            <marker id="pc-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="16" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">EVERY VALUE IS A HEAP OBJECT</text>
+          <text x="260" y="16" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A LIST HOLDS REFERENCES</text>
+          <text x="600" y="16" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A MILLION OF THEM</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="28" width="200" height="84" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <line x1="20" y1="49" x2="220" y2="49" stroke="currentColor" stroke-width="1"/>
+            <line x1="20" y1="70" x2="220" y2="70" stroke="currentColor" stroke-width="1"/>
+            <line x1="20" y1="91" x2="220" y2="91" stroke="currentColor" stroke-width="1"/>
+            <text x="32" y="43" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">ob_refcnt</text>
+            <text x="160" y="43" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">8 B</text>
+            <text x="32" y="64" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">ob_type</text>
+            <text x="160" y="64" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">8 B</text>
+            <text x="32" y="85" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">ob_size</text>
+            <text x="160" y="85" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">8 B</text>
+            <text x="32" y="106" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">the digit</text>
+            <text x="160" y="106" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">4 B</text>
+          </g>
+          <text x="20" y="132" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">int(12345) &mdash; 28 bytes</text>
+          <text x="20" y="150" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.75">24 bytes of that is header</text>
+
+          <text x="260" y="32" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">xs = [12345, 7, 99, &hellip;]</text>
+          <g class="svg-l2">
+            <rect x="260" y="40" width="280" height="34" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <line x1="316" y1="40" x2="316" y2="74" stroke="currentColor" stroke-width="1"/>
+            <line x1="372" y1="40" x2="372" y2="74" stroke="currentColor" stroke-width="1"/>
+            <line x1="428" y1="40" x2="428" y2="74" stroke="currentColor" stroke-width="1"/>
+            <line x1="484" y1="40" x2="484" y2="74" stroke="currentColor" stroke-width="1"/>
+            <text x="278" y="62" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">ptr</text>
+            <text x="334" y="62" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">ptr</text>
+            <text x="390" y="62" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">ptr</text>
+            <text x="446" y="62" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">ptr</text>
+            <text x="502" y="62" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">ptr</text>
+            <line x1="258" y1="57" x2="226" y2="57" stroke="currentColor" stroke-width="1.3" marker-end="url(#pc-1)"/>
+          </g>
+          <text x="260" y="94" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">each slot is one 8-byte pointer</text>
+          <text x="260" y="110" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">to an object that lives elsewhere</text>
+          <text x="260" y="132" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.7">slicing copies pointers, never values</text>
+
+          <g class="svg-l3">
+            <text x="600" y="44" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">the pointer array</text>
+            <text x="810" y="44" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">8 MB</text>
+            <text x="600" y="62" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">the int objects</text>
+            <text x="810" y="62" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">28 MB</text>
+            <line x1="600" y1="72" x2="880" y2="72" stroke="currentColor" stroke-width="1" opacity="0.4"/>
+            <text x="600" y="92" font-family="Bricolage Grotesque, sans-serif" font-size="13" font-weight="700" fill="currentColor">about 36 MB in total</text>
+            <text x="600" y="116" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.8">for numbers a C array would</text>
+            <text x="600" y="130" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.8">hold in 8 MB, contiguously</text>
+          </g>
+
+          <text x="20" y="172" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">sys.getsizeof(xs) reports the pointer array only &mdash; it is shallow, and the million objects it points at are not counted.</text>
+          <line x1="20" y1="186" x2="880" y2="186" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+
+          <text x="20" y="210" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">DEFAULT INSTANCE</text>
+          <text x="470" y="210" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE SAME CLASS WITH __slots__</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="222" width="180" height="64" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <line x1="20" y1="243" x2="200" y2="243" stroke="currentColor" stroke-width="1"/>
+            <line x1="20" y1="264" x2="200" y2="264" stroke="currentColor" stroke-width="1"/>
+            <text x="32" y="237" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">ob_refcnt</text>
+            <text x="32" y="258" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">ob_type</text>
+            <text x="32" y="279" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">__dict__</text>
+            <line x1="202" y1="275" x2="244" y2="275" stroke="currentColor" stroke-width="1.3" marker-end="url(#pc-1)"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="248" y="248" width="180" height="60" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="260" y="270" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">{"x": 1.0, "y": 2.0}</text>
+            <text x="260" y="290" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">a hash table, per instance</text>
+          </g>
+          <text x="20" y="322" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">one dict for every instance, and</text>
+          <text x="20" y="338" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">any attribute name is accepted</text>
+
+          <line x1="450" y1="196" x2="450" y2="350" stroke="currentColor" stroke-width="1" opacity="0.16"/>
+
+          <text x="470" y="230" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">__slots__ = ("x", "y")</text>
+          <g class="svg-l1">
+            <rect x="470" y="238" width="220" height="88" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <line x1="470" y1="260" x2="690" y2="260" stroke="currentColor" stroke-width="1"/>
+            <line x1="470" y1="282" x2="690" y2="282" stroke="currentColor" stroke-width="1"/>
+            <line x1="470" y1="304" x2="690" y2="304" stroke="currentColor" stroke-width="1"/>
+            <text x="482" y="254" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">ob_refcnt</text>
+            <text x="482" y="276" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">ob_type</text>
+            <text x="482" y="298" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">x = 1.0</text>
+            <text x="482" y="320" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">y = 2.0</text>
+          </g>
+          <text x="706" y="270" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">values sit at fixed</text>
+          <text x="706" y="286" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">offsets inside the</text>
+          <text x="706" y="302" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">object &mdash; no dict</text>
+          <text x="470" y="348" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">smaller, faster to read, and a typo now raises AttributeError</text>
+
+          <text x="20" y="376" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">The saving is per instance, so it only matters in the hundreds of thousands. Measure yours before adding <tspan font-family="IBM Plex Mono, monospace" font-size="11">__slots__</tspan> to everything.</text>
+        </svg>
+        <figcaption><b>Containers hold references, so nothing you can see tells you what a structure really costs.</b> A list of a million ints is 8 MB of pointers plus 28 MB of objects scattered across the heap &mdash; and it is the scattering, not the total, that makes iterating it slow: every element is a separate cache miss.</figcaption>
+      </figure>
+
+      <pre class="l2">import sys
+
+sys.getsizeof(1)             <span class="c"># 28   -- refcount, type, size, one digit</span>
+sys.getsizeof(2**64)         <span class="c"># 36   -- three 30-bit digits now</span>
+sys.getsizeof("hello")       <span class="c"># 54   -- 49 of header, 1 byte per ASCII char</span>
+sys.getsizeof([0] * 1000)    <span class="c"># 8056 -- 56 header + 8 per slot, and nothing else</span>
+
+xs = [1234 + i for i in range(1_000_000)]
+sys.getsizeof(xs)                    <span class="c"># about 8.4 MB: the pointer array only</span>
+sum(sys.getsizeof(x) for x in xs)    <span class="c"># about 28 MB more: what it points at</span>
+
+class Point:                         <span class="c"># a dict per instance, any attribute allowed</span>
+    def __init__(self, x: float, y: float) -&gt; None:
+        self.x, self.y = x, y
+
+class Slim:
+    __slots__ = ("x", "y")           <span class="c"># fixed offsets, no __dict__, typos raise</span>
+    def __init__(self, x: float, y: float) -&gt; None:
+        self.x, self.y = x, y</pre>
+
+      <pre class="l3"><span class="c"># a cycle: refcounting alone never frees this pair -- only the collector can</span>
+class Node:
+    def __init__(self, name: str) -&gt; None:
+        self.name, self.parent, self.children = name, None, []
+
+    def add(self, child: "Node") -&gt; None:
+        child.parent = self          <span class="c"># parent -&gt; child -&gt; parent: a cycle</span>
+        self.children.append(child)
+
+<span class="c"># fix: the back-reference doesn't need to keep the parent alive</span>
+import weakref
+child.parent = weakref.ref(root)     <span class="c"># dies with root, not with child</span>
+
+import gc, os
+gc.freeze()                          <span class="c"># at start-up, after imports, before fork():</span>
+os.fork()                            <span class="c"># stops the collector from touching every object's refcount</span>
+                                      <span class="c"># and un-sharing every copy-on-write page across workers</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Objects, references, and a shallow ruler</h4>
+          <ul>
+            <li><strong>Everything is a heap object</strong> &mdash; an int, a string, a function, a class &mdash; each carrying a reference count and a type pointer before any data.</li>
+            <li><strong>Containers hold references</strong>. Copying a list copies pointers, which is why <code>b = a[:]</code> gives you a new list of the <em>same</em> objects.</li>
+            <li><strong><code>sys.getsizeof</code> is shallow</strong>: it measures the container itself, not the objects it refers to.</li>
+            <li><strong>Small ints (&minus;5 to 256) and some short strings are cached</strong>, so <code>is</code> occasionally looks true by accident. Compare with <code>==</code>.</li>
+            <li>Two numbers worth memorising: an <code>int</code> is 28 bytes, a list slot is 8.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Hold fewer objects, and smaller ones</h4>
+          <ul>
+            <li><strong><code>__slots__</code></strong> on classes you create by the hundred thousand: fixed offsets instead of a per-instance dict, and a misspelt attribute becomes an error instead of a new field.</li>
+            <li><strong>Lists over-allocate</strong> on growth, which is what makes <code>append</code> amortised O(1) &mdash; so <code>append</code> in a loop is rarely the thing to fix.</li>
+            <li><strong>Generators and <code>yield</code></strong> stream a pipeline instead of materialising each stage; peak memory becomes one item rather than n.</li>
+            <li><strong><code>array.array</code>, <code>bytes</code>, <code>memoryview</code></strong> for homogeneous data: one contiguous buffer of values instead of n pointers to n objects.</li>
+            <li><strong><code>sys.intern</code></strong> for strings you compare or key on constantly &mdash; identical objects short-circuit the character-by-character compare.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Refcounts, cycles, and RSS that never falls</h4>
+          <ul>
+            <li><strong>Reference counting frees immediately</strong>; the generational collector exists only for cycles. Deterministic release is why <code>with</code> works so well and why a stray reference in a traceback keeps a whole object graph alive.</li>
+            <li><strong><code>gc.freeze()</code> after imports and before <code>fork()</code></strong>: the collector otherwise touches the refcount of every shared object, un-sharing copy-on-write pages until each worker owns a private copy of your imports.</li>
+            <li><strong><code>weakref</code> and <code>WeakValueDictionary</code></strong> for caches and observer registries, so the cache is not the leak.</li>
+            <li><strong>RSS does not fall after a spike.</strong> Freed memory returns to CPython&rsquo;s arenas, not the OS, and one live object pins a whole arena. Fragmentation looks exactly like a leak on a graph.</li>
+            <li><strong>Where Python stops being the answer</strong>: a million small records wants NumPy or a columnar buffer; a leak you cannot find wants a worker process recycled every N requests.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="profiling">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Finding the slow part, then fixing it</h3>
+        <p class="lede">Each tool answers exactly one question, and the common failure is reading a CPU profile for a problem that was never CPU. Pick the tool from the symptom, not from habit.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 332" role="img" aria-label="A map from symptom to tool: wall-clock hot spots point to cProfile and pstats, comparisons to timeit, line-level cost to line_profiler, memory growth to tracemalloc, live production to py-spy, and idle-CPU slowness to perf_counter around the call.">
+          <defs>
+            <marker id="pc-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE QUESTION</text>
+          <text x="330" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE TOOL</text>
+          <text x="560" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT YOU ARE LOOKING FOR</text>
+          <line x1="20" y1="26" x2="880" y2="26" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+
+          <g class="svg-l1">
+            <text x="20" y="52" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor">Where does the wall time go?</text>
+            <text x="330" y="52" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">cProfile + pstats</text>
+            <text x="560" y="52" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">the call with the largest cumulative time</text>
+            <line x1="300" y1="48" x2="322" y2="48" stroke="currentColor" stroke-width="1.1" opacity="0.5" marker-end="url(#pc-2)"/>
+          </g>
+          <line x1="20" y1="66" x2="880" y2="66" stroke="currentColor" stroke-width="1" opacity="0.12"/>
+          <g class="svg-l1">
+            <text x="20" y="92" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor">Is this really faster than that?</text>
+            <text x="330" y="92" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">timeit</text>
+            <text x="560" y="92" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">time per call, best of many repeats</text>
+            <line x1="300" y1="88" x2="322" y2="88" stroke="currentColor" stroke-width="1.1" opacity="0.5" marker-end="url(#pc-2)"/>
+          </g>
+          <line x1="20" y1="106" x2="880" y2="106" stroke="currentColor" stroke-width="1" opacity="0.12"/>
+          <g class="svg-l2">
+            <text x="20" y="132" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor">Which line of this function?</text>
+            <text x="330" y="132" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">line_profiler</text>
+            <text x="560" y="132" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">the one line holding most of the function</text>
+            <line x1="300" y1="128" x2="322" y2="128" stroke="currentColor" stroke-width="1.1" opacity="0.5" marker-end="url(#pc-2)"/>
+          </g>
+          <line x1="20" y1="146" x2="880" y2="146" stroke="currentColor" stroke-width="1" opacity="0.12"/>
+          <g class="svg-l2">
+            <text x="20" y="172" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor">Memory grows over hours</text>
+            <text x="330" y="172" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">tracemalloc</text>
+            <text x="560" y="172" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">the allocation site that grew between snapshots</text>
+            <line x1="300" y1="168" x2="322" y2="168" stroke="currentColor" stroke-width="1.1" opacity="0.5" marker-end="url(#pc-2)"/>
+          </g>
+          <line x1="20" y1="186" x2="880" y2="186" stroke="currentColor" stroke-width="1" opacity="0.12"/>
+          <g class="svg-l3">
+            <text x="20" y="212" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor">It is slow in production, now</text>
+            <text x="330" y="212" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">py-spy top --pid</text>
+            <text x="560" y="212" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">sampled stacks: no restart, no code change</text>
+            <line x1="300" y1="208" x2="322" y2="208" stroke="currentColor" stroke-width="1.1" opacity="0.5" marker-end="url(#pc-2)"/>
+          </g>
+          <line x1="20" y1="226" x2="880" y2="226" stroke="currentColor" stroke-width="1" opacity="0.12"/>
+          <g class="svg-l3">
+            <text x="20" y="252" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor">Slow, but the CPU is idle</text>
+            <text x="330" y="252" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">perf_counter spans</text>
+            <text x="560" y="252" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">time spent waiting on I/O, not computing</text>
+            <line x1="300" y1="248" x2="322" y2="248" stroke="currentColor" stroke-width="1.1" opacity="0.5" marker-end="url(#pc-2)"/>
+          </g>
+
+          <line x1="20" y1="270" x2="880" y2="270" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="292" font-family="Bricolage Grotesque, sans-serif" font-size="13.5" font-weight="700" fill="currentColor">Every row starts with a symptom.</text>
+          <text x="20" y="310" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">A profile taken without one produces a ranked list of functions and no decision &mdash; which is how an</text>
+          <text x="20" y="328" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">afternoon disappears into speeding up a function nobody calls twice.</text>
+        </svg>
+        <figcaption><b>The two rows at the bottom are the ones people skip.</b> If the CPU is idle while the request is slow, no CPU profile will ever explain it &mdash; the time is in a socket, a lock, or a query plan. And in production, the profiler that requires a redeploy is the profiler you will not use.</figcaption>
+      </figure>
+
+      <pre class="l2"><span class="c"># 1. where does the time go</span>
+python -m cProfile -o run.prof -m myapp.batch
+python -c "import pstats; pstats.Stats('run.prof').sort_stats('cumulative').print_stats(15)"
+
+<span class="c"># 2. is this really faster than that</span>
+python -m timeit -s "xs = list(range(1000))" "sum(xs)"
+
+<span class="c"># 3. what grew between here and there</span>
+import tracemalloc
+tracemalloc.start()
+before = tracemalloc.take_snapshot()
+handle_batch()
+for stat in tracemalloc.take_snapshot().compare_to(before, "lineno")[:10]:
+    print(stat)             <span class="c"># file:line, size delta, count delta</span>
+
+<span class="c"># 4. production, right now, with no restart and no redeploy</span>
+py-spy top --pid 4131
+py-spy dump --pid 4131      <span class="c"># every thread's Python stack, as it stands</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Measure before you change anything</h4>
+          <ul>
+            <li><strong>Never optimise what you have not timed.</strong> Intuition about which Python line is slow is wrong roughly half the time.</li>
+            <li><strong><code>time.perf_counter()</code></strong> for durations: monotonic, and the highest resolution the platform offers.</li>
+            <li><strong><code>time.time()</code> is the wrong clock</strong> &mdash; it is a wall clock that NTP can step backwards, so a duration computed from it can come out negative.</li>
+            <li><strong><code>timeit</code></strong> for anything under a millisecond: it runs the snippet many times and reports the best, because the mean is mostly noise from other processes.</li>
+            <li>Write the number down before and after. &ldquo;It feels faster&rdquo; is not a result.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Find the hot spot, then confirm it</h4>
+          <ul>
+            <li><strong><code>cProfile</code> to a file, then <code>pstats</code> sorted by cumulative time.</strong> Cumulative finds the expensive subtree; tottime finds the expensive function itself.</li>
+            <li><strong>Read the call tree downwards.</strong> The leaf with the huge tottime is often a stdlib function called two million times &mdash; the fix is in the caller, not the leaf.</li>
+            <li><strong><code>tracemalloc</code> snapshots and <code>compare_to</code></strong> for growth: it names the allocating line, which a total heap size never does.</li>
+            <li><strong><code>line_profiler</code></strong> (<code>kernprof -l</code>) when the hot function is forty lines and the cost is one of them.</li>
+            <li><strong><code>functools.lru_cache</code></strong> on a pure function with a bounded key space &mdash; the cheapest win there is, until the cache pins objects you wanted freed.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Sampling, the observer effect, and the ladder</h4>
+          <ul>
+            <li><strong>Deterministic profilers instrument every call.</strong> <code>cProfile</code> costs 2&ndash;3&times; and distorts exactly the many-small-calls code you were investigating &mdash; you profile the profiler.</li>
+            <li><strong>Sampling profilers read stacks from outside the process</strong> at a fixed rate: small constant overhead, nothing imported into your app, safe to attach to a live pod. <code>py-spy record</code> for a flame graph, <code>py-spy dump</code> for a hung process.</li>
+            <li><strong>The ladder, in order</strong>: a better algorithm &rarr; fewer Python-level operations &rarr; vectorise with NumPy &rarr; a C extension or Rust via PyO3 &rarr; another process or another language.</li>
+            <li><strong>Skipping rungs wastes weeks.</strong> A Rust extension wrapped around a quadratic algorithm is still quadratic, and now nobody on the team can change it.</li>
+            <li><strong>The honest baseline</strong>: the interpreter costs roughly 10&ndash;100&times; a compiled language per operation. That gap is why the winning move is almost always to perform fewer operations, not faster ones.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="patterns">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>The performance patterns worth knowing by heart</h3>
+        <p class="lede">A short list of rewrites that are always worth making, because each one moves work out of the interpreter or removes it entirely. None of them need a profiler to justify &mdash; but a profiler will tell you which one matters here.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 340" role="img" aria-label="A comparison of building a string by repeated concatenation, where each step allocates a new string and copies everything so far, against join, which measures the total length once, allocates once and copies each piece exactly once.">
+          <defs>
+            <marker id="pc-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">s = ""   for w in words: s += w</text>
+          <text x="470" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">s = "".join(words)</text>
+          <line x1="450" y1="8" x2="450" y2="280" stroke="currentColor" stroke-width="1" opacity="0.16"/>
+
+          <g class="svg-l3">
+            <text x="20" y="49" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">1)</text>
+            <rect x="70" y="34" width="24" height="22" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="230" y="49" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">alloc 3 B, copy 0 B</text>
+
+            <text x="20" y="93" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">2)</text>
+            <rect x="70" y="78" width="56" height="22" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="70" y="78" width="24" height="22" fill="currentColor" opacity="0.22"/>
+            <text x="230" y="93" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">alloc 7 B, copy 3 B</text>
+
+            <text x="20" y="137" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">3)</text>
+            <rect x="70" y="122" width="96" height="22" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="70" y="122" width="56" height="22" fill="currentColor" opacity="0.22"/>
+            <text x="230" y="137" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">alloc 12 B, copy 7 B</text>
+
+            <text x="20" y="181" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">4)</text>
+            <rect x="70" y="166" width="144" height="22" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="70" y="166" width="96" height="22" fill="currentColor" opacity="0.22"/>
+            <text x="230" y="181" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">alloc 18 B, copy 12 B</text>
+          </g>
+          <text x="20" y="214" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">the shaded part is the old string,</text>
+          <text x="20" y="230" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">copied again on every iteration</text>
+          <g class="svg-l3">
+            <text x="20" y="256" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">10,000 appends of a 10-char word</text>
+            <text x="20" y="272" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">copy about 500 MB in total</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="470" y="34" width="40" height="22" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="516" y="34" width="40" height="22" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="562" y="34" width="40" height="22" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="608" y="34" width="40" height="22" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="482" y="49" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">w1</text>
+            <text x="528" y="49" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">w2</text>
+            <text x="574" y="49" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">w3</text>
+            <text x="620" y="49" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">w4</text>
+            <line x1="558" y1="60" x2="558" y2="76" stroke="currentColor" stroke-width="1.3" marker-end="url(#pc-3)"/>
+          </g>
+          <text x="470" y="94" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">pass 1 &mdash; add up the lengths: 18</text>
+          <g class="svg-l1">
+            <rect x="470" y="106" width="144" height="22" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="630" y="121" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">one allocation</text>
+          </g>
+          <text x="470" y="150" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">pass 2 &mdash; copy each word once, into it</text>
+          <text x="470" y="182" font-family="Bricolage Grotesque, sans-serif" font-size="13.5" font-weight="700" fill="currentColor">n pieces, n bytes copied. Linear.</text>
+          <text x="470" y="214" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">join sees every piece before it allocates,</text>
+          <text x="470" y="230" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">and the whole loop runs in C</text>
+          <text x="470" y="256" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.8">the same argument applies to lists:</text>
+          <text x="470" y="272" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.8">extend once, do not add in a loop</text>
+
+          <line x1="20" y1="292" x2="880" y2="292" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="314" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">The shape to recognise: work that grows with what you have already done. It hides in a list built with <tspan font-family="IBM Plex Mono, monospace" font-size="11">+</tspan> inside a loop,</text>
+          <text x="20" y="332" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">a dataframe appended row by row, and a dict rebuilt on every iteration. Each looks like one cheap line at the call site.</text>
+        </svg>
+        <figcaption><b>CPython does have a resize trick that sometimes makes <code>s += w</code> linear</b> &mdash; but only when the string has exactly one reference, and it stops applying silently the moment anything else holds one (a list, a closure, a debugger). Behaviour that depends on a refcount is not behaviour you can design around.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Instead of</th><th>Do this</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td><code>s += chunk</code> in a loop</td><td><code>"".join(parts)</code></td><td>Each <code>+=</code> allocates a new string and copies everything so far. <code>join</code> measures once, allocates once, copies once.</td></tr>
+            <tr><td><code>if x in big_list</code></td><td><code>if x in big_set</code></td><td>A list scans every element; a set or dict key hashes straight to the slot. Building the set pays for itself after about ten lookups.</td></tr>
+            <tr><td><code>math.sqrt(...)</code> or <code>self.total</code> looked up inside a hot loop</td><td>Bind it to a local first: <code>sqrt = math.sqrt</code></td><td>Every attribute and global reference is a dictionary lookup at run time; a local is an index into the frame. Worth 10&ndash;20% in a tight loop, and nothing at all elsewhere.</td></tr>
+            <tr><td>Building a list you only iterate once</td><td>A generator expression, or a function that <code>yield</code>s</td><td>Nothing is materialised: peak memory is one item instead of n, and the first result arrives immediately instead of after the last.</td></tr>
+            <tr><td><code>try: d[k] &hellip; except KeyError</code> per row</td><td><code>d.get(k, default)</code>, <code>setdefault</code>, <code>defaultdict</code>, <code>Counter</code></td><td>Raising is cheap once and expensive a million times. The dict methods do the same work in C with a single lookup.</td></tr>
+            <tr><td>One query per row inside a loop</td><td>One batched query &mdash; <code>IN (&hellip;)</code> or <code>executemany</code></td><td>The N+1 problem again: 500 round trips at 1&nbsp;ms is 500&nbsp;ms of latency that no amount of Python tuning touches.</td></tr>
+            <tr><td><code>for i in range(len(a)): c[i] = a[i] * b[i]</code></td><td><code>c = a * b</code> on NumPy arrays</td><td>Moves the loop into C over a contiguous buffer: no per-element object, no per-element bytecode dispatch. Routinely 10&ndash;100&times;.</td></tr>
+            <tr><td>Recomputing a pure function with the same arguments</td><td><code>@functools.lru_cache(maxsize=1024)</code></td><td>Memory for time, in one line. Only for pure functions with hashable arguments &mdash; and never <code>maxsize=None</code> on a method, which pins every instance forever.</td></tr>
+            <tr><td><code>copy.deepcopy(obj)</code> in a hot path</td><td>Pass immutable values, or copy the one field that changes</td><td>deepcopy walks and rebuilds the entire object graph, memo dict included. It is usually a design problem wearing a safety costume.</td></tr>
+            <tr><td><code>lst.pop(0)</code> or <code>lst.insert(0, x)</code></td><td><code>collections.deque</code></td><td>Both shift every remaining element. A deque appends and pops at either end in constant time.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>The order to apply these in</h4>
+        <p>Top to bottom, these are worth between nothing and a hundredfold, and the table cannot tell you which. Apply the ones that cost nothing in readability everywhere &mdash; <code>join</code>, sets for membership, generators, batched queries &mdash; and apply the rest only where a measurement pointed. Binding locals and unrolling loops in code that runs twice a day is how a codebase becomes unreadable for no gain.</p>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="production">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part seven</span>
+      <h2>Production Python</h2>
+      <p>A dynamic language moves a class of errors from compile time to run time, which is where tests, logs and configuration validation have to catch them instead. None of this is Python-specific in principle; all of it is Python-specific in the details.</p>
+    </div>
+
+    <section class="topic" id="testing">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Tests that catch what Python actually gets wrong</h3>
+        <p class="lede">There is no compiler to tell you that a name is misspelt or an argument is the wrong type on the path nobody ran. Tests are the type checker for the paths you actually care about &mdash; and pytest&rsquo;s mechanics decide how much they cost to keep.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 376" role="img" aria-label="Above, a pytest run drawn as lanes: a session-scoped fixture running once, module-scoped fixtures running once per file, function-scoped fixtures and test bodies running six times. Below, one parametrized test body fanning out into three named cases with their results, and a monkeypatch injected into the body and undone at teardown.">
+          <defs>
+            <marker id="pc-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE PYTEST RUN &mdash; 6 TESTS IN 2 FILES</text>
+
+          <text x="20" y="49" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.8">scope="session"</text>
+          <g class="svg-l1">
+            <rect x="170" y="32" width="710" height="26" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="182" y="49" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">postgres container: built once, torn down last</text>
+          </g>
+
+          <text x="20" y="83" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.8">scope="module"</text>
+          <g class="svg-l2">
+            <rect x="170" y="66" width="350" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="182" y="83" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">test_orders.py: schema loaded</text>
+            <rect x="530" y="66" width="350" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="542" y="83" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">test_billing.py: schema loaded</text>
+          </g>
+
+          <text x="20" y="117" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.8">scope="function"</text>
+          <g class="svg-l2">
+            <rect x="170" y="100" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="180" y="117" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">tmp_path</text>
+            <rect x="289" y="100" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="299" y="117" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">tmp_path</text>
+            <rect x="408" y="100" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="418" y="117" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">tmp_path</text>
+            <rect x="527" y="100" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="537" y="117" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">tmp_path</text>
+            <rect x="646" y="100" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="656" y="117" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">tmp_path</text>
+            <rect x="765" y="100" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="775" y="117" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">tmp_path</text>
+          </g>
+
+          <text x="20" y="151" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.8">the test body</text>
+          <g class="svg-l1">
+            <rect x="170" y="134" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="180" y="151" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">test 1</text>
+            <rect x="289" y="134" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="299" y="151" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">test 2</text>
+            <rect x="408" y="134" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="418" y="151" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">test 3</text>
+            <rect x="527" y="134" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="537" y="151" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">test 4</text>
+            <rect x="646" y="134" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="656" y="151" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">test 5</text>
+            <rect x="765" y="134" width="111" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="775" y="151" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">test 6</text>
+          </g>
+
+          <text x="20" y="176" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Setup runs top down, teardown bottom up. Scope is the only thing deciding how often the expensive line runs.</text>
+          <line x1="20" y1="188" x2="880" y2="188" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+
+          <text x="20" y="210" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE BODY, MANY CASES</text>
+          <text x="20" y="234" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">@parametrize("raw, want", [&hellip;])</text>
+          <g class="svg-l1">
+            <rect x="20" y="242" width="230" height="46" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="32" y="262" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">def test_parse(raw, want):</text>
+            <text x="32" y="280" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">    assert parse(raw) == want</text>
+            <line x1="252" y1="262" x2="324" y2="228" stroke="currentColor" stroke-width="1.1" opacity="0.6" marker-end="url(#pc-4)"/>
+            <line x1="252" y1="266" x2="324" y2="266" stroke="currentColor" stroke-width="1.1" opacity="0.6" marker-end="url(#pc-4)"/>
+            <line x1="252" y1="270" x2="324" y2="304" stroke="currentColor" stroke-width="1.1" opacity="0.6" marker-end="url(#pc-4)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="330" y="214" width="180" height="26" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="340" y="231" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">raw="3"    want=3</text>
+            <rect x="330" y="252" width="180" height="26" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="340" y="269" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">raw=" 3 "  want=3</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="330" y="290" width="180" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="340" y="307" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">raw="x"    want=None</text>
+          </g>
+          <text x="530" y="231" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">pass</text>
+          <text x="530" y="269" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">pass</text>
+          <g class="svg-l3">
+            <text x="530" y="307" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">fail &mdash; and the report names the case</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="20" y="308" width="290" height="54" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="328" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">monkeypatch.setattr(mod, "now", &hellip;)</text>
+            <text x="32" y="345" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">injected here, undone at teardown</text>
+            <line x1="120" y1="306" x2="120" y2="292" stroke="currentColor" stroke-width="1.2" marker-end="url(#pc-4)"/>
+          </g>
+          <text x="340" y="334" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Each case reports under its own name &mdash; test_parse[padded] &mdash; so a</text>
+          <text x="340" y="352" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">failure tells you which input broke before you open the file.</text>
+        </svg>
+        <figcaption><b>Scope is the dial between speed and isolation.</b> A session-scoped database is fast and lets one test leak state into the next; a function-scoped one is slow and immaculate. The usual answer is a session-scoped container with a function-scoped transaction rolled back at teardown &mdash; expensive setup once, clean state every time.</figcaption>
+      </figure>
+
+      <pre class="l2">import pytest
+from app.orders import Order, parse_qty
+
+@pytest.fixture(scope="module")
+def store(tmp_path_factory):
+    path = tmp_path_factory.mktemp("data") / "orders.db"
+    s = Store(path)          <span class="c"># setup: once per test file</span>
+    yield s                  <span class="c"># the tests in this module run here</span>
+    s.close()                <span class="c"># teardown: runs even if a test fails</span>
+
+@pytest.mark.parametrize(
+    "raw, want",
+    [("3", 3), (" 3 ", 3), ("03", 3), ("", None), ("x", None)],
+    ids=["plain", "padded", "leading-zero", "empty", "not-a-number"],
+)
+def test_parse_qty(raw, want):
+    assert parse_qty(raw) == want
+
+def test_rejects_negative_quantity(store, monkeypatch):
+    monkeypatch.setattr("app.orders.now", lambda: FIXED_TIME)
+    with pytest.raises(ValueError, match="quantity"):
+        store.add(Order(qty=-1))</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>pytest, and one behaviour per test</h4>
+          <ul>
+            <li><strong><code>pytest</code> finds <code>test_*.py</code> and functions named <code>test_*</code></strong>. No class, no base class, no registration.</li>
+            <li><strong>A plain <code>assert</code> is enough</strong> &mdash; pytest rewrites it so a failure shows both sides, which is why you never need <code>assertEqual</code>.</li>
+            <li><strong>Arrange, act, assert</strong>, in that order, with a blank line between the three.</li>
+            <li><strong>One behaviour per test</strong>, named for the behaviour: <code>test_rejects_negative_quantity</code>, not <code>test_order_2</code>.</li>
+            <li>Test the public function, not the private helper. The helper must stay free to change.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Fixtures, parameters, and the seams</h4>
+          <ul>
+            <li><strong>A fixture is setup and teardown around a <code>yield</code></strong>; naming it as an argument is the entire wiring mechanism. Shared ones live in <code>conftest.py</code>, imported by nobody.</li>
+            <li><strong><code>scope</code> decides how often it runs</strong>: function (the default), class, module, session. Session for a container or a pool; function for anything mutable.</li>
+            <li><strong><code>parametrize</code> with <code>ids</code></strong> fans one body into many named cases, each reported separately, so the failure names the input.</li>
+            <li><strong><code>monkeypatch</code></strong> for environment variables, attributes and the working directory &mdash; reverted automatically, unlike <code>mock.patch</code> applied by hand.</li>
+            <li><strong><code>tmp_path</code></strong> for files, <strong><code>pytest.raises(ValueError, match=&hellip;)</code></strong> for errors, and markers plus <code>-m "not slow"</code> to keep the fast set fast.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Tests that survive a refactor</h4>
+          <ul>
+            <li><strong>Fakes over mocks.</strong> A small in-memory implementation of your own interface tests behaviour; <code>assert_called_once_with</code> tests today&rsquo;s call graph and breaks on every refactor that found no bug.</li>
+            <li><strong>Patch only at seams you own.</strong> <code>mock.patch("app.module._helper")</code> welds the test to an implementation detail &mdash; passing the collaborator in does not.</li>
+            <li><strong>Time is an input.</strong> Inject a clock (<code>now: Callable[[], datetime]</code>) or use <code>freezegun</code>; a <code>time.sleep</code> in a test is a slow flake waiting for a loaded CI runner.</li>
+            <li><strong>Property-based testing with Hypothesis</strong>: state the invariant &mdash; <code>parse(format(x)) == x</code> &mdash; and let it find the empty string, the surrogate pair and the boundary you would never have typed.</li>
+            <li><strong>Coverage is a signal, not a target</strong>: it shows what never ran. A suite with no assertions can reach 100%. Mutation testing (<code>mutmut</code>) asks the sharper question &mdash; if I break the code, does anything fail?</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="running">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Logging, configuration, and shipping it</h3>
+        <p class="lede">Three decisions decide whether a running service can be debugged: what the logs carry, where the configuration comes from, and what exactly is inside the image. All three are made once, at start-up, in <code>main</code>.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 374" role="img" aria-label="A request passing through a gateway, a handler and a database while every log record carries the same correlation id; configuration read from environment variables and validated once at start-up, failing fast when a setting is missing; and a container image built from a committed lockfile.">
+          <defs>
+            <marker id="pc-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE REQUEST</text>
+          <text x="610" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">STDOUT</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="40" width="80" height="36" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="34" y="62" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">client</text>
+            <line x1="102" y1="58" x2="126" y2="58" stroke="currentColor" stroke-width="1.3" marker-end="url(#pc-5)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="130" y="40" width="140" height="36" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="144" y="62" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">edge / gateway</text>
+            <line x1="272" y1="58" x2="296" y2="58" stroke="currentColor" stroke-width="1.3" marker-end="url(#pc-5)"/>
+            <rect x="300" y="40" width="140" height="36" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="314" y="62" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">handler</text>
+            <line x1="442" y1="58" x2="466" y2="58" stroke="currentColor" stroke-width="1.3" marker-end="url(#pc-5)"/>
+            <rect x="470" y="40" width="110" height="36" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="484" y="62" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">database</text>
+          </g>
+          <text x="130" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">mints request_id</text>
+          <text x="300" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">a ContextVar carries it</text>
+          <text x="470" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">and so does the</text>
+          <text x="470" y="106" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">outbound header</text>
+
+          <g class="svg-l2">
+            <rect x="610" y="32" width="270" height="96" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="622" y="52" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">{"lvl":"info","req":"7f3a1c",</text>
+            <text x="622" y="66" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor"> "msg":"handling","route":"/pay"}</text>
+            <text x="622" y="90" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">{"lvl":"error","req":"7f3a1c",</text>
+            <text x="622" y="104" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor"> "msg":"charge failed","ms":812}</text>
+            <text x="622" y="122" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.75">one object per line, same req</text>
+          </g>
+
+          <text x="20" y="146" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">The correlation id is the join key &mdash; it turns a pile of independent lines into one story, and it is the same id the trace carries.</text>
+          <line x1="20" y1="160" x2="880" y2="160" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+
+          <text x="20" y="182" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">CONFIGURATION ARRIVES FROM THE ENVIRONMENT</text>
+          <g class="svg-l2">
+            <rect x="20" y="192" width="190" height="76" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="212" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">DATABASE_URL=&hellip;</text>
+            <text x="32" y="232" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">LOG_LEVEL=info</text>
+            <text x="32" y="252" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">TIMEOUT_S=2.0</text>
+            <line x1="212" y1="230" x2="244" y2="230" stroke="currentColor" stroke-width="1.3" marker-end="url(#pc-5)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="248" y="192" width="210" height="76" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="260" y="214" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">Config.from_env()</text>
+            <text x="260" y="234" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">parsed and validated</text>
+            <text x="260" y="252" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">once, at start-up</text>
+            <line x1="460" y1="212" x2="512" y2="212" stroke="currentColor" stroke-width="1.3" marker-end="url(#pc-5)"/>
+            <text x="518" y="216" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">valid &rarr; bind the port and serve</text>
+          </g>
+          <g class="svg-l3">
+            <line x1="460" y1="250" x2="512" y2="250" stroke="currentColor" stroke-width="1.3" marker-end="url(#pc-5)"/>
+            <text x="518" y="254" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">missing or unparseable &rarr; exit 1, before the first request</text>
+          </g>
+          <line x1="20" y1="280" x2="880" y2="280" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+
+          <text x="20" y="302" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT ACTUALLY SHIPS</text>
+          <g class="svg-l2">
+            <rect x="20" y="314" width="170" height="36" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="336" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">pyproject + uv.lock</text>
+            <line x1="192" y1="332" x2="224" y2="332" stroke="currentColor" stroke-width="1.3" marker-end="url(#pc-5)"/>
+            <rect x="230" y="314" width="170" height="36" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="242" y="336" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">uv sync --frozen</text>
+            <line x1="402" y1="332" x2="434" y2="332" stroke="currentColor" stroke-width="1.3" marker-end="url(#pc-5)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="440" y="314" width="200" height="36" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="452" y="336" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">slim image, by digest</text>
+          </g>
+          <text x="660" y="326" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">There is no static binary:</text>
+          <text x="660" y="342" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">the interpreter and every</text>
+          <text x="660" y="358" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">wheel are part of the artefact.</text>
+        </svg>
+        <figcaption><b>Each band removes one class of 3am question.</b> The correlation id answers &ldquo;what else happened during that request&rdquo;; start-up validation turns a typo in a Helm value into a failed deploy rather than a 500 an hour later; and the lockfile means the thing that worked in CI is byte-for-byte the thing that is running.</figcaption>
+      </figure>
+
+      <pre class="l2"><span class="c"># any library module: take a logger, never configure one</span>
+log = logging.getLogger(__name__)
+
+def charge(order_id: str) -&gt; None:
+    log.info("charging", extra={"order_id": order_id, "req": request_id.get()})
+
+<span class="c"># main.py: configure once, fail fast, drain on SIGTERM</span>
+def main() -&gt; None:
+    cfg = Config.from_env()          <span class="c"># SystemExit now beats a 500 later</span>
+    logging.basicConfig(level=cfg.log_level, handlers=[JsonHandler(sys.stdout)])
+    server = make_server(cfg)
+
+    stopping = threading.Event()
+
+    def on_sigterm(signum, frame) -&gt; None:
+        ready.clear()                <span class="c"># 1. readiness starts failing</span>
+        stopping.set()               <span class="c"># 2. flip a flag -- a handler must never block</span>
+
+    signal.signal(signal.SIGTERM, on_sigterm)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    stopping.wait()                  <span class="c"># main thread parks here until SIGTERM</span>
+    time.sleep(5)                    <span class="c"># 3. keep serving while the LB notices</span>
+    server.shutdown()                <span class="c"># 4. stop accepting, drain in flight</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Logging and configuration, plainly</h4>
+          <ul>
+            <li><strong><code>logging</code>, not <code>print</code></strong>: levels, a timestamp, the module name, and a destination the operator chooses rather than you.</li>
+            <li><strong>The levels mean something</strong> &mdash; DEBUG for you, INFO for lifecycle events, WARNING for something a human may need to look at, ERROR for a request that failed, CRITICAL for the process.</li>
+            <li><strong>Configure exactly once, in <code>main</code>, at start-up.</strong> A library that calls <code>basicConfig</code> has stolen a decision that belongs to the application.</li>
+            <li><strong>In every module: <code>log = logging.getLogger(__name__)</code></strong>. The dotted name gives per-package level control for free.</li>
+            <li><strong><code>log.exception("&hellip;")</code> inside an <code>except</code></strong> records the traceback; <code>log.error(str(e))</code> throws it away.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Structured logs, env config, a locked image</h4>
+          <ul>
+            <li><strong>One JSON object per line, with fields</strong> &mdash; <code>request_id</code>, <code>order_id</code>, <code>duration_ms</code> &mdash; not an English sentence you will later have to write a regex against.</li>
+            <li><strong>A correlation id minted at the edge</strong>, kept in a <code>ContextVar</code> so every record and every outbound header carries it. This is where these logs join the traces from the cloud page.</li>
+            <li><strong>Config from environment variables</strong>, parsed into one frozen object and validated at start-up. A missing setting should kill the process in the first second, not the first request.</li>
+            <li><strong>A committed lockfile</strong> and <code>uv sync --frozen</code> (or <code>pip install -r</code> a compiled requirements file) so CI and production resolve to identical versions.</li>
+            <li><strong>A slim base image</strong>, dependencies in their own layer, non-root user. <code>python -X dev</code> turns on extra runtime checks in staging; <code>python -O</code> strips <code>assert</code>s, which is why an <code>assert</code> must never be your validation.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What running it actually costs</h4>
+          <ul>
+            <li><strong>Log volume is money and cardinality.</strong> One INFO line per request at 5,000 req/s is over 400 million lines a day: sample the routine ones, keep every error, and never put a user id or a full URL in a metric label.</li>
+            <li><strong>SIGTERM, in the Go page&rsquo;s order</strong>: fail readiness, wait for the load balancer to notice, stop accepting, drain in-flight work, close pools, exit. Python&rsquo;s default on SIGTERM is to die immediately, mid-request.</li>
+            <li><strong>Liveness and readiness are different questions</strong> &mdash; &ldquo;should you kill me&rdquo; versus &ldquo;should you send me traffic&rdquo;. A liveness probe that checks the database restarts your app whenever the database is slow.</li>
+            <li><strong>Worker models</strong>: <code>gunicorn</code> with N sync workers is one process per core, no shared memory, and the safe default for blocking code; <code>uvicorn</code>/ASGI workers give I/O concurrency inside each process. Threads help only where the work releases the GIL.</li>
+            <li><strong>A Python process is not a static binary.</strong> The interpreter, the C extensions and every wheel are part of what you ship, so the image &mdash; pinned by digest &mdash; is your dependency contract. There is nothing else to hand over.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="checklist">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>The Python review checklist</h3>
+        <p class="lede">Fifteen things worth a second look in any Python diff. Each takes about five seconds to check and can cost an afternoon to debug later &mdash; and roughly half of them a linter will find before you do.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 252" role="img" aria-label="A fifteen-item Python review checklist in three groups: correctness, resources and errors, and clarity and types.">
+          <text x="20" y="20" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">CORRECTNESS</text>
+          <g class="svg-l1">
+            <rect x="20" y="32" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="20" y="72" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="20" y="112" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="20" y="152" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="20" y="192" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          </g>
+          <text x="42" y="42" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">No mutable default argument &mdash; use None.</text>
+          <text x="42" y="82" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">is compares identity, == compares value:</text>
+          <text x="42" y="96" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">only None, True and False deserve is.</text>
+          <text x="42" y="122" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">No bare except: catch what you handle.</text>
+          <text x="42" y="162" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Nothing shadows a builtin (list, id, type).</text>
+          <text x="42" y="202" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">No list or dict mutated while iterating it.</text>
+
+          <text x="316" y="20" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">RESOURCES AND ERRORS</text>
+          <g class="svg-l2">
+            <rect x="316" y="32" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="316" y="72" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="316" y="112" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="316" y="152" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="316" y="192" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          </g>
+          <text x="338" y="42" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">with for every file, socket, lock, session.</text>
+          <text x="338" y="82" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">No exception swallowed: handle or re-raise.</text>
+          <text x="338" y="122" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Wrapped with raise X from e, so the</text>
+          <text x="338" y="136" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">original cause survives the retag.</text>
+          <text x="338" y="162" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Concurrency bounded by a pool or a</text>
+          <text x="338" y="176" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">semaphore, not one task per item.</text>
+          <text x="338" y="202" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Every network call has a timeout.</text>
+
+          <text x="612" y="20" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">CLARITY AND TYPES</text>
+          <g class="svg-l3">
+            <rect x="612" y="32" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="612" y="72" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="612" y="112" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="612" y="152" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="612" y="192" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          </g>
+          <text x="634" y="42" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Public functions annotated, and the</text>
+          <text x="634" y="56" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">annotations checked in CI.</text>
+          <text x="634" y="82" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Records are dataclasses, not bare dicts.</text>
+          <text x="634" y="122" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">No Any at a module boundary.</text>
+          <text x="634" y="162" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">__repr__ on every domain type.</text>
+          <text x="634" y="202" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Module scope holds definitions, not</text>
+          <text x="634" y="216" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">work: no I/O at import time.</text>
+
+          <line x1="20" y1="228" x2="880" y2="228" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="246" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">About half of this list is a linter&rsquo;s job. Put <tspan font-family="IBM Plex Mono, monospace" font-size="11">ruff</tspan> and <tspan font-family="IBM Plex Mono, monospace" font-size="11">mypy</tspan> in CI and spend the review on the half no tool can check.</text>
+        </svg>
+        <figcaption><b>Read it as three questions, not fifteen rules.</b> Does this do what it says on the inputs nobody tried; does every resource and every failure have an owner; and will someone who has never seen this module be able to tell what a function takes and returns without running it.</figcaption>
+      </figure>
+
+      <div class="callout">
+        <h4>The two questions behind all fifteen</h4>
+        <p>&ldquo;Who owns this object, and when is it released?&rdquo; &mdash; which covers files, sockets, pools, caches, tasks and the references that keep them all alive. And &ldquo;what does this do when the thing it calls never answers?&rdquo; &mdash; the same question the Go page ends on, and the one that decides whether a slow dependency becomes a slow endpoint or a dead service. Every item above is one of those two, asked about a specific line.</p>
+      </div>
+    </section>
+  </div>
+</section>

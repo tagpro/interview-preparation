@@ -1,0 +1,673 @@
+<section class="part" id="ground">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>The contract every service shares</h2>
+      <p>Before any single service, three things are true of all of them: your code gets credentials from a chain it did not write, every call is wrapped in retries and signing you cannot see, and the packet has to physically leave your subnet. Most &ldquo;the SDK is broken&rdquo; incidents are one of these three.</p>
+    </div>
+
+    <section class="topic" id="sdk">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>The client, the credential chain and the retry</h3>
+        <p class="lede">An AWS client is not a connection. It is a credential provider, a retryer, a signer and an HTTP pool bolted together &mdash; and each of those four has a default that is wrong for a busy service.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 358" role="img" aria-label="Two panels: the ordered credential resolution chain from explicit code down to the instance metadata service, and the layers that wrap every API call — middleware, retryer, HTTP client and the regional endpoint.">
+          <defs>
+            <marker id="aw-01" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">HOW THE SDK FINDS CREDENTIALS &mdash; FIRST HIT WINS</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="30" width="520" height="25" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="30" y="47" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">1 &nbsp;passed in code &middot; StaticCredentialsProvider, client(&hellip;) kwargs</text>
+            <rect x="20" y="59" width="520" height="25" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="30" y="76" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">2 &nbsp;environment &middot; AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (+ token)</text>
+            <rect x="20" y="88" width="520" height="25" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="30" y="105" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">3 &nbsp;shared config &middot; ~/.aws/config profile, SSO session, role_arn chain</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="20" y="117" width="520" height="25" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="30" y="134" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">4 &nbsp;web identity &middot; AWS_WEB_IDENTITY_TOKEN_FILE &rarr; sts:AssumeRoleWithWebIdentity</text>
+            <rect x="20" y="146" width="520" height="25" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="30" y="163" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">5 &nbsp;container &middot; ECS / Fargate task role over 169.254.170.2</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="20" y="175" width="520" height="25" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="30" y="192" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">6 &nbsp;instance &middot; IMDSv2 on 169.254.169.254, token-first, hop limit applies</text>
+          </g>
+          <line x1="8" y1="30" x2="8" y2="200" stroke="currentColor" stroke-width="1" opacity="0.35"/>
+
+          <rect x="562" y="30" width="318" height="170" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4"/>
+          <text x="574" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">WHAT THIS MEANS FOR YOUR CODE</text>
+          <text x="574" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The chain runs once, when the client is built.</text>
+          <text x="574" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Whichever provider answers then caches and</text>
+          <text x="574" y="104" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">refreshes itself shortly before expiry.</text>
+          <text x="574" y="128" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">So: one client per service per process,</text>
+          <text x="574" y="144" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">kept for the life of the process. A client</text>
+          <text x="574" y="160" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">built inside a request handler pays DNS,</text>
+          <text x="574" y="176" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">TLS and often an STS round trip, every</text>
+          <text x="574" y="192" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">single time.</text>
+
+          <line x1="20" y1="224" x2="880" y2="224" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="248" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">What wraps every single call</text>
+
+          <rect x="20" y="264" width="118" height="46" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="30" y="284" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">your call</text>
+          <text x="30" y="298" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">with a ctx</text>
+
+          <g class="svg-l2">
+            <rect x="176" y="264" width="146" height="46" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="186" y="284" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">middleware</text>
+            <text x="186" y="298" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">serialise, SigV4 sign</text>
+            <line x1="140" y1="287" x2="172" y2="287" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-01)"/>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="360" y="264" width="146" height="46" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="370" y="284" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">retryer</text>
+            <text x="370" y="298" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">3 tries, full jitter</text>
+            <line x1="324" y1="287" x2="356" y2="287" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-01)"/>
+            <path d="M433 264 L433 246 L253 246 L253 262" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#aw-01)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="544" y="264" width="146" height="46" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="554" y="284" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">HTTP client</text>
+            <text x="554" y="298" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">pool + attempt t/o</text>
+            <line x1="508" y1="287" x2="540" y2="287" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-01)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="728" y="264" width="152" height="46" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="738" y="284" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">regional endpoint</text>
+            <text x="738" y="298" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">dynamodb.eu-west-1</text>
+            <line x1="692" y1="287" x2="724" y2="287" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-01)"/>
+          </g>
+
+          <text x="20" y="336" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The context deadline covers <tspan font-weight="600">all</tspan> attempts; the HTTP timeout covers <tspan font-weight="600">one</tspan>. Set both, or a single hung socket eats the whole budget.</text>
+        </svg>
+        <figcaption><b>The dashed arrow is the one people forget.</b> A call that takes 3&nbsp;seconds may have been three attempts of one second, and the service may have executed all three. Everything downstream of the retryer must therefore be safe to repeat &mdash; which is why idempotency keys, conditional writes and message deduplication appear in nearly every section below.</figcaption>
+      </figure>
+
+      <p class="langnote">Snippets below in <b>Go</b> and <b>Python</b> &mdash; switch with the control in the bar, or press <b>g</b> / <b>p</b>.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// config.go — built once at start-up, shared by every client in the process.</span>
+cfg, err := config.LoadDefaultConfig(ctx,
+    config.WithRegion("eu-west-1"),
+    config.WithRetryer(func() aws.Retryer {
+        <span class="c">// Standard: 3 attempts, exponential backoff with full jitter, and a</span>
+        <span class="c">// token bucket so a storm of retries cannot amplify an outage.</span>
+        <span class="c">// retry.NewAdaptiveMode wraps it with a client-side rate limiter that</span>
+        <span class="c">// slows you down when the service starts throttling.</span>
+        return retry.NewStandard(func(o *retry.StandardOptions) {
+            o.MaxAttempts = 5
+            o.MaxBackoff = 3 * time.Second
+        })
+    }),
+    config.WithHTTPClient(awshttp.NewBuildableClient().
+        WithTimeout(10*time.Second).                <span class="c">// PER ATTEMPT, not per call</span>
+        WithTransportOptions(func(t *http.Transport) {
+            t.MaxIdleConnsPerHost = 100             <span class="c">// the SDK client defaults to 10</span>
+        })),
+)
+if err != nil {
+    return fmt.Errorf("aws config: %w", err)        <span class="c">// fail the process, not the request</span>
+}
+
+<span class="c">// One client per service. They are goroutine-safe and hold the pool.</span>
+app := &amp;App{
+    ddb: dynamodb.NewFromConfig(cfg),
+    s3:  s3.NewFromConfig(cfg, func(o *s3.Options) { o.UsePathStyle = false }),
+    sqs: sqs.NewFromConfig(cfg),
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># aws.py — imported once; module-level clients live for the whole process.</span>
+import boto3
+from botocore.config import Config
+
+CFG = Config(
+    region_name="eu-west-1",
+    retries={"max_attempts": 5, "mode": "adaptive"},  <span class="c"># legacy | standard | adaptive</span>
+    connect_timeout=2,             <span class="c"># PER ATTEMPT</span>
+    read_timeout=10,               <span class="c"># PER ATTEMPT — total wall time can be 5x this</span>
+    max_pool_connections=50,       <span class="c"># default 10, shared by every thread</span>
+    tcp_keepalive=True,
+    user_agent_appid="orders",     <span class="c"># lands in CloudTrail; worth its weight in triage</span>
+)
+
+_SESSION = boto3.session.Session()
+DDB = _SESSION.client("dynamodb", config=CFG)
+S3 = _SESSION.client("s3", config=CFG)
+SQS = _SESSION.client("sqs", config=CFG)
+
+<span class="c"># Clients are thread-safe. Resources (boto3.resource) are NOT — if you use</span>
+<span class="c"># them, build one per thread, or stay on clients as everything here does.</span></pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Knob</th><th>Default</th><th>Set it to</th><th>Because</th></tr></thead>
+          <tbody>
+            <tr><td>Max attempts</td><td>3 in Go; boto3 ships <code>legacy</code> mode with 5</td><td>3&ndash;5 for reads, <b>1</b> for anything non-idempotent you retry yourself</td><td>Double retry layers multiply: your 3 &times; the SDK&rsquo;s 3 is nine calls and nine chances to duplicate a side effect.</td></tr>
+            <tr><td>Retry mode</td><td><code>standard</code> in Go, <code>legacy</code> in boto3</td><td><code>adaptive</code> when you regularly hit throttling</td><td>Adaptive adds a client-side rate limiter, so a throttled fleet backs off together instead of hammering in lockstep.</td></tr>
+            <tr><td>Read timeout</td><td>60s (boto3), none (Go transport)</td><td>Just above your p99 for that call, typically 2&ndash;10s</td><td>The default is longer than most callers&rsquo; own deadline, so the socket outlives the request that wanted it.</td></tr>
+            <tr><td>Pool size</td><td>10 (boto3), 10 per host (the Go SDK&rsquo;s client)</td><td>&ge; your concurrency</td><td>Beyond the pool, calls queue invisibly. The latency shows up in your metrics as &ldquo;AWS is slow&rdquo;.</td></tr>
+            <tr><td>Client lifetime</td><td>&mdash;</td><td>Process</td><td>Construction resolves the credential chain, may call STS, and starts a fresh connection pool.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Errors: the code matters more than the message</h4>
+      <p>Every AWS error carries a code, an HTTP status and a request ID. Branch on the code &mdash; never on the message text, which AWS reserves the right to reword. The request ID is what support asks for, so log it.</p>
+
+<pre class="l3" data-lang="go"><span class="c">// Typed errors: the modelled ones have Go types, the rest satisfy smithy.APIError.</span>
+_, err := app.ddb.PutItem(ctx, &amp;dynamodb.PutItemInput{
+    TableName:           aws.String("orders"),
+    Item:                item,
+    ConditionExpression: aws.String("attribute_not_exists(pk)"),
+})
+
+var dup *types.ConditionalCheckFailedException
+var thr *types.ProvisionedThroughputExceededException
+var api smithy.APIError
+
+switch {
+case errors.As(err, &amp;dup):
+    return ErrAlreadyExists                       <span class="c">// not an error: someone won the race</span>
+case errors.As(err, &amp;thr):
+    return backoffAndRetryLater(ctx)              <span class="c">// the SDK already tried; the table is hot</span>
+case errors.As(err, &amp;api):
+    <span class="c">// RequestID is on the response metadata, not on the error itself</span>
+    var re *awshttp.ResponseError
+    id := ""
+    if errors.As(err, &amp;re) {
+        id = re.ServiceRequestID()
+    }
+    log.Error("aws call failed", "code", api.ErrorCode(),
+        "fault", api.ErrorFault().String(),       <span class="c">// client | server | unknown</span>
+        "request_id", id)
+    return err
+case err != nil:
+    return err                                    <span class="c">// context cancelled, DNS, TLS…</span>
+}</pre>
+
+<pre class="l3" data-lang="py"><span class="c"># botocore raises ClientError for anything the service returned; the shape is</span>
+<span class="c"># always the same, and every client exposes its modelled errors as attributes.</span>
+from botocore.exceptions import ClientError, EndpointConnectionError
+
+try:
+    DDB.put_item(
+        TableName="orders",
+        Item=item,
+        ConditionExpression="attribute_not_exists(pk)",
+    )
+except DDB.exceptions.ConditionalCheckFailedException:
+    raise AlreadyExists                    <span class="c"># not an error: someone won the race</span>
+except DDB.exceptions.ProvisionedThroughputExceededException:
+    raise Retryable("table is hot")        <span class="c"># the SDK already retried; still throttled</span>
+except ClientError as e:
+    err = e.response["Error"]
+    meta = e.response["ResponseMetadata"]
+    log.error(
+        "aws call failed",
+        extra={
+            "code": err["Code"],                          <span class="c"># branch on THIS</span>
+            "status": meta["HTTPStatusCode"],
+            "request_id": meta["RequestId"],              <span class="c"># what support will ask for</span>
+            "attempts": meta.get("RetryAttempts"),        <span class="c"># how many the SDK burned</span>
+        },
+    )
+    raise
+except EndpointConnectionError:            <span class="c"># never reached the service at all:</span>
+    raise Unreachable                      <span class="c"># DNS, route, security group, endpoint</span></pre>
+
+      <h4>Pagination and waiters, without the loop you always get wrong</h4>
+      <p>Every list-shaped AWS API is paginated, and the page you get back is capped by size as well as count &mdash; a <code>Query</code> can return zero items and still hand you a continuation token because it scanned 1&nbsp;MB of non-matching rows. Never treat an empty page as the end. Both SDKs ship paginators that get this right; use them.</p>
+
+<pre class="l1" data-lang="go">p := s3.NewListObjectsV2Paginator(app.s3, &amp;s3.ListObjectsV2Input{
+    Bucket: aws.String("orders-archive"),
+    Prefix: aws.String("2026/08/"),
+})
+for p.HasMorePages() {
+    page, err := p.NextPage(ctx)          <span class="c">// ctx cancels mid-listing</span>
+    if err != nil {
+        return err
+    }
+    for _, o := range page.Contents {
+        handle(aws.ToString(o.Key), aws.ToInt64(o.Size))
+    }
+}
+
+<span class="c">// Waiters poll for you, with the service&rsquo;s own recommended interval —</span>
+<span class="c">// and, crucially, with a maximum wait, so a stuck resource fails the deploy.</span>
+w := rds.NewDBInstanceAvailableWaiter(app.rds)
+err = w.Wait(ctx, &amp;rds.DescribeDBInstancesInput{
+    DBInstanceIdentifier: aws.String("orders-prod"),
+}, 20*time.Minute)</pre>
+
+<pre class="l1" data-lang="py">for page in S3.get_paginator("list_objects_v2").paginate(
+    Bucket="orders-archive",
+    Prefix="2026/08/",
+    PaginationConfig={"PageSize": 1000},          <span class="c"># per request, not a total cap</span>
+):
+    for obj in page.get("Contents", []):          <span class="c"># .get: an empty page has no key</span>
+        handle(obj["Key"], obj["Size"])
+
+<span class="c"># Server-side filtering beats client-side: JMESPath runs in botocore, but</span>
+<span class="c"># search() still downloads every page — use Prefix/StartAfter where you can.</span>
+keys = S3.get_paginator("list_objects_v2").paginate(
+    Bucket="orders-archive", Prefix="2026/08/"
+).search("Contents[?Size &gt; `0`].Key")
+
+<span class="c"># Waiters: the service&rsquo;s own polling loop, with a bounded maximum.</span>
+RDS.get_waiter("db_instance_available").wait(
+    DBInstanceIdentifier="orders-prod",
+    WaiterConfig={"Delay": 30, "MaxAttempts": 40},   <span class="c"># 20 minutes, then raise</span>
+)</pre>
+
+      <div class="pair">
+        <div class="note">
+          <h4>Region is not a formality</h4>
+          <p>The region decides the endpoint, the signing scope and the price. A client with no region falls back to the environment, then the profile, then fails &mdash; and in Lambda it silently inherits the function&rsquo;s region, which is why code that works deployed fails on a laptop.</p>
+        </div>
+        <div class="note warn">
+          <h4>The retry you did not order</h4>
+          <p>SDK retries are invisible in your traces unless you look for them. In Go, <code>retry.AddWithMaxAttempts</code> and the attempt metrics; in Python, <code>ResponseMetadata.RetryAttempts</code>. A p99 that is exactly 3&times; your p50 is a retry story, not a slow-service story.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="topic" id="iam">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>IAM: the evaluation order, and how a process gets a role</h3>
+        <p class="lede">IAM is not a list of permissions. It is a decision function run per request over up to six policy types, and it answers &ldquo;deny&rdquo; unless something explicitly allows &mdash; and nothing explicitly denies.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 372" role="img" aria-label="A decision waterfall for one AWS API call: explicit deny anywhere ends it, then organisation service control policies, resource control policies, session policies, permissions boundaries, and finally the identity or resource policy allow — with implicit deny as the default. Below, the three-sided trust relationship between a workload, a role and STS.">
+          <defs>
+            <marker id="aw-02" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE API CALL, EVALUATED &mdash; TOP TO BOTTOM, EVERY TIME</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="30" width="600" height="30" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="50" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">1 &nbsp;explicit Deny in ANY policy</text>
+            <text x="636" y="50" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">&rarr; DENY, stop</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="20" y="66" width="600" height="28" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="32" y="85" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">2 &nbsp;SCP &middot; the organisation&rsquo;s ceiling on the account</text>
+            <text x="636" y="85" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">must allow</text>
+            <rect x="20" y="100" width="600" height="28" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="32" y="119" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">3 &nbsp;RCP &middot; the organisation&rsquo;s ceiling on the resource</text>
+            <text x="636" y="119" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">must allow</text>
+            <rect x="20" y="134" width="600" height="28" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="32" y="153" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">4 &nbsp;session policy &middot; passed at AssumeRole, subtracts only</text>
+            <text x="636" y="153" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">if present</text>
+            <rect x="20" y="168" width="600" height="28" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="32" y="187" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">5 &nbsp;permissions boundary &middot; the maximum this identity may have</text>
+            <text x="636" y="187" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">if present</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="20" y="202" width="600" height="30" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="222" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">6 &nbsp;identity policy Allow &mdash; or the resource policy&rsquo;s</text>
+            <text x="636" y="222" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">&rarr; ALLOW</text>
+          </g>
+          <text x="32" y="252" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">Nothing matched &rarr; <tspan font-weight="600">implicit deny</tspan>. Cross-account needs an Allow on <tspan font-weight="600">both</tspan> sides.</text>
+
+          <line x1="20" y1="270" x2="880" y2="270" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="292" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">How a running process gets that identity</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="306" width="176" height="48" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="30" y="326" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">workload identity</text>
+            <text x="30" y="342" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">EC2 / task / pod / OIDC</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="256" y="306" width="176" height="48" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="266" y="326" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">trust policy</text>
+            <text x="266" y="342" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">WHO may assume</text>
+            <line x1="200" y1="330" x2="252" y2="330" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-02)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="492" y="306" width="176" height="48" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="502" y="326" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">sts:AssumeRole*</text>
+            <text x="502" y="342" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">15 min &ndash; 12 h creds</text>
+            <line x1="436" y1="330" x2="488" y2="330" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-02)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="728" y="306" width="152" height="48" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="738" y="326" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">role policy</text>
+            <text x="738" y="342" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">WHAT it may do</text>
+            <line x1="672" y1="330" x2="724" y2="330" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-02)"/>
+          </g>
+        </svg>
+        <figcaption><b>Two policies, two questions.</b> The trust policy answers &ldquo;who may become this role&rdquo; and the attached policies answer &ldquo;what may it then do&rdquo;. Nearly every <code>AccessDenied</code> during a migration is the first one: the permissions were copied across, the trust relationship was not.</figcaption>
+      </figure>
+
+      <div class="svc">
+        <div><span class="h">Principal</span><span class="b">A <b>user</b> has long-lived keys. A <b>role</b> has none &mdash; it is assumed, and hands out credentials that expire. Production code should only ever use roles.</span></div>
+        <div><span class="h">Trust policy</span><span class="b">The resource policy <i>of the role itself</i>. Names the principal allowed to assume it: a service, an account, or an OIDC provider with a <code>sub</code> condition.</span></div>
+        <div><span class="h">Boundary</span><span class="b">A ceiling attached to an identity. Lets you delegate &ldquo;you may create roles&rdquo; without letting the delegate create an admin role.</span></div>
+        <div><span class="h">Condition keys</span><span class="b">Where real least privilege lives: <code>aws:PrincipalOrgID</code>, <code>aws:SourceVpce</code>, <code>s3:prefix</code>, <code>aws:SecureTransport</code>, <code>sts:ExternalId</code>.</span></div>
+      </div>
+
+      <h4>Assuming a role from code &mdash; and refreshing it</h4>
+      <p>The one detail people miss: <code>AssumeRole</code> returns credentials with a fixed expiry. If your process outlives it and you did not wrap the call in something that refreshes, you get a clean, confusing <code>ExpiredToken</code> an hour after deploy.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// Cross-account: assume the data account&rsquo;s reader role. NewCredentialsCache</span>
+<span class="c">// is what makes this safe for a long-lived process — it refreshes shortly</span>
+<span class="c">// before expiry and serialises concurrent refreshes into one STS call.</span>
+base, err := config.LoadDefaultConfig(ctx, config.WithRegion("eu-west-1"))
+if err != nil {
+    return err
+}
+
+prov := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(base),
+    "arn:aws:iam::222233334444:role/orders-reader",
+    func(o *stscreds.AssumeRoleOptions) {
+        o.RoleSessionName = "orders-" + hostname       <span class="c">// shows up in CloudTrail</span>
+        o.Duration = 30 * time.Minute                  <span class="c">// short: blast radius of a leak</span>
+        o.ExternalID = aws.String(externalID)          <span class="c">// third-party: confused deputy</span>
+        o.Tags = []types.Tag{                          <span class="c">// session tags can drive ABAC</span>
+            {Key: aws.String("service"), Value: aws.String("orders")},
+        }
+    })
+
+cross := base.Copy()
+cross.Credentials = aws.NewCredentialsCache(prov)
+reader := dynamodb.NewFromConfig(cross)
+
+<span class="c">// Who am I, really? The first line of any IAM debugging session.</span>
+who, err := sts.NewFromConfig(cross).GetCallerIdentity(ctx, nil)
+log.Info("identity", "arn", aws.ToString(who.Arn))     <span class="c">// .../orders-reader/orders-h7</span></pre>
+
+<pre class="l2" data-lang="py"><span class="c"># boto3&rsquo;s assume_role returns FIXED credentials — fine for a script, a trap</span>
+<span class="c"># for a server. For anything long-lived, hand botocore a refreshable provider</span>
+<span class="c"># so it re-assumes before expiry instead of dying with ExpiredToken.</span>
+from botocore.credentials import DeferredRefreshableCredentials
+from botocore.session import get_session
+
+STS = boto3.client("sts")
+ROLE = "arn:aws:iam::222233334444:role/orders-reader"
+
+
+def _fetch():
+    r = STS.assume_role(
+        RoleArn=ROLE,
+        RoleSessionName=f"orders-{HOSTNAME}",     <span class="c"># shows up in CloudTrail</span>
+        DurationSeconds=1800,                     <span class="c"># short: blast radius of a leak</span>
+        ExternalId=EXTERNAL_ID,                   <span class="c"># third-party: confused deputy</span>
+        Tags=[{"Key": "service", "Value": "orders"}],   <span class="c"># session tags drive ABAC</span>
+    )["Credentials"]
+    return {
+        "access_key": r["AccessKeyId"],
+        "secret_key": r["SecretAccessKey"],
+        "token": r["SessionToken"],
+        "expiry_time": r["Expiration"].isoformat(),
+    }
+
+
+_bs = get_session()
+_bs._credentials = DeferredRefreshableCredentials(_fetch, "assume-role")
+CROSS = boto3.Session(botocore_session=_bs)
+reader = CROSS.client("dynamodb", config=CFG)
+
+<span class="c"># Who am I, really? First line of any IAM debugging session.</span>
+print(CROSS.client("sts").get_caller_identity()["Arn"])   <span class="c"># .../orders-reader/orders-h7</span></pre>
+
+      <h4>The policy you should actually write</h4>
+      <p>A policy with <code>"Resource": "*"</code> is a policy you will never be able to audit. Scope by resource ARN, then narrow further with conditions &mdash; the two below are the highest-value conditions on the platform, and neither costs you anything.</p>
+
+<pre class="l3" data-lang="go"><span class="c">// The same JSON, whichever language calls it. Two things make it real:</span>
+<span class="c">// a resource ARN with a prefix, and conditions that survive a leaked key.</span>
+policy := `{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadOwnTenantObjects",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::orders-archive/tenant/${aws:PrincipalTag/tenant}/*",
+      "Condition": {
+        "Bool":        {"aws:SecureTransport": "true"},
+        "StringEquals":{"aws:SourceVpce": "vpce-0abc123"}
+      }
+    },
+    {
+      "Sid": "DenyEverythingOutsideTheOrg",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {"StringNotEquals": {"aws:PrincipalOrgID": "o-exampleorgid"}}
+    }
+  ]
+}`
+
+<span class="c">// Pass it as a session policy to shrink a broad role for one job.</span>
+o.Policy = aws.String(policy)   <span class="c">// inside AssumeRoleOptions: intersects, never grants</span></pre>
+
+<pre class="l3" data-lang="py"><span class="c"># The same JSON, whichever language calls it. Two things make it real:</span>
+<span class="c"># a resource ARN with a prefix, and conditions that survive a leaked key.</span>
+POLICY = {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ReadOwnTenantObjects",
+            "Effect": "Allow",
+            "Action": ["s3:GetObject"],
+            "Resource": "arn:aws:s3:::orders-archive/tenant/${aws:PrincipalTag/tenant}/*",
+            "Condition": {
+                "Bool": {"aws:SecureTransport": "true"},
+                "StringEquals": {"aws:SourceVpce": "vpce-0abc123"},
+            },
+        },
+        {
+            "Sid": "DenyEverythingOutsideTheOrg",
+            "Effect": "Deny",
+            "Action": "*",
+            "Resource": "*",
+            "Condition": {"StringNotEquals": {"aws:PrincipalOrgID": "o-exampleorgid"}},
+        },
+    ],
+}
+
+<span class="c"># Pass it as a session policy to shrink a broad role for one job.</span>
+STS.assume_role(RoleArn=ROLE, RoleSessionName="job",
+                Policy=json.dumps(POLICY))    <span class="c"># intersects, never grants</span></pre>
+
+      <div class="note warn">
+        <h4>Read the denial, it tells you which rule fired</h4>
+        <p>&ldquo;<code>User: arn:&hellip;/task-role is not authorized to perform: s3:GetObject &hellip; because no identity-based policy allows</code>&rdquo; means step&nbsp;6 found nothing. &ldquo;<code>&hellip;with an explicit deny in a service control policy</code>&rdquo; means step&nbsp;1 or 2, and no amount of editing the role will help. IAM Access Analyzer&rsquo;s policy generator will write a first draft from 90 days of CloudTrail &mdash; a far better starting point than <code>*</code>.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="vpc">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>Where your code sits in the network</h3>
+        <p class="lede">A private subnet has no route to the internet. Everything that follows &mdash; NAT bills, timing-out Lambdas, endpoints, security-group loops &mdash; is a consequence of that one sentence.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 384" role="img" aria-label="A VPC with a public subnet holding a load balancer and NAT gateway, a private subnet holding tasks and a database, an internet gateway, a gateway endpoint for S3 and an interface endpoint for other services, and a decision list for diagnosing why traffic cannot leave.">
+          <defs>
+            <marker id="aw-03" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">VPC 10.0.0.0/16 &mdash; THREE WAYS OUT, THREE PRICES</text>
+
+          <rect x="16" y="28" width="600" height="212" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="6 4" opacity="0.5"/>
+
+          <g class="svg-l2">
+            <rect x="32" y="44" width="264" height="76" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="42" y="62" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">PUBLIC SUBNET &middot; 10.0.0.0/20</text>
+            <text x="42" y="80" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">ALB &middot; public IP, 0.0.0.0/0 &rarr; igw</text>
+            <text x="42" y="96" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">NAT gateway &middot; hourly + per GB</text>
+            <text x="42" y="112" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">nothing of yours runs here</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="32" y="136" width="264" height="88" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="42" y="154" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">PRIVATE SUBNET &middot; 10.0.16.0/20</text>
+            <text x="42" y="172" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">ECS tasks, Lambda ENIs, pods</text>
+            <text x="42" y="188" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">RDS / Aurora &middot; no public IP ever</text>
+            <text x="42" y="204" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">default route &rarr; nat, or nowhere</text>
+            <text x="42" y="219" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">one ENI per task &middot; subnet IPs are finite</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="326" y="44" width="270" height="52" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="336" y="62" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">VIA NAT &rarr; INTERNET GATEWAY</text>
+            <text x="336" y="80" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">works for everything, bills every byte</text>
+            <line x1="300" y1="70" x2="322" y2="70" stroke="currentColor" stroke-width="1.3" marker-end="url(#aw-03)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="326" y="110" width="270" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="336" y="128" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">GATEWAY ENDPOINT &middot; FREE</text>
+            <text x="336" y="146" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">S3 and DynamoDB only &middot; a route table entry</text>
+            <line x1="300" y1="150" x2="322" y2="136" stroke="currentColor" stroke-width="1.3" marker-end="url(#aw-03)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="326" y="176" width="270" height="56" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="336" y="194" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">INTERFACE ENDPOINT &middot; PRIVATELINK</text>
+            <text x="336" y="212" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">an ENI per AZ &middot; hourly + per GB, but cheaper</text>
+            <text x="336" y="226" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">than NAT and never leaves the network</text>
+            <line x1="300" y1="184" x2="322" y2="196" stroke="currentColor" stroke-width="1.3" marker-end="url(#aw-03)"/>
+          </g>
+
+          <rect x="636" y="44" width="244" height="196" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4"/>
+          <text x="648" y="64" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">SECURITY GROUP vs NACL</text>
+          <text x="648" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">SG &middot; stateful, allow-only, attached</text>
+          <text x="648" y="102" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">to the ENI. Return traffic is implied.</text>
+          <text x="648" y="118" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Can reference another SG by id &mdash;</text>
+          <text x="648" y="134" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the correct way to say &ldquo;the app,</text>
+          <text x="648" y="150" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">whatever its IP is today&rdquo;.</text>
+          <text x="648" y="176" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">NACL &middot; stateless, subnet-wide, has</text>
+          <text x="648" y="192" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">deny rules. Forget the ephemeral</text>
+          <text x="648" y="208" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">port range on the return path and</text>
+          <text x="648" y="224" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">you get a one-way network.</text>
+
+          <line x1="20" y1="258" x2="880" y2="258" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="280" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">&ldquo;It just hangs&rdquo; &mdash; in the order to check</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="294" width="418" height="76" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="314" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">HANGS, THEN TIMES OUT</text>
+            <text x="32" y="332" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">A packet left and nothing answered: missing route,</text>
+            <text x="32" y="348" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">security group with no egress rule, NACL blocking</text>
+            <text x="32" y="364" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the return, or no NAT in that subnet&rsquo;s table.</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="462" y="294" width="418" height="76" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="474" y="314" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">FAILS IMMEDIATELY</text>
+            <text x="474" y="332" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">DNS or TLS, not the network: private DNS off on</text>
+            <text x="474" y="348" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the endpoint, wrong region in the hostname, or</text>
+            <text x="474" y="364" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">enableDnsHostnames disabled on the VPC.</text>
+          </g>
+        </svg>
+        <figcaption><b>Fast failure and slow failure mean different things.</b> Connection refused or an NXDOMAIN in under a second is a name or a listener problem. A hang that ends at your timeout is a filtering or routing problem &mdash; something dropped the packet silently, which is exactly what security groups and NACLs are built to do.</figcaption>
+      </figure>
+
+      <h4>Make the network failure legible at boot</h4>
+      <p>The worst version of this bug is a service that starts healthy, passes its health check, and only fails when the first real request needs S3. A ten-line probe at start-up turns a 3&nbsp;a.m. mystery into a log line.</p>
+
+<pre class="l1" data-lang="go"><span class="c">// reachable dials the service endpoint and separates the failure modes:</span>
+<span class="c">// name resolution (DNS / private DNS) from the TCP handshake (route / SG).</span>
+func reachable(ctx context.Context, host string) error {
+    ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+    defer cancel()
+
+    ips, err := net.DefaultResolver.LookupHost(ctx, host)
+    if err != nil {
+        <span class="c">// private DNS off on the interface endpoint, or DNS support off on the VPC</span>
+        return fmt.Errorf("dns %s: %w", host, err)
+    }
+
+    var d net.Dialer
+    conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, "443"))
+    if err != nil {
+        <span class="c">// resolved but unreachable: no route, no egress rule, or no endpoint</span>
+        return fmt.Errorf("dial %s (%v): %w", host, ips[0], err)
+    }
+    _ = conn.Close()
+    return nil
+}
+
+<span class="c">// At start-up, before the health check goes green:</span>
+for _, h := range []string{
+    "sts.eu-west-1.amazonaws.com",              <span class="c">// credentials</span>
+    "dynamodb.eu-west-1.amazonaws.com",         <span class="c">// gateway endpoint or NAT</span>
+    "secretsmanager.eu-west-1.amazonaws.com",   <span class="c">// interface endpoint only</span>
+} {
+    if err := reachable(ctx, h); err != nil {
+        return fmt.Errorf("startup connectivity: %w", err)   <span class="c">// crash loudly, now</span>
+    }
+}</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># reachable() dials the service endpoint and separates the failure modes:</span>
+<span class="c"># name resolution (DNS / private DNS) from the TCP handshake (route / SG).</span>
+import socket
+
+
+def reachable(host: str, port: int = 443, timeout: float = 3.0) -&gt; None:
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as e:
+        <span class="c"># private DNS off on the interface endpoint, or DNS support off on the VPC</span>
+        raise Unreachable(f"dns {host}: {e}") from e
+
+    family, kind, proto, _, addr = infos[0]
+    with socket.socket(family, kind, proto) as s:
+        s.settimeout(timeout)
+        try:
+            s.connect(addr)
+        except OSError as e:
+            <span class="c"># resolved but unreachable: no route, no egress rule, or no endpoint</span>
+            raise Unreachable(f"dial {host} ({addr[0]}): {e}") from e
+
+
+<span class="c"># At start-up, before the health check goes green:</span>
+for host in (
+    "sts.eu-west-1.amazonaws.com",              <span class="c"># credentials</span>
+    "dynamodb.eu-west-1.amazonaws.com",         <span class="c"># gateway endpoint or NAT</span>
+    "secretsmanager.eu-west-1.amazonaws.com",   <span class="c"># interface endpoint only</span>
+):
+    reachable(host)                             <span class="c"># crash loudly, now, not at 03:00</span></pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Concept</th><th>What it really is</th><th>The detail that bites</th></tr></thead>
+          <tbody>
+            <tr><td>Subnet</td><td>A CIDR pinned to <b>one</b> availability zone, with one route table</td><td>AWS reserves 5 addresses per subnet. A <code>/28</code> gives you 11 usable IPs &mdash; and one ECS task in <code>awsvpc</code> mode takes one each.</td></tr>
+            <tr><td>Public vs private</td><td>Purely whether the route table has <code>0.0.0.0/0 &rarr; igw</code></td><td>There is no &ldquo;public subnet&rdquo; setting. A subnet is public because of a route, and instances also need a public IP to use it.</td></tr>
+            <tr><td>NAT gateway</td><td>A managed SNAT device in a public subnet, per AZ</td><td>Charged hourly <i>and</i> per gigabyte processed. One per AZ for resilience triples the hourly cost; one shared across AZs adds cross-AZ transfer to every byte.</td></tr>
+            <tr><td>Gateway endpoint</td><td>A route table entry for S3 or DynamoDB</td><td>Free, and the single highest-return change on most bills. If your NAT charge is dominated by S3 traffic, this deletes it.</td></tr>
+            <tr><td>Interface endpoint</td><td>An ENI in your subnet with private DNS for one service</td><td>Priced per AZ per hour plus data. Worth it above roughly a terabyte a month, or whenever compliance forbids the public path.</td></tr>
+            <tr><td>Security group</td><td>A stateful allow-list on an ENI</td><td>Reference other groups, not CIDRs. <code>sg-app &rarr; sg-db:5432</code> keeps working when the app fleet is replaced.</td></tr>
+            <tr><td>Lambda in a VPC</td><td>Hyperplane ENIs shared across invocations</td><td>Since 2019 this costs no per-invocation ENI setup &mdash; but a VPC Lambda still has <b>no</b> internet unless the subnet routes to NAT, which surprises people calling third-party APIs.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <h4>Plan addresses before you plan anything else</h4>
+        <p>A VPC CIDR cannot be shrunk, and every workload that uses <code>awsvpc</code> networking &mdash; Fargate tasks, EKS pods with the VPC CNI, VPC Lambdas &mdash; consumes real subnet addresses. A <code>/16</code> split into three <code>/20</code> private subnets gives you about 4,000 usable addresses per zone, which sounds infinite until a pod-per-request architecture arrives. Size private subnets at least two rungs larger than you think, and keep a spare <code>/20</code> unallocated in each zone.</p>
+      </div>
+    </section>
+  </div>
+</section>

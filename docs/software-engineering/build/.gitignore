@@ -1,0 +1,9 @@
+# Everything here is generated and re-creatable.
+node_modules/
+__pycache__/
+_fonts/          # node fonts_fetch.mjs
+pdf/             # node print_pdf.mjs
+pdf-bg/
+pdf-dark/
+pdf-letter/
+*.png            # contact sheets and page renders

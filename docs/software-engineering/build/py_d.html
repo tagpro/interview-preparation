@@ -1,0 +1,511 @@
+<section class="part" id="toolchain">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part seven</span>
+      <h2>The toolchain everyone assumes you have</h2>
+      <p>None of what follows is in the language. It is the set of defaults the Python community converged on after twenty years of doing it badly &mdash; and it is what a reviewer will silently assume is already in place before they read a line of your code.</p>
+    </div>
+
+    <section class="topic" id="envs">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Environments, resolution, and lockfiles</h3>
+        <p class="lede">A dependency range says what is <em>allowed</em>. A lockfile says what you actually <em>got</em>. Projects that ship only the first one discover the difference when CI and a laptop resolve the same range to different versions on different days.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 356" role="img" aria-label="A pipeline from pyproject.toml through a resolver to a lockfile and an installed virtual environment, followed by a comparison of two machines: one installing from a lockfile and getting an identical tree, one installing from a range and getting different transitive versions.">
+          <defs>
+            <marker id="pd-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">DECLARE &rarr; RESOLVE &rarr; LOCK &rarr; INSTALL</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="32" width="176" height="70" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">pyproject.toml</text>
+            <text x="32" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">httpx&gt;=0.27,&lt;0.29</text>
+            <text x="32" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">what is allowed</text>
+            <line x1="198" y1="67" x2="222" y2="67" stroke="currentColor" stroke-width="1.3" marker-end="url(#pd-1)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="226" y="32" width="150" height="70" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="238" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">resolver</text>
+            <text x="238" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">solves the whole</text>
+            <text x="238" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">graph at once</text>
+            <line x1="378" y1="67" x2="402" y2="67" stroke="currentColor" stroke-width="1.3" marker-end="url(#pd-1)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="406" y="32" width="196" height="70" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="418" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">uv.lock</text>
+            <text x="418" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">httpx==0.28.1</text>
+            <text x="418" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">sha256:9c2f&hellip; committed</text>
+            <line x1="604" y1="67" x2="628" y2="67" stroke="currentColor" stroke-width="1.3" marker-end="url(#pd-1)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="632" y="32" width="248" height="70" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="644" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">.venv/lib/python3.13/site-packages</text>
+            <text x="644" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">84 packages, exact versions</text>
+            <text x="644" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">byte-identical on every machine</text>
+          </g>
+
+          <line x1="20" y1="122" x2="880" y2="122" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+
+          <text x="20" y="146" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE SAME PROJECT, TWO MONDAYS APART</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="160" width="416" height="132" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="34" y="182" font-family="Bricolage Grotesque, sans-serif" font-size="12" font-weight="700" fill="currentColor">installed from the lockfile</text>
+            <text x="34" y="204" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">$ uv sync --frozen</text>
+            <text x="34" y="228" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">httpx 0.28.1   anyio 4.4.0   certifi 2024.8.30</text>
+            <text x="34" y="246" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">httpx 0.28.1   anyio 4.4.0   certifi 2024.8.30</text>
+            <text x="34" y="272" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Laptop, CI and image agree, so a green CI run means something.</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="464" y="160" width="416" height="132" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="478" y="182" font-family="Bricolage Grotesque, sans-serif" font-size="12" font-weight="700" fill="currentColor">installed from the range</text>
+            <text x="478" y="204" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">$ pip install -r requirements.txt</text>
+            <text x="478" y="228" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">httpx 0.28.1   anyio 4.4.0   certifi 2024.8.30</text>
+            <text x="478" y="246" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">httpx 0.28.1   anyio 4.6.2   certifi 2025.1.31</text>
+            <text x="478" y="272" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Nobody edited anything. anyio published a release.</text>
+          </g>
+
+          <text x="20" y="322" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Pinning your direct dependencies is not enough &mdash; the versions that move under you are almost always transitive, three levels down, in a package</text>
+          <text x="20" y="340" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">you have never heard of. Only a full lockfile pins those.</text>
+        </svg>
+        <figcaption><b>A range is a permission; a lock is a fact.</b> The reproducibility bug is never in the package you chose. It is in the fourth-level transitive dependency that shipped a patch release between your last green build and this red one.</figcaption>
+      </figure>
+
+      <pre class="l2"><span class="c"># pyproject.toml — one file for metadata, dependencies and tool config</span>
+[project]
+name = "payments"
+requires-python = "&gt;=3.13"
+dependencies = ["httpx&gt;=0.27,&lt;0.29", "pydantic&gt;=2.7", "sqlalchemy&gt;=2.0"]
+
+[dependency-groups]           <span class="c"># PEP 735: dev deps that are not shipped</span>
+dev = ["pytest&gt;=8", "ruff&gt;=0.6", "mypy&gt;=1.11"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+<span class="c"># uv lock          → writes uv.lock, commit it</span>
+<span class="c"># uv sync --frozen → installs exactly the lock, fails if it is stale</span>
+<span class="c"># uv run pytest    → runs inside the project env, no activation needed</span></pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Tool</th><th>What it is</th><th>Where you meet it</th><th>Verdict in 2026</th></tr></thead>
+          <tbody>
+            <tr><td><code>uv</code></td><td>Resolver, installer, env and Python-version manager in one Rust binary</td><td>New projects; teams that got tired of waiting</td><td>The default worth starting from. 10&ndash;100&times; faster installs; understands <code>pyproject.toml</code> natively</td></tr>
+            <tr><td><code>pip</code> + <code>venv</code></td><td>The bundled baseline &mdash; always present, no lockfile of its own</td><td>Everywhere; every Dockerfile you inherit</td><td>Know it cold. It is the fallback, and the thing the others emulate</td></tr>
+            <tr><td><code>pip-tools</code></td><td><code>pip-compile</code> turns a <code>.in</code> of ranges into a fully pinned <code>.txt</code></td><td>Mature repos that added locking without changing workflow</td><td>Still perfectly good. The minimal way to get a lockfile onto a pip project</td></tr>
+            <tr><td><code>poetry</code></td><td>Dependency management, locking and publishing with its own resolver</td><td>Widely adopted 2019&ndash;2024; lots of existing repos</td><td>Fine if you are in it. Slower resolution; historically diverged from standards</td></tr>
+            <tr><td><code>pdm</code> / <code>hatch</code></td><td>Standards-first project managers; <code>hatchling</code> is a very common build backend</td><td>Libraries, especially in the scientific and packaging communities</td><td><code>hatchling</code> as a build backend is a safe, boring choice</td></tr>
+            <tr><td><code>conda</code> / <code>mamba</code></td><td>Manages non-Python binaries too &mdash; CUDA, MKL, compilers</td><td>Data science, ML, anything with a Fortran ancestor</td><td>Use when the hard dependency is not Python. Otherwise it is extra weight</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Never install into the system Python</h4>
+          <ul>
+            <li><strong>Virtual environment</strong> &mdash; a directory with its own <code>site-packages</code>; activating it just puts its <code>bin/</code> first on <code>PATH</code>.</li>
+            <li><strong>One env per project</strong>, never shared. Deleting <code>.venv</code> and recreating it should always be safe &mdash; if it is not, something is undeclared.</li>
+            <li><strong><code>pyproject.toml</code></strong> is the single manifest: metadata, dependencies and tool configuration in one file.</li>
+            <li><code>.venv/</code> goes in <code>.gitignore</code>; the lockfile does not. PEP 751&rsquo;s <code>pylock.toml</code> is the standard lockfile format &mdash; uv and pip can export and consume it, so the lock is no longer tool-proprietary.</li>
+            <li>Learn <code>python -m pip</code>, not bare <code>pip</code> &mdash; the <code>-m</code> form guarantees you are installing into the interpreter you think you are.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Commit the lockfile, install from it</h4>
+          <ul>
+            <li><strong>Ranges in the manifest, exact versions in the lock.</strong> Loosen the range when you want an upgrade; regenerate the lock deliberately, in its own commit.</li>
+            <li><strong><code>--frozen</code> in CI and Docker</strong> &mdash; installs must fail rather than silently re-resolve when the lock is stale.</li>
+            <li><strong>Extras and groups</strong> &mdash; test and lint dependencies live in a dev group so they never reach the production image.</li>
+            <li><strong>Applications lock; libraries do not.</strong> A library publishes ranges, because pinning inside a library makes it uninstallable alongside anything else.</li>
+            <li>Pin the Python version too &mdash; <code>requires-python</code> plus a <code>.python-version</code> file.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Understand what the resolver is doing</h4>
+          <ul>
+            <li><strong>Resolution is a SAT problem</strong> over the whole graph. Backtracking resolvers can take minutes on a conflict, and the error names the pair that is unsatisfiable &mdash; read it rather than deleting pins at random.</li>
+            <li><strong>Wheels vs sdists</strong> &mdash; a wheel is a prebuilt zip; falling back to an sdist means compiling on the target machine and needing a toolchain in your image.</li>
+            <li><strong>Platform tags</strong> (<code>manylinux</code>, <code>musllinux</code>, <code>macosx_arm64</code>) decide which wheel you get. Alpine images miss <code>manylinux</code> wheels and rebuild from source &mdash; a common reason a Docker build is fifteen minutes.</li>
+            <li><strong>Hash-pinned installs</strong> (<code>--require-hashes</code>) make a compromised index unable to substitute an artefact.</li>
+            <li><strong>Multi-stage images</strong> &mdash; resolve and build in one stage, copy only <code>site-packages</code> into a slim runtime stage.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="lint">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>One formatter, one linter, three gates</h3>
+        <p class="lede">Formatting stopped being a discussion when <code>black</code> shipped with no options. Linting stopped being five tools when <code>ruff</code> reimplemented them in one binary. What is left to decide is where the checks run &mdash; and the answer is all three places, with identical configuration.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 300" role="img" aria-label="Five older tools collapsing into a single ruff binary, and the same tool running at three gates: in the editor on save with millisecond feedback, in a pre-commit hook on staged files with about a second, and in CI with the pinned version.">
+          <defs>
+            <marker id="pd-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT COLLAPSED INTO ONE BINARY</text>
+          <text x="520" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHERE IT RUNS</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="32" width="212" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="51" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">black</text>
+            <text x="220" y="51" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">formats</text>
+            <rect x="20" y="68" width="212" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="87" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">isort</text>
+            <text x="220" y="87" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">orders imports</text>
+            <rect x="20" y="104" width="212" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="123" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">flake8 + plugins</text>
+            <text x="220" y="123" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">lints</text>
+            <rect x="20" y="140" width="212" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="159" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">pyupgrade</text>
+            <text x="220" y="159" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">modernises</text>
+            <rect x="20" y="176" width="212" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="195" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">autoflake</text>
+            <text x="220" y="195" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">deletes dead code</text>
+            <line x1="234" y1="47" x2="252" y2="47" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="234" y1="83" x2="252" y2="83" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="234" y1="119" x2="252" y2="119" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="234" y1="155" x2="252" y2="155" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="234" y1="191" x2="252" y2="191" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="252" y1="47" x2="252" y2="191" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="252" y1="119" x2="286" y2="119" stroke="currentColor" stroke-width="1.4" marker-end="url(#pd-2)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="290" y="92" width="176" height="56" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="304" y="116" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">ruff</text>
+            <text x="304" y="136" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">format + lint + fix</text>
+          </g>
+          <text x="290" y="172" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">One config block.</text>
+          <text x="290" y="188" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Rules ported by code,</text>
+          <text x="290" y="204" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">not reinvented.</text>
+
+          <g class="svg-l1">
+            <rect x="520" y="32" width="360" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="534" y="54" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">1. editor, on save</text>
+            <text x="534" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">format + safe fixes</text>
+            <text x="868" y="72" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">milliseconds</text>
+            <line x1="700" y1="86" x2="700" y2="104" stroke="currentColor" stroke-width="1.4" marker-end="url(#pd-2)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="520" y="108" width="360" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="534" y="130" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">2. pre-commit hook</text>
+            <text x="534" y="148" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">staged files only</text>
+            <text x="868" y="148" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">about a second</text>
+            <line x1="700" y1="162" x2="700" y2="180" stroke="currentColor" stroke-width="1.4" marker-end="url(#pd-2)"/>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="520" y="184" width="360" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="534" y="206" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">3. CI: ruff check --no-fix</text>
+            <text x="534" y="224" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">whole tree, version pinned</text>
+            <text x="868" y="224" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">the blocking one</text>
+          </g>
+
+          <text x="20" y="252" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">The three gates must run the same version with the same config. If CI can fail on something the editor accepted, people learn to distrust</text>
+          <text x="20" y="270" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">the editor &mdash; and the fast feedback loop, which is the entire point, quietly stops being used.</text>
+        </svg>
+        <figcaption><b>Same tool, same config, three latencies.</b> The editor catches it before you look away, the hook catches it before it leaves your machine, and CI catches the one case where somebody skipped both.</figcaption>
+      </figure>
+
+      <pre class="l2"><span class="c"># pyproject.toml — the whole quality config, in the file you already have</span>
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "S"]
+<span class="c">#  E/F pycodestyle+pyflakes · I imports · UP pyupgrade</span>
+<span class="c">#  B bugbear · SIM simplify · ASYNC async traps · S security</span>
+ignore = ["E501"]             <span class="c"># the formatter owns line length</span>
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]          <span class="c"># assert is the point of a test</span></pre>
+
+      <div class="note">
+        <h4>The one rule set worth turning on deliberately</h4>
+        <p><code>flake8-bugbear</code> (<code>B</code>) is the highest-value group by a distance: it is the one that catches the mutable default argument, the loop variable captured by a closure, and <code>except</code> clauses that swallow everything. Those are the three bugs earlier in this page, found automatically, for free.</p>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Stop formatting by hand</h4>
+          <ul>
+            <li><strong>Formatter</strong> &mdash; rewrites layout deterministically. <code>ruff format</code> is <code>black</code>-compatible; the output is not a matter of taste, and that is the feature.</li>
+            <li><strong>Linter</strong> &mdash; finds likely mistakes: unused imports, undefined names, shadowed builtins, comparisons that are always true.</li>
+            <li><strong>PEP 8</strong> is the style baseline &mdash; but you should never be applying it manually.</li>
+            <li>Turn on format-on-save the day you start. Every formatting comment in a review is a wasted one.</li>
+            <li><code>ruff check --fix</code> applies the safe fixes; read the diff before committing it.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Make the gate automatic</h4>
+          <ul>
+            <li><strong><code>pre-commit</code></strong> &mdash; a hook manager with pinned tool versions in <code>.pre-commit-config.yaml</code>. <code>pre-commit autoupdate</code> bumps them in a reviewable commit.</li>
+            <li><strong>Pin the linter version.</strong> An unpinned linter turns a new release into a red build on an unrelated PR.</li>
+            <li><strong>Adopt on a large codebase</strong> by reformatting everything in one commit, then adding that SHA to <code>.git-blame-ignore-revs</code> so blame still works.</li>
+            <li><strong>Select rules explicitly.</strong> <code>select</code> a named set rather than everything &mdash; a wall of warnings nobody triages is the same as no linter.</li>
+            <li><code>noqa</code> needs a code and a reason: <code>&num; noqa: S105 - test fixture, not a real key</code>.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Know what a linter cannot see</h4>
+          <ul>
+            <li><strong>Lint is syntactic, types are semantic.</strong> Ruff will not tell you a function returns <code>None</code> on one branch; a type checker will. They are different gates, both needed.</li>
+            <li><strong>Custom rules</strong> &mdash; when a bug class recurs, encode it: an AST check in CI, or a <code>flake8</code> plugin. A rule that fires automatically beats a convention nobody remembers.</li>
+            <li><strong>Security lint</strong> (<code>bandit</code>, ruff&rsquo;s <code>S</code> rules) flags <code>subprocess(shell=True)</code>, weak hashes and hard-coded secrets. High false-positive rate; still worth the triage.</li>
+            <li><strong>Complexity budgets</strong> (<code>C901</code>, <code>PLR0912</code>) are blunt but real &mdash; they surface the function that needs splitting before a reviewer has to say it.</li>
+            <li><strong>Formatter migrations change diffs, not behaviour.</strong> Do them alone, never inside a feature branch.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="typecheck">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Type checking as a gate, not a hope</h3>
+        <p class="lede">Annotations do nothing at run time. They are worth writing anyway &mdash; but only once something actually checks them, in CI, on every commit. The hard part is not the syntax; it is adopting a checker on a codebase that has none without stopping the world.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 412" role="img" aria-label="A four-step staircase of increasing type-checking strictness, from a baseline that ignores untyped functions to full strict mode, followed by a comparison of mypy, pyright and the newer Rust-based checkers.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ADOPTING TYPES ON A CODEBASE THAT HAS NONE</text>
+          <text x="20" y="42" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Each step is a configuration change plus a handful of commits &mdash; never a rewrite. You can sit on any step indefinitely.</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="196" width="190" height="52" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="32" y="218" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">0 &middot; baseline</text>
+            <text x="32" y="236" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">runs green, checks little</text>
+            <line x1="212" y1="200" x2="228" y2="176" stroke="currentColor" stroke-width="1.4"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="230" y="156" width="190" height="52" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="242" y="178" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">1 &middot; new code only</text>
+            <text x="242" y="196" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">disallow_untyped_defs</text>
+            <line x1="422" y1="160" x2="438" y2="136" stroke="currentColor" stroke-width="1.4"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="440" y="116" width="190" height="52" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="452" y="138" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">2 &middot; module by module</text>
+            <text x="452" y="156" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">per-module overrides</text>
+            <line x1="632" y1="120" x2="648" y2="96" stroke="currentColor" stroke-width="1.4"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="650" y="76" width="190" height="52" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="662" y="98" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">3 &middot; strict</text>
+            <text x="662" y="116" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">no untyped, no implicit Any</text>
+          </g>
+
+          <text x="20" y="272" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHICH CHECKER</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="284" width="416" height="52" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="34" y="304" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">mypy</text>
+            <text x="34" y="322" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">The reference checker. Config other tools read. Slower on large trees.</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="464" y="284" width="416" height="52" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="478" y="304" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">pyright / basedpyright</text>
+            <text x="478" y="322" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Powers Pylance. Faster, sharper inference, stricter defaults.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="20" y="348" width="860" height="52" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="34" y="368" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">ty / pyrefly</text>
+            <text x="34" y="386" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">The Rust generation &mdash; from the uv/ruff team and Meta. Very fast, maturing quickly; worth watching for large trees.</text>
+          </g>
+        </svg>
+        <figcaption><b>Strictness is a ratchet, not a switch.</b> Turning on <code>strict</code> across a legacy repo produces four thousand errors and one abandoned branch. Turning it on for new files produces a codebase that is fully typed in a year without anyone scheduling it.</figcaption>
+      </figure>
+
+      <pre class="l3"><span class="c"># pyproject.toml — strict everywhere, with named, temporary exceptions</span>
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true    <span class="c"># deletes the ignores you no longer need</span>
+
+[[tool.mypy.overrides]]       <span class="c"># the legacy corner, listed explicitly</span>
+module = ["payments.legacy.*"]
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]       <span class="c"># a dependency that ships no stubs</span>
+module = ["some_untyped_lib.*"]
+ignore_missing_imports = true</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Annotate the boundaries first</h4>
+          <ul>
+            <li><strong>Function signatures pay for themselves.</strong> Parameters and return type on every public function; local variables almost never need one.</li>
+            <li><strong>Install the checker as a dev dependency</strong> and run it locally &mdash; <code>mypy .</code> or <code>pyright</code>. Your editor is already running one, quietly.</li>
+            <li><code>None</code> is a type. <code>str | None</code> is the single most useful annotation in the language, because it forces the caller to handle the missing case.</li>
+            <li>Do not annotate for the sake of it: <code>x: int = 0</code> tells nobody anything.</li>
+            <li>Third-party stubs live in <code>types-requests</code>-style packages; install them when the checker asks.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Ratchet, and never go backwards</h4>
+          <ul>
+            <li><strong>Per-module overrides</strong> keep the legacy corner listed by name, so the exceptions are visible and shrinking rather than a blanket <code>ignore</code>.</li>
+            <li><strong><code>warn_unused_ignores</code></strong> turns stale suppressions into errors &mdash; the ratchet that stops the exception list growing quietly.</li>
+            <li><strong><code>Protocol</code> over inheritance</strong> for typing duck-typed arguments &mdash; the direct analogue of a Go interface, satisfied structurally.</li>
+            <li><strong>Type the data at the edge</strong> &mdash; Pydantic at the boundary, plain dataclasses inside. The checker is only as good as the point where untyped data becomes typed.</li>
+            <li>Run the checker in CI on the whole tree, not just changed files &mdash; a change in one module breaks types in another.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Where the type system gets interesting</h4>
+          <ul>
+            <li><strong><code>TypeVar</code>, <code>ParamSpec</code>, <code>Concatenate</code></strong> &mdash; how a decorator keeps its wrapped function&rsquo;s signature instead of collapsing it to <code>(*args, **kwargs)</code>.</li>
+            <li><strong><code>overload</code></strong> for functions whose return type depends on argument types, and <code>Literal</code> for the flags that select between them.</li>
+            <li><strong>Narrowing</strong> &mdash; <code>isinstance</code>, <code>assert</code>, and <code>TypeGuard</code>/<code>TypeIs</code> teach the checker facts it cannot infer; <code>match</code> statements narrow too.</li>
+            <li><strong>Variance</strong> bites in real code: <code>list[Dog]</code> is not a <code>list[Animal]</code>, because you could append a <code>Cat</code>. Accept <code>Sequence</code> when you only read.</li>
+            <li><strong><code>Any</code> is contagious</strong> &mdash; it silences errors downstream of itself. <code>--disallow-any-explicit</code> and <code>object</code> plus narrowing are the honest alternatives.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="layout">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Layout, naming, and version numbers</h3>
+        <p class="lede">Two directory layouts are common and one of them lets your tests import a copy of the code that will never be installed. The naming conventions are trivial to learn and instantly visible in review, which is exactly why they are worth getting right.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 348" role="img" aria-label="A flat project layout in which tests import the working-directory copy of the package, beside a src layout in which the only importable copy is the installed one; below, a row of the six PEP 8 naming conventions.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHICH COPY DO THE TESTS ACTUALLY IMPORT?</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="32" width="416" height="152" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="34" y="54" font-family="Bricolage Grotesque, sans-serif" font-size="12" font-weight="700" fill="currentColor">flat layout</text>
+            <text x="34" y="78" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">payments/</text>
+            <text x="34" y="94" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">&nbsp;&nbsp;payments/__init__.py</text>
+            <text x="34" y="110" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">&nbsp;&nbsp;tests/test_charge.py</text>
+            <text x="34" y="126" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">&nbsp;&nbsp;pyproject.toml</text>
+            <text x="34" y="152" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">The current directory is on <tspan font-family="IBM Plex Mono, monospace" font-size="10">sys.path</tspan>, so</text>
+            <text x="34" y="170" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">the source tree wins and the wheel is never tested.</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="464" y="32" width="416" height="152" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="478" y="54" font-family="Bricolage Grotesque, sans-serif" font-size="12" font-weight="700" fill="currentColor">src layout</text>
+            <text x="478" y="78" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">payments/</text>
+            <text x="478" y="94" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">&nbsp;&nbsp;src/payments/__init__.py</text>
+            <text x="478" y="110" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">&nbsp;&nbsp;tests/test_charge.py</text>
+            <text x="478" y="126" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">&nbsp;&nbsp;pyproject.toml</text>
+            <text x="478" y="152" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Nothing importable sits in the root, so the tests</text>
+            <text x="478" y="170" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">exercise exactly what packaging produced.</text>
+          </g>
+
+          <text x="20" y="212" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">The classic symptom: tests pass locally and the published package fails on import, because a data file or a submodule was never added to the wheel.</text>
+
+          <text x="20" y="248" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">PEP 8 NAMES &mdash; VISIBLE IN EVERY REVIEW</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="262" width="133" height="56" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="30" y="282" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">module_name.py</text>
+            <text x="30" y="302" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">files, packages</text>
+            <rect x="163" y="262" width="133" height="56" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="173" y="282" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">ClassName</text>
+            <text x="173" y="302" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">classes, exceptions</text>
+            <rect x="306" y="262" width="133" height="56" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="316" y="282" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">function_name</text>
+            <text x="316" y="302" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">functions, methods</text>
+            <rect x="449" y="262" width="133" height="56" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="459" y="282" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">MAX_RETRIES</text>
+            <text x="459" y="302" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">module constants</text>
+            <rect x="592" y="262" width="133" height="56" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="602" y="282" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">_internal</text>
+            <text x="602" y="302" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">private by convention</text>
+            <rect x="735" y="262" width="145" height="56" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="745" y="282" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">__dunder__</text>
+            <text x="745" y="302" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">reserved &mdash; never invent</text>
+          </g>
+        </svg>
+        <figcaption><b>The layout is a correctness question, not taste.</b> A flat layout puts an importable copy of your package in the working directory, so every test run silently prefers the source tree over the artefact you are about to publish.</figcaption>
+      </figure>
+
+      <div class="pair">
+        <div class="note">
+          <h4>Version numbers</h4>
+          <p><strong>SemVer</strong> (<code>2.4.1</code>) is the ecosystem default; <strong>CalVer</strong> (<code>2026.8.1</code>) is common for applications and tools where dates mean more than compatibility promises. Python&rsquo;s own rules live in <strong>PEP 440</strong>, which also defines pre-releases (<code>1.0.0rc1</code>), post-releases and the <code>~=</code> compatible-release operator. Keep one source of truth &mdash; usually <code>version</code> in <code>pyproject.toml</code>, read at run time via <code>importlib.metadata.version()</code>.</p>
+        </div>
+        <div class="note">
+          <h4>The PEPs actually worth knowing</h4>
+          <p><strong>8</strong> style &middot; <strong>20</strong> the Zen &middot; <strong>257</strong> docstrings &middot; <strong>440</strong> versions &middot; <strong>484</strong> type hints &middot; <strong>517/518/621</strong> builds and <code>pyproject.toml</code> &middot; <strong>561</strong> shipping types &middot; <strong>3107/526</strong> annotation syntax. You do not read PEPs for fun; you read the one that explains why a tool is behaving the way it is.</p>
+        </div>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Follow the conventions without thinking</h4>
+          <ul>
+            <li><strong><code>snake_case</code> for anything callable or storable</strong>, <code>PascalCase</code> for classes, <code>SCREAMING_SNAKE</code> for module-level constants.</li>
+            <li><strong>Four spaces.</strong> Never tabs; the formatter enforces it anyway.</li>
+            <li><strong>One leading underscore</strong> means &ldquo;not part of the API&rdquo;. Nothing enforces it &mdash; Python has no <code>private</code> &mdash; and that is fine.</li>
+            <li><strong>Never name a file after a standard library module.</strong> A local <code>random.py</code> or <code>types.py</code> shadows the real one and produces a genuinely baffling error.</li>
+            <li>Docstrings on public functions; <strong>PEP 257</strong> for the shape, Google or NumPy style for the body.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Adopt the src layout</h4>
+          <ul>
+            <li><strong><code>src/</code> makes the installed package the only importable one</strong>, so <code>pip install -e .</code> plus <code>pytest</code> tests the real artefact.</li>
+            <li><strong>Editable installs</strong> (<code>-e</code>) put a path hook in <code>site-packages</code>; your edits are live, but the import path is still the installed one.</li>
+            <li><strong>Keep <code>tests/</code> outside the package</strong> unless you intend to ship them.</li>
+            <li><strong>Layer by responsibility, not by type.</strong> <code>payments/charge/</code> beats <code>models/</code>, <code>views/</code>, <code>utils/</code> &mdash; a <code>utils</code> package is where cohesion goes to die.</li>
+            <li>Build the wheel and inspect it (<code>unzip -l dist/*.whl</code>) before your first release. What is missing is always a data file.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Publishing and the import graph</h4>
+          <ul>
+            <li><strong><code>__all__</code></strong> defines the star-import surface and signals intent to tooling; <code>py.typed</code> (PEP 561) is what makes your annotations visible to a consumer&rsquo;s checker.</li>
+            <li><strong>Namespace packages</strong> let several distributions contribute to one import path &mdash; powerful for plugin ecosystems, confusing everywhere else.</li>
+            <li><strong>Entry points</strong> in <code>pyproject.toml</code> give you console scripts and plugin discovery without an import-everything scan.</li>
+            <li><strong>Trusted publishing</strong> to PyPI via OIDC removes the long-lived API token from CI entirely &mdash; the same identity-federation idea as IRSA on EKS.</li>
+            <li><strong>Import cycles are an architecture smell.</strong> Enforce the layering mechanically with <code>import-linter</code> rather than by review.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </div>
+</section>

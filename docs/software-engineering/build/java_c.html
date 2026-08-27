@@ -1,0 +1,1303 @@
+<section class="part" id="data">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>The database, done properly</h2>
+      <p class="stage s2">L2 &middot; Intermediate</p>
+      <p>The task service from part six keeps everything in a <code>ConcurrentHashMap</code>, which is a polite way of saying it forgets everything on restart. This part gives it Postgres: Docker Compose runs the database, Flyway owns the schema, Spring Data JPA writes the queries. Then the two places JPA actually hurts people &mdash; transactions that silently are not transactions, and the N+1 query &mdash; because both will find you within a month of shipping.</p>
+    </div>
+
+    <section class="topic" id="jpa">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Postgres, Flyway, and Spring Data JPA</h3>
+        <p class="lede">You add one entity class, one repository interface and one SQL file, and Spring Data generates the query code when the context starts. The decision that matters is the boundary: entities stay inside the service; the API keeps speaking the records from part six.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 400" role="img" aria-label="Seven layers stacked from TaskController down to PostgreSQL, with an annotation column stating who writes each layer: you write the controller, the service and the repository interface; the Spring Data proxy is generated at startup; Hibernate and the JDBC driver are dependencies; Postgres runs in Docker with its schema owned by Flyway.">
+          <defs>
+            <marker id="jac-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE REQUEST, TOP TO BOTTOM</text>
+          <text x="560" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHO WRITES IT</text>
+
+          <g class="svg-l1">
+            <rect x="40" y="34" width="430" height="34" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="52" y="55" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">TaskController &mdash; records in, records out</text>
+            <line x1="255" y1="68" x2="255" y2="80" stroke="currentColor" stroke-width="1.3" marker-end="url(#jac-1)"/>
+          </g>
+          <text x="560" y="55" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">you &mdash; part six</text>
+
+          <g class="svg-l1">
+            <rect x="40" y="82" width="430" height="34" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="52" y="103" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">TaskService &mdash; the rules live here</text>
+            <line x1="255" y1="116" x2="255" y2="128" stroke="currentColor" stroke-width="1.3" marker-end="url(#jac-1)"/>
+          </g>
+          <text x="560" y="103" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">you &mdash; rewired today, same API</text>
+
+          <g class="svg-l1">
+            <rect x="40" y="130" width="430" height="34" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="52" y="151" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">interface TaskRepository extends JpaRepository</text>
+            <line x1="255" y1="164" x2="255" y2="176" stroke="currentColor" stroke-width="1.3" marker-end="url(#jac-1)"/>
+          </g>
+          <text x="560" y="151" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">you &mdash; one method name per query</text>
+          <text x="275" y="176" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">your code stops here</text>
+
+          <g class="svg-l2">
+            <rect x="40" y="178" width="430" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="52" y="199" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">Spring Data proxy &mdash; findByDoneFalse() becomes SQL</text>
+            <line x1="255" y1="212" x2="255" y2="224" stroke="currentColor" stroke-width="1.3" marker-end="url(#jac-1)"/>
+          </g>
+          <text x="560" y="199" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">nobody &mdash; generated at startup</text>
+
+          <g class="svg-l2">
+            <rect x="40" y="226" width="430" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="52" y="247" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">Hibernate &mdash; entities to SQL, dirty checking, caching</text>
+            <line x1="255" y1="260" x2="255" y2="272" stroke="currentColor" stroke-width="1.3" marker-end="url(#jac-1)"/>
+          </g>
+          <text x="560" y="247" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">a dependency &mdash; the ORM itself</text>
+
+          <g class="svg-l2">
+            <rect x="40" y="274" width="430" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="52" y="295" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">JDBC driver (org.postgresql) + Hikari pool</text>
+            <line x1="255" y1="308" x2="255" y2="320" stroke="currentColor" stroke-width="1.3" marker-end="url(#jac-1)"/>
+          </g>
+          <text x="560" y="295" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">a dependency &mdash; the wire protocol</text>
+
+          <g class="svg-l3">
+            <rect x="40" y="322" width="430" height="34" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="52" y="343" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">PostgreSQL 16 &mdash; a separate process, in Docker</text>
+          </g>
+          <text x="560" y="337" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">schema owned by Flyway migrations,</text>
+          <text x="560" y="352" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">never by Hibernate</text>
+
+          <text x="20" y="384" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Below the interface line you write no code at all &mdash; the method name is parsed into a query when the context starts, so a typo in it fails the boot, not the request.</text>
+        </svg>
+        <figcaption><b>Four of the seven layers arrive as dependencies, which is the trade.</b> You write three thin layers and inherit a million lines of ORM underneath &mdash; productive on day one, and opaque on the day a query is slow. The rest of this part is about seeing through the two opaque layers.</figcaption>
+      </figure>
+
+      <p>Three additions to the <code>pom.xml</code> from part six. The JPA starter brings Hibernate and Spring Data; the driver is <code>runtime</code> scope because you compile against JDBC interfaces, not against Postgres; Flyway needs its Postgres module since Flyway 10 split databases out of core.</p>
+
+      <pre class="l2"><span class="c">&lt;!-- pom.xml, inside &lt;dependencies&gt; --&gt;</span>
+&lt;dependency&gt;
+  &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+  &lt;artifactId&gt;spring-boot-starter-data-jpa&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+  &lt;groupId&gt;org.postgresql&lt;/groupId&gt;
+  &lt;artifactId&gt;postgresql&lt;/artifactId&gt;
+  &lt;scope&gt;runtime&lt;/scope&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+  &lt;groupId&gt;org.flywaydb&lt;/groupId&gt;
+  &lt;artifactId&gt;flyway-core&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+  &lt;groupId&gt;org.flywaydb&lt;/groupId&gt;
+  &lt;artifactId&gt;flyway-database-postgresql&lt;/artifactId&gt;
+&lt;/dependency&gt;</pre>
+
+      <p>The database itself is a <code>compose.yaml</code> next to the pom. The healthcheck matters: without it, &ldquo;the container is up&rdquo; and &ldquo;Postgres accepts connections&rdquo; are two different moments, and your app can boot into the gap.</p>
+
+      <pre class="l2"><span class="c"># compose.yaml, in the project root</span>
+services:
+  db:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: tasks
+      POSTGRES_PASSWORD: tasks
+      POSTGRES_DB: tasks
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tasks"]
+      interval: 2s
+      timeout: 2s
+      retries: 15</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Start the database and wait for the healthcheck to flip. Everything from here to part ten assumes this container is running.</p>
+      </div>
+      <pre class="l1">$ docker compose up -d
+$ docker compose ps
+<span class="c">NAME       IMAGE         STATUS
+tasks-db-1 postgres:16   Up 8 seconds (healthy)   &larr; healthy, not just Up</span></pre>
+
+      <div class="note">
+        <h4>The hands-free alternative</h4>
+        <p>Add the <code>spring-boot-docker-compose</code> dependency and Boot runs <code>docker compose up</code> for you on <code>spring-boot:run</code>, reads the container&rsquo;s ports and injects the datasource properties itself. Handy locally; this page wires it by hand once so you know what the module is doing.</p>
+      </div>
+
+      <p>The datasource goes into <code>application.yml</code>. Two lines here are load-bearing: <code>ddl-auto: validate</code> means Hibernate checks the schema against the entities and refuses to start on a mismatch &mdash; it never modifies the database &mdash; and <code>open-in-view: false</code> is explained in the next topic.</p>
+
+      <pre class="l2"><span class="c"># src/main/resources/application.yml</span>
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tasks
+    username: tasks
+    password: tasks
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false</pre>
+
+      <p>So who creates the table? Flyway. On startup it scans <code>db/migration</code>, compares against its own history table, and applies whatever is new, in version order, each in a transaction. Schema changes become files in git that review like code, because they are code.</p>
+
+      <pre class="l2"><span class="c">-- src/main/resources/db/migration/V1__create_tasks.sql</span>
+create table tasks (
+  id         uuid primary key,
+  title      text        not null,
+  done       boolean     not null default false,
+  created_at timestamptz not null
+);
+
+create index tasks_done_idx on tasks (done);</pre>
+
+      <div class="note warn">
+        <h4>Never ddl-auto: update outside a demo</h4>
+        <p><code>update</code> lets Hibernate alter the schema to match your classes at boot. It only adds, never drops or narrows, so the schema drifts from what any migration says; two instances racing at deploy time can both try the DDL; and a refactor that renames a field silently creates a second column and strands your data in the first. <code>validate</code> plus Flyway gives you the same convenience with a written history and a place to say <code>no</code>.</p>
+      </div>
+
+      <p>Now the entity. It is deliberately a class, not a record: JPA instantiates it through a no-argument constructor and mutates its fields when it loads rows &mdash; a record&rsquo;s finality and single constructor fight that contract. Keep the record <code>Task</code> as the API type and translate at the edge.</p>
+
+      <pre class="l2"><span class="c">// src/main/java/dev/ladder/tasks/TaskEntity.java</span>
+package dev.ladder.tasks;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.UUID;
+
+@Entity
+@Table(name = "tasks")
+class TaskEntity {
+
+  @Id
+  private UUID id;
+
+  @Column(nullable = false)
+  private String title;
+
+  @Column(nullable = false)
+  private boolean done;
+
+  @Column(name = "created_at", nullable = false)
+  private Instant createdAt;
+
+  protected TaskEntity() { }               <span class="c">// for JPA only; nobody else calls it</span>
+
+  TaskEntity(UUID id, String title, boolean done, Instant createdAt) {
+    this.id = id;
+    this.title = title;
+    this.done = done;
+    this.createdAt = createdAt;
+  }
+
+  Task toTask() { return new Task(id, title, done, createdAt); }
+
+  UUID id()            { return id; }
+  boolean done()       { return done; }
+  void markDone()      { this.done = true; }
+}</pre>
+
+      <p>The repository is the whole data-access layer, and you only write its signature. Method names in the <code>findByDoneFalse</code> style are parsed into queries at startup; anything the naming scheme cannot say cleanly gets an explicit <code>@Query</code> later.</p>
+
+      <pre class="l2"><span class="c">// src/main/java/dev/ladder/tasks/TaskRepository.java</span>
+package dev.ladder.tasks;
+
+import java.util.List;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+interface TaskRepository extends JpaRepository&lt;TaskEntity, UUID&gt; {
+
+  List&lt;TaskEntity&gt; findByDoneFalse();      <span class="c">// select ... where done = false</span>
+
+  long countByDone(boolean done);          <span class="c">// select count(*) ... where done = ?</span>
+}</pre>
+
+      <p>Rewiring <code>TaskService</code> is mechanical: the map becomes the repository, and the entity-to-record mapping happens in exactly one class. The DTO records and the create/list endpoints from part six do not change &mdash; that is the boundary paying for itself. The two lookup methods do change, and get shorter; they are below.</p>
+
+      <pre class="l2"><span class="c">// TaskService.java -- the ConcurrentHashMap is gone</span>
+@Service
+public class TaskService {
+
+  private final TaskRepository repo;
+
+  public TaskService(TaskRepository repo) {   <span class="c">// constructor injection, as always</span>
+    this.repo = repo;
+  }
+
+  public Task create(String title) {
+    var e = new TaskEntity(UUID.randomUUID(), title, false, Instant.now());
+    return repo.save(e).toTask();
+  }
+
+  public List&lt;Task&gt; all() {
+    return repo.findAll().stream().map(TaskEntity::toTask).toList();
+  }
+
+  public Task get(UUID id) {
+    return repo.findById(id).map(TaskEntity::toTask)
+               .orElseThrow(() -&gt; new TaskNotFoundException(id));
+  }
+
+  public Task markDone(UUID id) {
+    var e = repo.findById(id).orElseThrow(() -&gt; new TaskNotFoundException(id));
+    e.markDone();
+    return repo.save(e).toTask();
+  }
+}</pre>
+
+      <p><code>TaskNotFoundException</code> is new &mdash; the domain&rsquo;s way of saying &ldquo;no such row&rdquo;, deliberately a <code>RuntimeException</code> so it can cross the service boundary uncaught. Part nine maps it to a proper 404 problem document; until then it surfaces as a 500, which is honest enough for now:</p>
+
+      <pre class="l2"><span class="c">// TaskNotFoundException.java -- two lines, whole file</span>
+class TaskNotFoundException extends RuntimeException {
+  TaskNotFoundException(UUID id) { super("No task with id " + id); }
+}</pre>
+
+      <p>And the two controller lookup methods stop juggling an <code>Optional</code> &mdash; call the service, let the exception fly:</p>
+
+      <pre class="l2"><span class="c">// TaskController.java -- byId and done, after the rewire</span>
+@GetMapping("/{id}")
+TaskResponse byId(@PathVariable UUID id) {
+    return TaskResponse.from(service.get(id));
+}
+
+@PatchMapping("/{id}/done")
+TaskResponse done(@PathVariable UUID id) {
+    return TaskResponse.from(service.markDone(id));
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Boot the app, create a task over HTTP, then look at the actual row with <code>psql</code> inside the container. Restart the app and <code>GET /tasks</code> still returns it &mdash; the map never did.</p>
+      </div>
+      <pre class="l1">$ ./mvnw spring-boot:run
+<span class="c">... Flyway ... Successfully applied 1 migration to schema "public"</span>
+<span class="c">... Tomcat started on port 8080</span>
+$ curl -s -X POST localhost:8080/tasks -H 'content-type: application/json' \
+       -d '{"title":"wire up postgres"}'
+<span class="c">{"id":"9c7b...","title":"wire up postgres","done":false,"createdAt":"2026-08-24T..."}</span>
+$ docker compose exec db psql -U tasks -c 'select title, done from tasks'
+<span class="c">      title       | done
+ wire up postgres | f          &larr; a real row; it survives restarts</span></pre>
+    </section>
+
+    <section class="topic" id="tx">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>@Transactional is a proxy, and N+1 is a lazy list</h3>
+        <p class="lede">The container does not change your method; it wraps your bean in a generated subclass that opens a transaction before the call and commits after. Everything surprising about <code>@Transactional</code> &mdash; and about lazy loading &mdash; follows from where that wrapper does and does not sit.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 330" role="img" aria-label="Two panels. Left: a controller calls through a generated proxy which opens a transaction, invokes the real TaskService method, then commits or rolls back. Right: inside the same bean, nightly calls this.sweep directly; the call never crosses the proxy, so the transactional annotation on sweep is silently ignored.">
+          <defs>
+            <marker id="jac-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THROUGH THE PROXY</text>
+          <text x="480" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">SELF-INVOCATION SKIPS IT</text>
+          <line x1="455" y1="10" x2="455" y2="290" stroke="currentColor" stroke-width="1" opacity="0.16"/>
+
+          <g class="svg-l2">
+            <rect x="20" y="120" width="100" height="32" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="140" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">controller</text>
+            <line x1="122" y1="136" x2="148" y2="136" stroke="currentColor" stroke-width="1.3" marker-end="url(#jac-2)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="152" y="40" width="280" height="210" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="164" y="60" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">proxy &mdash; a generated subclass</text>
+          </g>
+          <text x="164" y="86" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.85">1. get connection, begin</text>
+          <g class="svg-l1">
+            <rect x="172" y="98" width="240" height="96" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="184" y="118" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">TaskService &mdash; your code</text>
+            <text x="184" y="140" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">2. markDone(id) runs</text>
+            <text x="184" y="158" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">   entity mutated in memory</text>
+            <text x="184" y="176" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">   (dirty checking sees it)</text>
+          </g>
+          <text x="164" y="218" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.85">3. flush + commit on return,</text>
+          <text x="164" y="234" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.85">   roll back on unchecked throw</text>
+          <text x="20" y="276" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">@Cacheable, @Async and @Retryable are the</text>
+          <text x="20" y="292" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">same trick: behaviour lives in the wrapper.</text>
+
+          <g class="svg-l2">
+            <rect x="480" y="40" width="300" height="210" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="492" y="60" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">proxy &mdash; entered once, for nightly()</text>
+            <line x1="540" y1="16" x2="540" y2="38" stroke="currentColor" stroke-width="1.3" marker-end="url(#jac-2)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="500" y="76" width="260" height="130" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="512" y="96" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">SweepService &mdash; the real object</text>
+            <text x="512" y="120" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">nightly() { this.sweep(); }</text>
+            <line x1="580" y1="130" x2="580" y2="152" stroke="currentColor" stroke-width="1.3" marker-end="url(#jac-2)"/>
+            <text x="512" y="172" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">@Transactional sweep() { ... }</text>
+          </g>
+          <g class="svg-l3">
+            <text x="596" y="146" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">plain Java call</text>
+            <text x="480" y="272" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" fill="currentColor">The call never reaches the wrapper: no</text>
+            <text x="480" y="288" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" fill="currentColor">transaction, no rollback &mdash; and no error.</text>
+          </g>
+
+          <line x1="20" y1="302" x2="880" y2="302" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="322" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">The fix is structural, not an annotation: move the transactional method onto another bean, so the call has to cross a proxy to reach it.</text>
+        </svg>
+        <figcaption><b>Half of Spring is this one picture.</b> Annotations that promise behaviour &mdash; transactions, caching, async &mdash; are implemented by a wrapper object standing in front of yours. Any call that does not pass through the wrapper gets none of the behaviour, and self-invocation is the common way to not pass through it.</figcaption>
+      </figure>
+
+      <p>The working rules, applied to the service. Reads get <code>readOnly = true</code> &mdash; it lets Hibernate skip dirty-checking snapshots and hints the driver. Writes get the default. And note <code>markDone</code> no longer calls <code>save</code>: inside a transaction the loaded entity is <em>managed</em>, so mutating it is enough &mdash; the flush at commit writes the UPDATE.</p>
+
+      <pre class="l2">@Service
+public class TaskService {
+  <span class="c">// ... constructor as before ...</span>
+
+  @Transactional(readOnly = true)
+  public List&lt;Task&gt; open() {
+    return repo.findByDoneFalse().stream().map(TaskEntity::toTask).toList();
+  }
+
+  @Transactional
+  public Task markDone(UUID id) {
+    var e = repo.findById(id).orElseThrow(() -&gt; new TaskNotFoundException(id));
+    e.markDone();          <span class="c">// managed entity: the commit flushes the UPDATE</span>
+    return e.toTask();     <span class="c">// no save() needed inside a transaction</span>
+  }
+}</pre>
+
+      <p>Three rules that are not visible in that code. Rollback happens for unchecked exceptions only &mdash; a checked exception commits unless you say <code>@Transactional(rollbackFor = Exception.class)</code>. A transaction holds a pooled connection from first query to commit, so keep it short: with Hikari&rsquo;s default pool of 10, one HTTP call made inside a transaction means ten slow requests can hold every connection while they wait on someone else&rsquo;s API. And the classic silent failure:</p>
+
+      <pre class="l3">@Service
+public class SweepService {
+
+  public void nightly() {
+    this.sweep();          <span class="c">// same object, plain call: the proxy never sees it</span>
+  }                        <span class="c">// sweep() runs with NO transaction, silently</span>
+
+  @Transactional
+  public void sweep() { <span class="c">/* delete old done tasks */</span> }
+}</pre>
+
+      <p>Now the other trap. Give tasks some tags &mdash; a second table, a lazy collection &mdash; and watch what a list endpoint does.</p>
+
+      <pre class="l2"><span class="c">-- src/main/resources/db/migration/V2__task_tags.sql</span>
+create table task_tags (
+  task_id uuid not null references tasks (id),
+  tag     text not null
+);
+
+<span class="c">// added to TaskEntity -- collections are LAZY by default, correctly</span>
+@ElementCollection
+@CollectionTable(name = "task_tags", joinColumns = @JoinColumn(name = "task_id"))
+@Column(name = "tag")
+private List&lt;String&gt; tags = new ArrayList&lt;&gt;();</pre>
+
+      <p>Lazy means the tags are not loaded until touched. Touch them while mapping 100 tasks to records and you issue 1 query for the tasks plus 100 for the tags &mdash; the N+1 problem, invisible at 100 rows on localhost and fatal at 100,000 in production. The log below is the diagnostic; the fix is to tell the one query to fetch the relation.</p>
+
+      <pre class="l3"><span class="c">-- logging.level.org.hibernate.SQL: DEBUG, then GET /tasks:</span>
+select t1_0.id,t1_0.created_at,t1_0.done,t1_0.title from tasks t1_0
+select t1_0.tag from task_tags t1_0 where t1_0.task_id=?
+select t1_0.tag from task_tags t1_0 where t1_0.task_id=?
+select t1_0.tag from task_tags t1_0 where t1_0.task_id=?
+<span class="c">-- ... once per task. 100 tasks = 101 round trips.</span></pre>
+
+      <pre class="l2"><span class="c">// fix 1: say the join in JPQL</span>
+@Query("select distinct t from TaskEntity t left join fetch t.tags where t.done = false")
+List&lt;TaskEntity&gt; findOpenWithTags();
+
+<span class="c">// fix 2: keep the derived query, declare what to fetch</span>
+@EntityGraph(attributePaths = "tags")
+List&lt;TaskEntity&gt; findByDoneFalse();
+
+<span class="c">// fix 3: skip entities entirely when the caller wants two fields</span>
+public record TaskSummary(UUID id, String title) { }
+
+@Query("""
+    select new dev.ladder.tasks.TaskSummary(t.id, t.title)
+    from TaskEntity t where t.done = false""")
+List&lt;TaskSummary&gt; openSummaries();       <span class="c">// one query, no entities, nothing lazy</span></pre>
+
+      <div class="note warn">
+        <h4>open-in-view: the default that hides all of this</h4>
+        <p>Boot&rsquo;s default (<code>true</code>, with a warning at startup) keeps the Hibernate session open while the JSON response is serialised, so a lazy collection touched by Jackson quietly loads mid-response. That makes N+1 invisible in development, moves query errors into the middle of a half-written response, and holds a pooled connection for the whole request. You already set <code>open-in-view: false</code> in the datasource YAML of the previous topic; with it, touching an unfetched lazy relation outside the service throws <code>LazyInitializationException</code> &mdash; loud, early, and exactly what you want.</p>
+      </div>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Turn on SQL logging, hit the list endpoint with a few tasks in the table, and count the selects. Then switch <code>all()</code> to the <code>join fetch</code> query and watch 101 queries become 1.</p>
+      </div>
+      <pre class="l1">$ ./mvnw spring-boot:run -Dspring-boot.run.arguments=--logging.level.org.hibernate.SQL=DEBUG
+$ curl -s localhost:8080/tasks &gt; /dev/null
+<span class="c">org.hibernate.SQL : select t1_0.id, ... from tasks t1_0
+org.hibernate.SQL : select t1_0.tag from task_tags ... where task_id=?   &larr; xN</span>
+<span class="c"># after the join fetch:</span>
+<span class="c">org.hibernate.SQL : select ... from tasks t1_0 left join task_tags ...   &larr; one query</span></pre>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="jvm">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>Concurrency and the machine underneath</h2>
+      <p class="stage s3">L3 &middot; Advanced</p>
+      <p>The service works. This part is about the machine it runs on: how the JVM schedules threads and why Java 21 changed that story, and how it manages memory and why your container limit is not your heap size. Both topics decide whether the service survives contact with load.</p>
+    </div>
+
+    <section class="topic" id="threads">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Executors, shared state, and virtual threads</h3>
+        <p class="lede">You never create threads by hand in a service; you hand tasks to an executor that owns a bounded pool. Java 21 then quietly removed the reason the pool had to be small.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 344" role="img" aria-label="Left: four platform threads, each an OS thread with a megabyte stack, two of them blocked on JDBC and wasting their OS thread. Right: twenty virtual threads drawn as small squares, three of them mounted on three carrier threads while the rest wait on the heap; a footer notes this is the throughput asyncio achieved with an event loop, achieved here without changing the programming model.">
+          <defs>
+            <marker id="jac-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">PLATFORM THREADS: 1 = 1 OS THREAD</text>
+          <text x="470" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">VIRTUAL THREADS: MOUNTED WHILE RUNNING</text>
+          <line x1="450" y1="10" x2="450" y2="230" stroke="currentColor" stroke-width="1" opacity="0.16"/>
+
+          <g class="svg-l1">
+            <rect x="20" y="34" width="380" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="30" y="51" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">request 1 &mdash; running &mdash; 1 MB stack, 1 OS thread</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="20" y="68" width="380" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="20" y="68" width="380" height="26" fill="currentColor" opacity="0.12"/>
+            <text x="30" y="85" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">request 2 &mdash; blocked on JDBC &mdash; OS thread idle</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="20" y="102" width="380" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="20" y="102" width="380" height="26" fill="currentColor" opacity="0.12"/>
+            <text x="30" y="119" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">request 3 &mdash; blocked on HTTP &mdash; OS thread idle</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="20" y="136" width="380" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="30" y="153" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">request 4 &mdash; running</text>
+          </g>
+          <text x="20" y="188" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Tomcat&rsquo;s default: 200 of these. Under slow I/O the</text>
+          <text x="20" y="204" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">pool is exhausted by threads doing nothing at all.</text>
+
+          <g class="svg-l2">
+            <rect x="470" y="34" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="550" y="34" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="590" y="34" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="630" y="34" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="670" y="34" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="710" y="34" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="790" y="34" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="830" y="34" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="470" y="62" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="510" y="62" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="550" y="62" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="670" y="62" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="710" y="62" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="750" y="62" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="830" y="62" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.3"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="510" y="34" width="30" height="20" fill="currentColor" opacity="0.25"/>
+            <rect x="510" y="34" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <rect x="630" y="62" width="30" height="20" fill="currentColor" opacity="0.25"/>
+            <rect x="630" y="62" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <rect x="790" y="62" width="30" height="20" fill="currentColor" opacity="0.25"/>
+            <rect x="790" y="62" width="30" height="20" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <line x1="525" y1="56" x2="536" y2="146" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-3)"/>
+            <line x1="645" y1="84" x2="676" y2="146" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-3)"/>
+            <line x1="805" y1="84" x2="816" y2="146" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-3)"/>
+          </g>
+          <text x="470" y="110" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">each square: one virtual thread &mdash; shaded = currently mounted</text>
+          <g class="svg-l1">
+            <rect x="480" y="150" width="120" height="26" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="492" y="167" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">carrier 1</text>
+            <rect x="620" y="150" width="120" height="26" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="632" y="167" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">carrier 2</text>
+            <rect x="760" y="150" width="120" height="26" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="772" y="167" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">carrier 3</text>
+          </g>
+          <text x="470" y="196" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">carriers: about CPU count. A blocked virtual thread is</text>
+          <text x="470" y="212" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">unmounted: a few hundred bytes on the heap, no OS thread.</text>
+
+          <line x1="20" y1="234" x2="880" y2="234" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="262" font-family="Bricolage Grotesque, sans-serif" font-size="13.5" font-weight="700" fill="currentColor">The event loop from the Python page, without the event loop.</text>
+          <text x="20" y="286" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">asyncio bought this throughput by rewriting every function around await. The JVM moved the same trick under</text>
+          <text x="20" y="304" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">the scheduler instead: your code stays plain blocking Java, and the blocking simply stops costing an OS thread.</text>
+          <text x="20" y="330" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.75">100,000 virtual threads in one JVM is routine; 100,000 platform threads is an outage.</text>
+        </svg>
+        <figcaption><b>Virtual threads change capacity, not correctness.</b> Races, locks and visibility work exactly as before &mdash; a million cheap threads mutating one <code>long</code> lose updates just as enthusiastically as two expensive ones. The shared-state rules below matter more after Java 21, not less.</figcaption>
+      </figure>
+
+      <p>First the classic toolkit, because most codebases still run on it. An <code>ExecutorService</code> owns the threads; you submit work and hold a <code>Future</code>. <code>CompletableFuture</code> adds composition &mdash; run two things, combine the results &mdash; and every blocking wait gets a timeout, the same reflex the Go page drilled with contexts.</p>
+
+      <pre class="l2">ExecutorService pool = Executors.newFixedThreadPool(8);  <span class="c">// bounded, always</span>
+
+<span class="c">// submit + Future: fine for one-off background work</span>
+Future&lt;Long&gt; open = pool.submit(() -&gt; repo.countByDone(false));
+long n = open.get(2, TimeUnit.SECONDS);        <span class="c">// never get() without a timeout</span>
+
+<span class="c">// CompletableFuture: run both counts in parallel, combine, bound the whole thing</span>
+var openF = CompletableFuture.supplyAsync(() -&gt; repo.countByDone(false), pool);
+var doneF = CompletableFuture.supplyAsync(() -&gt; repo.countByDone(true),  pool);
+
+long total = openF.thenCombine(doneF, Long::sum)
+                  .orTimeout(2, TimeUnit.SECONDS)
+                  .join();
+
+pool.shutdown();   <span class="c">// in Spring: expose the pool as a @Bean so the container closes it</span></pre>
+
+      <p>Shared state, in one pass. The demo below is the whole problem: <code>counter++</code> is a read, an add and a write, and two threads interleaving those three steps overwrite each other&rsquo;s updates. No exception, no warning &mdash; just a wrong number.</p>
+
+      <pre class="l3"><span class="c">// Race.java -- run it, the count is wrong, and differently wrong each time</span>
+public class Race {
+  static long counter = 0;                      <span class="c">// plain shared field</span>
+
+  public static void main(String[] args) throws InterruptedException {
+    Runnable inc = () -&gt; { for (int i = 0; i &lt; 1_000_000; i++) counter++; };
+    Thread a = new Thread(inc);
+    Thread b = new Thread(inc);
+    a.start(); b.start();
+    a.join();  b.join();
+    System.out.println(counter);                <span class="c">// almost never 2000000</span>
+  }
+}</pre>
+
+      <pre class="l2"><span class="c">// the fixes, smallest hammer first</span>
+static final AtomicLong counter = new AtomicLong();
+counter.incrementAndGet();                       <span class="c">// lock-free read-modify-write</span>
+
+<span class="c">// per-key atomic updates on a shared map -- no lock around the whole map</span>
+ConcurrentHashMap&lt;String, Long&gt; hits = new ConcurrentHashMap&lt;&gt;();
+hits.compute("tasks", (k, v) -&gt; v == null ? 1 : v + 1);
+
+<span class="c">// synchronized: mutual exclusion AND visibility, for multi-field invariants</span>
+synchronized (lock) { balance -= amount; ledger.add(entry); }
+
+<span class="c">// volatile: visibility only -- a flag one thread writes, others read.</span>
+<span class="c">// It does NOT make ++ atomic; that mistake is the race above with extra steps.</span>
+volatile boolean shuttingDown = false;</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Run the race twice, then swap the <code>long</code> for an <code>AtomicLong</code> and run again. Wrong, differently wrong, then exactly right.</p>
+      </div>
+      <pre class="l1">$ javac Race.java &amp;&amp; java Race
+<span class="c">1274832        &larr; lost about 725,000 increments</span>
+$ java Race
+<span class="c">1391246        &larr; a different wrong answer -- the signature of a race</span>
+<span class="c"># after AtomicLong:</span>
+$ java Race
+<span class="c">2000000        &larr; every time</span></pre>
+
+      <p>Now the Java 21 headline. A virtual thread is a thread whose stack lives on the heap; the JVM mounts it on a carrier (an OS thread) only while it is actually running, and unmounts it the moment it blocks. Creating one is cheap enough that pooling them is an anti-pattern &mdash; you create one per task and throw it away.</p>
+
+      <pre class="l2">Thread.ofVirtual().name("enrich-", 0).start(() -&gt; enrich(taskId));
+
+<span class="c">// one virtual thread per task; close() waits for all of them</span>
+try (var exec = Executors.newVirtualThreadPerTaskExecutor()) {
+  for (UUID id : ids) {
+    exec.submit(() -&gt; enrich(id));     <span class="c">// 10,000 submissions: fine</span>
+  }
+}
+
+<span class="c"># and in Spring Boot -- one line in application.yml:</span>
+spring:
+  threads:
+    virtual:
+      enabled: true   <span class="c"># Tomcat serves each request on a virtual thread</span></pre>
+
+      <p>With that property on, the blocking repository calls this page just wrote stop costing platform threads while they wait on Postgres &mdash; the thread-pool ceiling on concurrent requests effectively disappears, and the next limit is the database pool, which is where you want it.</p>
+
+      <div class="note warn">
+        <h4>The pinning caveat</h4>
+        <p>On Java 21, a virtual thread that blocks <em>inside a <code>synchronized</code> block</em> pins its carrier &mdash; the OS thread waits after all. Old drivers and libraries that guard I/O with <code>synchronized</code> can quietly re-create the platform-thread ceiling. Prefer <code>ReentrantLock</code> around blocking calls, and run with <code>-Djdk.tracePinnedThreads=short</code> to see pinning happen. (JDK 24 removed this limitation; on 21 it is real.)</p>
+      </div>
+    </section>
+
+    <section class="topic" id="memory">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>The heap, the collector, and the container limit</h3>
+        <p class="lede">Allocation in Java is a pointer bump &mdash; nearly free. The bill arrives as garbage-collection pauses, and in containers, as the gap between what you told the JVM (<code>-Xmx</code>) and what you told Kubernetes (the memory limit). Those are two different numbers and the kernel enforces the second.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 320" role="img" aria-label="A 512 mebibyte pod drawn twice as horizontal bars against a container-limit line. With Xmx512m the heap alone reaches the limit and metaspace, thread stacks and buffers land beyond it, where the kernel kills the pod. With MaxRAMPercentage 75 the heap takes 384 mebibytes and every other slice fits inside the limit with headroom.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A 512 MiB POD, CONFIGURED TWO WAYS</text>
+
+          <g class="svg-l3">
+            <line x1="716" y1="30" x2="716" y2="250" stroke="currentColor" stroke-width="1.5" stroke-dasharray="6 4"/>
+            <text x="726" y="44" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">container limit</text>
+            <text x="726" y="59" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">512 MiB &mdash; past this</text>
+            <text x="726" y="74" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">line the kernel kills</text>
+            <text x="726" y="89" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the pod: exit 137</text>
+          </g>
+
+          <text x="20" y="96" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor" opacity="0.8">-Xmx512m</text>
+          <g class="svg-l2">
+            <rect x="40" y="104" width="676" height="34" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="52" y="125" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">heap &mdash; all 512 MiB of budget spent here</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="716" y="104" width="79" height="34" fill="currentColor" opacity="0.18"/>
+            <rect x="716" y="104" width="79" height="34" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="795" y="104" width="40" height="34" fill="currentColor" opacity="0.18"/>
+            <rect x="795" y="104" width="40" height="34" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="835" y="104" width="26" height="34" fill="currentColor" opacity="0.18"/>
+            <rect x="835" y="104" width="26" height="34" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="724" y="156" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">metaspace + stacks + buffers</text>
+            <text x="724" y="170" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">land past the limit &rarr; OOMKilled</text>
+          </g>
+
+          <text x="20" y="200" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor" opacity="0.8">-XX:MaxRAMPercentage=75</text>
+          <g class="svg-l1">
+            <rect x="40" y="208" width="507" height="34" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="52" y="229" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">heap &mdash; 384 MiB (75% of the cgroup limit)</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="547" y="208" width="84" height="34" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="554" y="229" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">metaspace</text>
+            <rect x="631" y="208" width="42" height="34" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="637" y="229" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">stacks</text>
+            <rect x="673" y="208" width="32" height="34" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          </g>
+          <text x="40" y="264" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">the unlabelled slice: direct buffers + code cache; the gap before the line is headroom that absorbs a spike</text>
+
+          <line x1="20" y1="278" x2="880" y2="278" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="300" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">The JVM never reads your Deployment yaml. <tspan font-family="IBM Plex Mono, monospace" font-size="11">MaxRAMPercentage</tspan> sizes the heap from the cgroup limit it actually runs under,</text>
+          <text x="20" y="316" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">leaving room for all the memory that is not heap &mdash; which is the memory <tspan font-family="IBM Plex Mono, monospace" font-size="11">-Xmx</tspan> pretends does not exist.</text>
+        </svg>
+        <figcaption><b>This is the OOMKilled mystery from the cloud page, solved.</b> A pod with a 512Mi limit and <code>-Xmx512m</code> is a promise the process cannot keep: the JVM&rsquo;s footprint is heap <em>plus</em> metaspace (class metadata), thread stacks (about 1&nbsp;MB each), direct buffers and the JIT&rsquo;s code cache. The kernel counts all of it; <code>-Xmx</code> caps only the first slice.</figcaption>
+      </figure>
+
+      <p>What the collector is doing with that heap: nearly all objects die young, so the heap is split into a young generation &mdash; collected often and cheaply, because collecting means copying the few survivors &mdash; and an old generation for whatever survives repeatedly, collected rarely and more expensively. Allocation itself is a thread-local pointer bump, which is why idiomatic Java allocates freely and why the cost model is the opposite of C&rsquo;s: creating garbage is cheap, keeping objects alive is what costs.</p>
+
+      <p>G1, the default collector, does this region by region against a pause target (200&nbsp;ms by default) and is the right answer until measured otherwise. ZGC (<code>-XX:+UseZGC</code>) trades some throughput for sub-millisecond pauses on heaps up to terabytes &mdash; one flag, when p99 latency says so.</p>
+
+      <pre class="l2"><span class="c"># the flags that matter, and the ones to stop using</span>
+java -Xms256m -Xmx256m -jar app.jar        <span class="c"># fixed heap: fine on a VM you own</span>
+
+<span class="c"># in a container, size from the cgroup limit instead of hard-coding:</span>
+java -XX:MaxRAMPercentage=75 \
+     -XX:+HeapDumpOnOutOfMemoryError \
+     -XX:HeapDumpPath=/tmp/heap.hprof \
+     -jar app.jar
+
+<span class="c"># flight recording: always-on production profiling, ~1% overhead</span>
+java -XX:StartFlightRecording=duration=60s,filename=rec.jfr -jar app.jar
+jfr print --events jdk.GCPhasePause rec.jfr   <span class="c"># or open rec.jfr in JDK Mission Control</span></pre>
+
+      <p>When the heap does run out you get <code>java.lang.OutOfMemoryError</code> &mdash; an <code>Error</code>, not an <code>Exception</code>, and not one to catch: the useful move is the flag above, which writes a heap dump on the way down so you can see <em>what</em> filled the heap rather than guessing. And for a JVM that is alive but suspicious, <code>jcmd</code> asks it questions directly &mdash; no restart, no agent, nothing installed.</p>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Package the task service, start it with an absurdly small heap and watch it die; start it properly and interrogate it with <code>jcmd</code>. The thread dump is the one to remember &mdash; it is how you diagnose a hung service at 3am.</p>
+      </div>
+      <pre class="l1">$ ./mvnw -q package -DskipTests
+$ java -Xmx16m -jar target/tasks-0.0.1-SNAPSHOT.jar
+<span class="c">java.lang.OutOfMemoryError: Java heap space   &larr; dies during startup</span>
+$ java -XX:MaxRAMPercentage=75 -jar target/tasks-0.0.1-SNAPSHOT.jar &amp;
+$ jcmd $(pgrep -f tasks-0.0.1) GC.heap_info
+<span class="c"> garbage-first heap   total 129024K, used 54012K   &larr; live heap, right now</span>
+$ jcmd $(pgrep -f tasks-0.0.1) Thread.print | grep -c '^"'
+<span class="c">41                                            &larr; every thread, with full stacks</span>
+$ jcmd $(pgrep -f tasks-0.0.1) JFR.start duration=60s filename=rec.jfr
+<span class="c">Started recording 1.                          &larr; JFR can also start after the fact</span></pre>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="prod">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>Spring in production</h2>
+      <p class="stage s3">L3 &middot; Advanced</p>
+      <p>Everything left between the working service and a deployable one: errors that clients can parse, outbound calls that cannot hang, tests that prove the whole stack against a real database, and an image that a cluster can drain and kill without dropping requests. Each topic mirrors something you have already met on the Go or cloud pages &mdash; here is the Java spelling.</p>
+    </div>
+
+    <section class="topic" id="errors">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>One error shape: @RestControllerAdvice and ProblemDetail</h3>
+        <p class="lede">Controllers never catch anything. The service throws domain exceptions; one advice class catches everything that escapes and translates it into RFC 9457 <code>application/problem+json</code> &mdash; the same three-case split every API ends up needing.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 300" role="img" aria-label="Three lanes flow from exceptions escaping the service, through a single RestControllerAdvice box, to responses: TaskNotFoundException becomes a 404 problem document, a validation failure becomes a 400 with field errors, and any other exception is logged in full but returned as an opaque 500.">
+          <defs>
+            <marker id="jac-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ESCAPES THE CONTROLLER</text>
+          <text x="330" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE ADVICE CLASS</text>
+          <text x="640" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT THE CLIENT SEES</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="42" width="250" height="44" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="61" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">TaskNotFoundException</text>
+            <text x="32" y="77" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.8">thrown by the service</text>
+            <line x1="272" y1="64" x2="326" y2="64" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-5)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="20" y="122" width="250" height="44" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="141" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">MethodArgumentNotValid</text>
+            <text x="32" y="157" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.8">@Valid failed before the service</text>
+            <line x1="272" y1="144" x2="326" y2="144" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-5)"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="20" y="202" width="250" height="44" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="221" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">everything else</text>
+            <text x="32" y="237" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.8">SQL down, NPE, the bug you shipped</text>
+            <line x1="272" y1="224" x2="326" y2="224" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-5)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="330" y="34" width="220" height="220" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="342" y="54" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">@RestControllerAdvice</text>
+            <text x="342" y="70" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.8">one class, whole API</text>
+            <text x="342" y="98" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">notFound() &rarr; 404</text>
+            <text x="342" y="148" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">invalid() &rarr; 400 + fields</text>
+            <text x="342" y="212" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">internal() &rarr; 500</text>
+            <text x="342" y="228" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">log.error(full trace)</text>
+          </g>
+
+          <g class="svg-l1">
+            <line x1="552" y1="64" x2="636" y2="64" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-5)"/>
+            <rect x="640" y="42" width="240" height="44" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="652" y="61" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">404 problem+json</text>
+            <text x="652" y="77" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.8">detail names the missing id</text>
+          </g>
+          <g class="svg-l2">
+            <line x1="552" y1="144" x2="636" y2="144" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-5)"/>
+            <rect x="640" y="122" width="240" height="44" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="652" y="141" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">400 problem+json</text>
+            <text x="652" y="157" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.8">errors: [{field, message}, ...]</text>
+          </g>
+          <g class="svg-l3">
+            <line x1="552" y1="224" x2="636" y2="224" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-5)"/>
+            <rect x="640" y="202" width="240" height="44" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="652" y="221" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">500 problem+json</text>
+            <text x="652" y="237" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.8">title only &mdash; no trace, no classes</text>
+          </g>
+
+          <line x1="20" y1="266" x2="880" y2="266" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="288" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">The asymmetry in the third lane is the design: the log gets the whole stack trace, the response gets a status and a title. Never both ways round.</text>
+        </svg>
+        <figcaption><b>Three lanes cover every exception the API will ever throw.</b> Domain exceptions map to specific statuses, validation failures explain themselves field by field, and everything unforeseen becomes an opaque 500 &mdash; because a stack trace in a response body is an information leak wearing a helpful face.</figcaption>
+      </figure>
+
+      <p>Recall from part six that <code>CreateTaskRequest</code> carries <code>@NotBlank String title</code> and the controller takes <code>@Valid @RequestBody CreateTaskRequest req</code> &mdash; that is what raises the validation exception in lane two. The domain exception in lane one is <code>TaskNotFoundException</code>, the two-line class you wrote in part seven. The whole advice class, complete:</p>
+
+      <pre class="l2"><span class="c">// src/main/java/dev/ladder/tasks/ApiExceptionHandler.java</span>
+package dev.ladder.tasks;
+
+import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@RestControllerAdvice
+class ApiExceptionHandler {
+
+  private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+  @ExceptionHandler(TaskNotFoundException.class)
+  ProblemDetail notFound(TaskNotFoundException ex) {
+    var p = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+    p.setTitle("Task not found");
+    return p;                          <span class="c">// Spring serialises it as problem+json</span>
+  }
+
+  @ExceptionHandler(MethodArgumentNotValidException.class)
+  ProblemDetail invalid(MethodArgumentNotValidException ex) {
+    var p = ProblemDetail.forStatusAndDetail(
+        HttpStatus.BAD_REQUEST, "Request body failed validation");
+    p.setTitle("Validation failed");
+    p.setProperty("errors", ex.getFieldErrors().stream()
+        .map(f -&gt; Map.of("field", f.getField(),
+                         "message", String.valueOf(f.getDefaultMessage())))
+        .toList());                    <span class="c">// extra members are allowed by RFC 9457</span>
+    return p;
+  }
+
+  @ExceptionHandler(Exception.class)   <span class="c">// the safety net -- keep it LAST in your head</span>
+  ProblemDetail internal(Exception ex) {
+    log.error("unhandled exception", ex);          <span class="c">// full trace -&gt; the log</span>
+    var p = ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR);
+    p.setTitle("Internal error");                  <span class="c">// nothing else -&gt; the client</span>
+    return p;
+  }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Ask for a task that does not exist, then post a blank title. Two different problems, one shape &mdash; a client can parse every error this API will ever return with one struct.</p>
+      </div>
+      <pre class="l1">$ curl -s localhost:8080/tasks/00000000-0000-0000-0000-000000000000
+<span class="c">{"type":"about:blank","title":"Task not found","status":404,
+ "detail":"No task with id 00000000-0000-0000-0000-000000000000",
+ "instance":"/tasks/00000000-0000-0000-0000-000000000000"}</span>
+$ curl -s -X POST localhost:8080/tasks -H 'content-type: application/json' -d '{"title":""}'
+<span class="c">{"type":"about:blank","title":"Validation failed","status":400,
+ "detail":"Request body failed validation",
+ "errors":[{"field":"title","message":"must not be blank"}]}</span></pre>
+    </section>
+
+    <section class="topic" id="clients">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Calling another service: RestClient, built once</h3>
+        <p class="lede">The rules are the ones every sibling page drilled: every call has a timeout, 4xx and 5xx are different kinds of failure, and you retry only what is safe to repeat. The Java-specific part is <em>where</em> those rules live &mdash; in one <code>@Bean</code>, not sprinkled across call sites.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 312" role="img" aria-label="TaskService calls through a RestClient bean configured with a base URL, a two second connect timeout, a three second read timeout and status handlers, towards the audit service. Below, three outcome lanes fan out: a 2xx response decodes into a record, a 5xx or timeout raises a transient exception that may be retried only if the operation is idempotent, and a 4xx raises a terminal exception that must not be retried.">
+          <defs>
+            <marker id="jac-6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE BEAN CARRIES THE RULES FOR EVERY CALLER</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="44" width="150" height="40" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="68" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">TaskService</text>
+            <line x1="172" y1="64" x2="236" y2="64" stroke="currentColor" stroke-width="1.3" marker-end="url(#jac-6)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="240" y="32" width="280" height="96" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="252" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">RestClient &mdash; the @Bean</text>
+            <text x="252" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">baseUrl audit.internal:8080</text>
+            <text x="252" y="90" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">connect &le; 2s   read &le; 3s</text>
+            <text x="252" y="108" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">status handlers: 4xx / 5xx</text>
+            <line x1="522" y1="64" x2="586" y2="64" stroke="currentColor" stroke-width="1.3" marker-end="url(#jac-6)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="590" y="44" width="150" height="40" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="602" y="68" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">audit service</text>
+          </g>
+
+          <line x1="380" y1="130" x2="120" y2="168" stroke="currentColor" stroke-width="1.1" opacity="0.55" marker-end="url(#jac-6)"/>
+          <line x1="380" y1="130" x2="120" y2="212" stroke="currentColor" stroke-width="1.1" opacity="0.55" marker-end="url(#jac-6)"/>
+          <line x1="380" y1="130" x2="120" y2="256" stroke="currentColor" stroke-width="1.1" opacity="0.55" marker-end="url(#jac-6)"/>
+
+          <g class="svg-l1">
+            <text x="130" y="178" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">2xx</text>
+            <text x="180" y="178" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">body decodes into a record &mdash; the only path the caller&rsquo;s happy code sees</text>
+          </g>
+          <g class="svg-l3">
+            <text x="130" y="222" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">5xx, timeout</text>
+            <text x="240" y="222" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">AuditUnavailable (transient) &mdash; retry with backoff, only if the call is idempotent</text>
+          </g>
+          <g class="svg-l3">
+            <text x="130" y="266" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">4xx</text>
+            <text x="180" y="266" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">AuditRejected (terminal) &mdash; the request is wrong; retrying it is a loop, not a fix</text>
+          </g>
+
+          <line x1="20" y1="282" x2="880" y2="282" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="304" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">A timeout configured at the call site is a timeout somebody&rsquo;s next call site forgets. Configured in the bean, forgetting is impossible.</text>
+        </svg>
+        <figcaption><b>The transient/terminal split is the same one the Go page made with error types.</b> Everything downstream &mdash; retries, circuit breaking, alerting &mdash; keys off which of the two exceptions crossed the boundary, so the mapping happens once, at the client, not in every caller&rsquo;s catch block.</figcaption>
+      </figure>
+
+      <pre class="l2"><span class="c">// src/main/java/dev/ladder/tasks/HttpClients.java</span>
+package dev.ladder.tasks;
+
+import java.time.Duration;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.web.client.RestClient;
+
+@Configuration
+class HttpClients {
+
+  @Bean
+  RestClient auditClient(RestClient.Builder builder,
+                         @Value("${audit.base-url}") String baseUrl) {
+    var settings = ClientHttpRequestFactorySettings.defaults()
+        .withConnectTimeout(Duration.ofSeconds(2))    <span class="c">// reaching the host</span>
+        .withReadTimeout(Duration.ofSeconds(3));      <span class="c">// waiting for bytes</span>
+
+    return builder
+        .baseUrl(baseUrl)
+        .requestFactory(ClientHttpRequestFactoryBuilder.detect().build(settings))
+        .defaultStatusHandler(HttpStatusCode::is5xxServerError, (req, res) -&gt; {
+          throw new AuditUnavailable(res.getStatusCode().value());   <span class="c">// transient</span>
+        })
+        .defaultStatusHandler(HttpStatusCode::is4xxClientError, (req, res) -&gt; {
+          throw new AuditRejected(res.getStatusCode().value());      <span class="c">// terminal</span>
+        })
+        .build();
+  }
+}
+
+class AuditUnavailable extends RuntimeException {   <span class="c">// their problem: 5xx, timeouts</span>
+  AuditUnavailable(int status) { super("audit unavailable: " + status); }
+}
+class AuditRejected extends RuntimeException {      <span class="c">// our problem: 4xx</span>
+  AuditRejected(int status) { super("audit rejected the request: " + status); }
+}</pre>
+
+      <p>Using it is deliberately boring &mdash; and note the idempotency thinking baked into the payload: the event carries the task id and type, so if a retry does happen after an ambiguous timeout, the audit service can deduplicate. The same reasoning as idempotency keys on the backend-foundations page, spelled in Java.</p>
+
+      <pre class="l2">@Service
+public class AuditService {
+
+  private final RestClient client;
+
+  AuditService(RestClient auditClient) { this.client = auditClient; }
+
+  public void recordDone(Task task) {
+    client.post()
+        .uri("/events")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(new AuditEvent("task.done", task.id(), Instant.now()))
+        .retrieve()
+        .toBodilessEntity();     <span class="c">// throws AuditUnavailable / AuditRejected on error</span>
+  }
+}
+
+record AuditEvent(String type, UUID taskId, Instant at) { }</pre>
+
+      <p>Wire it in with one field and one line &mdash; <code>TaskService</code> takes an <code>AuditService</code> through its constructor next to the repository, and <code>markDone</code> reports the event after the save:</p>
+
+      <pre class="l2"><span class="c">// TaskService.java -- markDone, after wiring in the audit client</span>
+public Task markDone(UUID id) {
+    var e = repo.findById(id).orElseThrow(() -&gt; new TaskNotFoundException(id));
+    e.markDone();
+    var task = repo.save(e).toTask();
+    audit.recordDone(task);     <span class="c">// audit is the constructor-injected AuditService</span>
+    return task;
+}</pre>
+
+      <div class="note">
+        <h4>The three HTTP clients, one line each</h4>
+        <p><code>RestClient</code> (Boot 3.2+) is the default choice: fluent, synchronous, plays perfectly with virtual threads. <code>WebClient</code> is the reactive one &mdash; you take it when you are already in WebFlux, not for a timeout. <code>RestTemplate</code> is the legacy one: maintained, not evolving, fine to leave in old code and wrong to start new code with.</p>
+      </div>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>No audit service exists, which is exactly the test. Point <code>audit.base-url</code> at the JDK&rsquo;s built-in static server &mdash; it answers POST with 501 &mdash; then restart it aimed at a non-routable address. One exercises the 5xx handler, the other the connect timeout; neither hangs. (A dead <em>local</em> port would not do: the kernel refuses instantly, and no timeout ever fires.)</p>
+      </div>
+      <pre class="l1">$ jwebserver -p 9090 &amp;
+$ ./mvnw spring-boot:run -Dspring-boot.run.arguments=--audit.base-url=http://localhost:9090
+$ curl -s -X PATCH localhost:8080/tasks/&lt;id&gt;/done
+<span class="c">... AuditUnavailable: audit unavailable: 501    &larr; the 5xx handler fired</span>
+$ kill %1                         <span class="c"># done with the static server; Ctrl-C the app too</span>
+$ ./mvnw spring-boot:run -Dspring-boot.run.arguments=--audit.base-url=http://10.255.255.1:9090
+$ time curl -s -X PATCH localhost:8080/tasks/&lt;id&gt;/done
+<span class="c">real  0m2.1s    &larr; packets into a black hole: the 2s connect timeout, not an infinite hang</span></pre>
+    </section>
+
+    <section class="topic" id="testing">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>The test ladder: JUnit, a web slice, real Postgres</h3>
+        <p class="lede">Three rungs, each loading more and costing more: plain JUnit for logic, <code>@WebMvcTest</code> for the HTTP layer with the service mocked out, and <code>@SpringBootTest</code> with Testcontainers for the full path against a real database. Push every test as far down the ladder as it will go.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 312" role="img" aria-label="A table of three test rungs: plain JUnit loads only your class and costs milliseconds; WebMvcTest loads the MVC layer with one controller, the advice and validation but no database; SpringBootTest with Testcontainers loads the whole context plus a real Postgres container and costs tens of seconds to start. A footer says to push tests down the ladder.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE RUNG</text>
+          <text x="300" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT IT LOADS</text>
+          <text x="660" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT IT COSTS</text>
+          <line x1="20" y1="26" x2="880" y2="26" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+
+          <g class="svg-l1">
+            <text x="20" y="56" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">plain JUnit</text>
+            <text x="300" y="56" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">your class. No Spring, no context,</text>
+            <text x="300" y="72" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">no annotations beyond @Test</text>
+            <text x="660" y="56" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">milliseconds each &mdash;</text>
+            <text x="660" y="72" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">write hundreds</text>
+          </g>
+          <line x1="20" y1="88" x2="880" y2="88" stroke="currentColor" stroke-width="1" opacity="0.12"/>
+
+          <g class="svg-l2">
+            <text x="20" y="118" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">@WebMvcTest</text>
+            <text x="20" y="134" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">+ MockMvc + @MockitoBean</text>
+            <text x="300" y="118" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">the MVC layer: one controller, the advice,</text>
+            <text x="300" y="134" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">validation, JSON &mdash; service mocked, no DB,</text>
+            <text x="300" y="150" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">no real server socket</text>
+            <text x="660" y="118" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">about 2 s once for the slice,</text>
+            <text x="660" y="134" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">then milliseconds &mdash;</text>
+            <text x="660" y="150" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">write dozens</text>
+          </g>
+          <line x1="20" y1="166" x2="880" y2="166" stroke="currentColor" stroke-width="1" opacity="0.12"/>
+
+          <g class="svg-l3">
+            <text x="20" y="196" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">@SpringBootTest</text>
+            <text x="20" y="212" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">+ Testcontainers</text>
+            <text x="20" y="228" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">+ @ServiceConnection</text>
+            <text x="300" y="196" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">the whole context, Flyway migrations,</text>
+            <text x="300" y="212" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">Hibernate, and a REAL postgres:16</text>
+            <text x="300" y="228" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">started in Docker for the test run</text>
+            <text x="660" y="196" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">about 15 s to start, then</text>
+            <text x="660" y="212" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">hundreds of ms each &mdash;</text>
+            <text x="660" y="228" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">write a handful</text>
+          </g>
+
+          <line x1="20" y1="246" x2="880" y2="246" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="272" font-family="Bricolage Grotesque, sans-serif" font-size="13.5" font-weight="700" fill="currentColor">Every test wants the lowest rung that can catch its bug.</text>
+          <text x="20" y="294" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Mapping logic never needs a context; a 404-shape check never needs Postgres; and whether the SQL really works needs Postgres, not H2 pretending.</text>
+        </svg>
+        <figcaption><b>The rung people skip is the top one, and the excuse used to be real.</b> Testing against an in-memory H2 database proves your SQL works on H2; Testcontainers made the honest version &mdash; the same <code>postgres:16</code> image production runs &mdash; a two-annotation cost, which retired the excuse.</figcaption>
+      </figure>
+
+      <p>Two test dependencies join the pom, and then one complete test per rung.</p>
+
+      <pre class="l2"><span class="c">&lt;!-- pom.xml, test scope --&gt;</span>
+&lt;dependency&gt;
+  &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+  &lt;artifactId&gt;spring-boot-testcontainers&lt;/artifactId&gt;
+  &lt;scope&gt;test&lt;/scope&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+  &lt;groupId&gt;org.testcontainers&lt;/groupId&gt;
+  &lt;artifactId&gt;postgresql&lt;/artifactId&gt;
+  &lt;scope&gt;test&lt;/scope&gt;
+&lt;/dependency&gt;</pre>
+
+      <pre class="l2"><span class="c">// rung 1 -- plain JUnit: no Spring anywhere on the classpath of this test&rsquo;s mind</span>
+class TaskEntityTest {
+
+  @Test
+  void entityAndRecordRoundTrip() {
+    var id = UUID.randomUUID();
+    var e = new TaskEntity(id, "buy milk", false, Instant.EPOCH);
+
+    assertEquals(new Task(id, "buy milk", false, Instant.EPOCH), e.toTask());
+  }
+
+  @Test
+  void markDoneFlipsTheFlagOnly() {
+    var e = new TaskEntity(UUID.randomUUID(), "t", false, Instant.EPOCH);
+    e.markDone();
+    assertTrue(e.done());
+  }
+}</pre>
+
+      <pre class="l2"><span class="c">// rung 2 -- the web slice: controller + advice + validation, service mocked</span>
+@WebMvcTest(TaskController.class)
+class TaskControllerTest {
+
+  @Autowired MockMvc mvc;
+  @MockitoBean TaskService service;      <span class="c">// replaces the real bean in the slice</span>
+
+  @Test
+  void missingTaskBecomesA404Problem() throws Exception {
+    var id = UUID.randomUUID();
+    when(service.get(id)).thenThrow(new TaskNotFoundException(id));
+
+    mvc.perform(get("/tasks/{id}", id))
+       .andExpect(status().isNotFound())
+       .andExpect(jsonPath("$.title").value("Task not found"));
+  }
+
+  @Test
+  void blankTitleNeverReachesTheService() throws Exception {
+    mvc.perform(post("/tasks")
+           .contentType(MediaType.APPLICATION_JSON)
+           .content("{\"title\":\"\"}"))
+       .andExpect(status().isBadRequest())
+       .andExpect(jsonPath("$.errors[0].field").value("title"));
+
+    verifyNoInteractions(service);       <span class="c">// validation rejected it at the door</span>
+  }
+}</pre>
+
+      <pre class="l2"><span class="c">// rung 3 -- the full path, against the same postgres:16 production runs</span>
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Testcontainers
+class TasksEndToEndTest {
+
+  @Container
+  @ServiceConnection                     <span class="c">// injects url/user/password automatically</span>
+  static PostgreSQLContainer&lt;?&gt; db = new PostgreSQLContainer&lt;&gt;("postgres:16");
+
+  @Autowired TestRestTemplate http;
+
+  @Test
+  void createThenFetchAgainstRealPostgres() {
+    var created = http.postForObject("/tasks",
+        Map.of("title", "prove the whole stack"), Task.class);
+
+    var fetched = http.getForObject("/tasks/" + created.id(), Task.class);
+
+    assertEquals(created, fetched);      <span class="c">// through Flyway, Hibernate, and back</span>
+  }
+}</pre>
+
+      <p><code>@ServiceConnection</code> is the piece worth pausing on: it replaces the datasource properties with the container&rsquo;s coordinates before the context starts, so Flyway runs your real migrations against the throwaway database. The test proves V1, the entity mapping, the derived queries and the JSON boundary in one pass &mdash; which is why a handful of these carries so much weight.</p>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>With Docker running, <code>verify</code> executes all three rungs. The first Testcontainers run pulls the image; after that the whole suite is tens of seconds.</p>
+      </div>
+      <pre class="l1">$ ./mvnw verify
+<span class="c">[INFO] Tests run: 2 ... TaskEntityTest        &larr; milliseconds</span>
+<span class="c">[INFO] Tests run: 2 ... TaskControllerTest    &larr; the web slice</span>
+<span class="c">[INFO] Tests run: 1 ... TasksEndToEndTest     &larr; real Postgres, via Docker</span>
+<span class="c">[INFO] BUILD SUCCESS</span></pre>
+    </section>
+
+    <section class="topic" id="ship">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Packaging, probes, and dying politely</h3>
+        <p class="lede">The fat jar is self-contained but a Docker image built from it re-ships 40&nbsp;MB of unchanged dependencies on every one-line fix. Boot&rsquo;s layered extraction fixes the caching; graceful shutdown and the actuator probes fix everything the cloud page said about pods being killed mid-request.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 330" role="img" aria-label="Two lanes against a time axis. Kubernetes marks the pod terminating and sends SIGTERM, removes the endpoint from the service, and only sends SIGKILL if the process is still alive at thirty seconds. The JVM lane shows Boot receiving SIGTERM, flipping readiness to refusing, draining in-flight requests within the twenty second shutdown phase, then closing the context and exiting zero before SIGKILL is ever needed.">
+          <defs>
+            <marker id="jac-8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">KUBERNETES</text>
+          <line x1="70" y1="82" x2="70" y2="156" stroke="currentColor" stroke-width="1.1" opacity="0.45" stroke-dasharray="3 3" marker-end="url(#jac-8)"/>
+          <rect class="plate" x="14" y="132" width="230" height="19"/>
+          <text x="20" y="146" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE JVM &mdash; server.shutdown=graceful</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="30" width="200" height="48" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="49" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">pod Terminating</text>
+            <text x="32" y="66" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">SIGTERM sent to PID 1</text>
+            <line x1="222" y1="54" x2="256" y2="54" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-8)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="260" y="30" width="230" height="48" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="272" y="49" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">endpoint removed from Service</text>
+            <text x="272" y="66" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">no new traffic routed here</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="690" y="30" width="190" height="48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="5 4"/>
+            <text x="702" y="49" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">still alive at 30 s?</text>
+            <text x="702" y="66" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">SIGKILL &mdash; no cleanup</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="20" y="160" width="150" height="48" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="179" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">SIGTERM caught</text>
+            <text x="32" y="196" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">by Boot</text>
+            <line x1="172" y1="184" x2="196" y2="184" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-8)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="200" y="160" width="190" height="48" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="212" y="179" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">readiness &rarr; refusing</text>
+            <text x="212" y="196" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">new requests: connection reset</text>
+            <line x1="392" y1="184" x2="416" y2="184" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-8)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="420" y="160" width="240" height="48" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="432" y="179" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">in-flight requests drain</text>
+            <text x="432" y="196" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">up to timeout-per-shutdown: 20s</text>
+            <line x1="662" y1="184" x2="686" y2="184" stroke="currentColor" stroke-width="1.2" marker-end="url(#jac-8)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="690" y="160" width="190" height="48" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="702" y="179" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">context closes, pools</text>
+            <text x="702" y="196" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">shut down &mdash; exit 0</text>
+          </g>
+
+          <line x1="20" y1="238" x2="860" y2="238" stroke="currentColor" stroke-width="1.2" opacity="0.5" marker-end="url(#jac-8)"/>
+          <text x="20" y="256" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">t = 0</text>
+          <text x="640" y="256" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">t = 20 s</text>
+          <text x="780" y="256" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">t = 30 s (grace period)</text>
+
+          <line x1="20" y1="272" x2="880" y2="272" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="294" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">The same dance the Go page did by hand with <tspan font-family="IBM Plex Mono, monospace" font-size="11">srv.Shutdown(ctx)</tspan>: stop taking work, finish the work you have, then exit &mdash;</text>
+          <text x="20" y="312" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">all before the 30-second deadline turns into SIGKILL. Boot does the whole sequence from one property.</text>
+        </svg>
+        <figcaption><b>Without <code>server.shutdown=graceful</code> the default is immediate:</b> SIGTERM stops the connector and in-flight requests die mid-body on every single deploy &mdash; a low, steady error rate that correlates perfectly with your release calendar and gets blamed on the network for months.</figcaption>
+      </figure>
+
+      <p>First the production settings, then the image. The probes property gives the health endpoint two sub-paths that mean exactly what the cloud page&rsquo;s liveness and readiness probes need them to mean &mdash; and Boot flips readiness during startup and shutdown automatically.</p>
+
+      <pre class="l2"><span class="c"># application.yml -- the production additions</span>
+server:
+  shutdown: graceful              <span class="c"># drain in-flight requests on SIGTERM</span>
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s   <span class="c"># stay under the pod&rsquo;s 30s grace period</span>
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true             <span class="c"># exposes /liveness and /readiness</span>
+  endpoints:
+    web:
+      exposure:
+        include: health           <span class="c"># and nothing else, on purpose</span>
+
+<span class="c"># and in the Deployment, from the cloud page:</span>
+<span class="c">#   livenessProbe:  httpGet /actuator/health/liveness  :8080</span>
+<span class="c">#   readinessProbe: httpGet /actuator/health/readiness :8080</span></pre>
+
+      <p>(That block assumes <code>spring-boot-starter-actuator</code> is in the pom &mdash; one dependency, no version.) Now the Dockerfile. <code>./mvnw package</code> produces one fat jar, and the trick is to <em>not</em> copy it into the image as one blob: <code>jarmode=tools</code> extracts it into layers so the 40&nbsp;MB of dependencies &mdash; which change rarely &mdash; sit in a different image layer from your classes, which change every commit. Rebuilds and pulls then move kilobytes, not the world.</p>
+
+      <pre class="l2"><span class="c"># Dockerfile</span>
+FROM eclipse-temurin:21-jre AS extract
+WORKDIR /app
+COPY target/tasks-0.0.1-SNAPSHOT.jar app.jar
+RUN java -Djarmode=tools -jar app.jar extract --layers --destination extracted
+
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+RUN useradd --system app
+USER app                                  <span class="c"># never root; nothing here needs it</span>
+
+<span class="c"># rarely-changing layers first: cache hits on every rebuild</span>
+COPY --from=extract /app/extracted/dependencies/          ./
+COPY --from=extract /app/extracted/spring-boot-loader/    ./
+COPY --from=extract /app/extracted/snapshot-dependencies/ ./
+COPY --from=extract /app/extracted/application/           ./
+
+<span class="c"># the memory lesson from the JVM part, applied</span>
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]</pre>
+
+      <p><code>ExitOnOutOfMemoryError</code> deserves its one sentence: a JVM that has thrown <code>OutOfMemoryError</code> on some thread is a zombie that still answers liveness probes, and it is better to die and be restarted by the kubelet than to limp.</p>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Build, run against the compose network, and curl the probes. Then touch a source file, rebuild, and read the build output: every layer above <code>application/</code> reports CACHED.</p>
+      </div>
+      <pre class="l1">$ ./mvnw -q package -DskipTests
+$ docker build -t tasks:1 .
+$ docker run --rm --network host --memory 512m tasks:1
+$ curl -s localhost:8080/actuator/health/readiness
+<span class="c">{"status":"UP"}                              &larr; K8s would route traffic now</span>
+$ curl -s localhost:8080/actuator/health/liveness
+<span class="c">{"status":"UP"}</span>
+<span class="c"># change one line of TaskService, package, rebuild:</span>
+$ docker build -t tasks:2 .
+<span class="c">=&gt; CACHED [stage-1 4/8] COPY --from=extract /app/extracted/dependencies/ ./
+=&gt; [stage-1 7/8] COPY --from=extract /app/extracted/application/ ./   &larr; only this moved</span></pre>
+    </section>
+  </div>
+</section>

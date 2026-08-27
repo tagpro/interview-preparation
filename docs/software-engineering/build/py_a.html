@@ -1,0 +1,844 @@
+<section class="part" id="objects">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>The object model</h2>
+      <p>Python has no variables in the C sense. It has names bound to objects, and almost every beginner surprise &mdash; the function that mutated your list, the default argument that remembered, the <code>is</code> that worked until it did not &mdash; follows from that one fact. Learn the binding model first and the rest stops being folklore.</p>
+    </div>
+
+    <section class="topic" id="names">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Names, objects and references</h3>
+        <p class="lede">Assignment never copies. It points a name at an object that already exists. Two names can reach the same object, and only one of the two operations you can perform &mdash; rebinding a name, mutating an object &mdash; is visible to the other name.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 280" role="img" aria-label="Three panels showing two names bound to one list object, then rebinding one name so the other still sees the original list, then mutating through one name so the other sees the change.">
+          <defs>
+            <marker id="pa-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A &middot; TWO NAMES, ONE OBJECT</text>
+          <g class="svg-l1">
+            <rect x="20" y="40" width="64" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="34" y="58" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">a</text>
+            <rect x="20" y="80" width="64" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="34" y="98" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">b</text>
+            <rect x="150" y="48" width="140" height="54" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="162" y="70" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">[1, 2, 3]</text>
+            <text x="162" y="90" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.75">id 0x7fa1c40</text>
+            <path d="M84 53 L146 62" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-1)"/>
+            <path d="M84 93 L146 88" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-1)"/>
+          </g>
+          <text x="20" y="126" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.85">b = a binds, never copies</text>
+          <text x="20" y="142" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.85">a is b &rarr; True</text>
+
+          <line x1="302" y1="14" x2="302" y2="156" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="320" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">B &middot; REBIND: a = [9]</text>
+          <g class="svg-l1">
+            <rect x="320" y="40" width="64" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="334" y="58" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">a</text>
+            <rect x="450" y="32" width="130" height="32" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="462" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">[9]  new object</text>
+            <path d="M384 53 L446 48" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-1)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="320" y="80" width="64" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="334" y="98" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">b</text>
+            <rect x="450" y="76" width="130" height="32" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="462" y="96" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">[1, 2, 3]</text>
+            <path d="M384 93 L446 92" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-1)"/>
+          </g>
+          <text x="320" y="126" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.85">b still sees [1, 2, 3]</text>
+          <text x="320" y="142" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.85">a is b &rarr; False</text>
+
+          <line x1="604" y1="14" x2="604" y2="156" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="620" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">C &middot; MUTATE: a.append(9)</text>
+          <g class="svg-l3">
+            <rect x="620" y="40" width="64" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="634" y="58" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">a</text>
+            <rect x="620" y="80" width="64" height="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="634" y="98" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">b</text>
+            <rect x="750" y="48" width="130" height="54" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="762" y="70" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">[1, 2, 3, 9]</text>
+            <text x="762" y="90" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.75">id 0x7fa1c40</text>
+            <path d="M684 53 L746 62" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-1)"/>
+            <path d="M684 93 L746 88" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-1)"/>
+          </g>
+          <text x="620" y="126" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.85">b sees the 9 as well</text>
+          <text x="620" y="142" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.85">same id, same object</text>
+
+          <line x1="20" y1="172" x2="880" y2="172" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="196" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Identity is not equality, and interning makes the difference invisible</text>
+          <text x="20" y="218" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9"><tspan font-family="IBM Plex Mono, monospace" font-size="11">==</tspan> asks about value and calls <tspan font-family="IBM Plex Mono, monospace" font-size="11">__eq__</tspan>. <tspan font-family="IBM Plex Mono, monospace" font-size="11">is</tspan> compares <tspan font-family="IBM Plex Mono, monospace" font-size="11">id()</tspan> and asks about identity.</text>
+          <text x="20" y="238" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">CPython interns the integers -5 to 256 and short identifier-like strings, so <tspan font-family="IBM Plex Mono, monospace" font-size="11">a is b</tspan> is True for 256, False for 257.</text>
+          <text x="20" y="258" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">That is a memory optimisation, not a language rule. Use <tspan font-family="IBM Plex Mono, monospace" font-size="11">is</tspan> only for None, True, False and your own sentinels.</text>
+        </svg>
+        <figcaption><b>Rebinding moves a name; mutation changes an object.</b> Panel B and panel C differ by one character of syntax and completely in effect. Every &ldquo;why did my caller&rsquo;s list change&rdquo; question is panel C, and every &ldquo;why did my caller&rsquo;s list <em>not</em> change&rdquo; question is panel B.</figcaption>
+      </figure>
+
+      <pre class="l1">a = [1, 2, 3]
+b = a                           <span class="c"># one object, two names</span>
+b.append(4)
+print(a)                        <span class="c"># [1, 2, 3, 4] -- a sees it</span>
+print(a is b, id(a) == id(b))   <span class="c"># True True</span>
+
+def rebind(lst):
+    lst.append(99)              <span class="c"># mutates the caller's object</span>
+    lst = [0]                   <span class="c"># rebinds the LOCAL name only</span>
+    return lst
+
+x = [1]
+rebind(x)
+print(x)                        <span class="c"># [1, 99] -- append survived, rebind did not</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Bindings, not boxes</h4>
+          <ul>
+            <li><strong>Assignment binds a name</strong> &mdash; <code>x = obj</code> makes <code>x</code> refer to <code>obj</code>. Nothing is copied and no storage is reserved for <code>x</code>.</li>
+            <li><strong><code>==</code> vs <code>is</code></strong> &mdash; equal value versus the same object. Use <code>==</code> unless you specifically mean identity.</li>
+            <li><strong>Everything is an object</strong>: integers, functions, modules, classes and exceptions all have a type, attributes and an <code>id()</code>.</li>
+            <li>Because functions are objects, you can put one in a list, pass it as an argument, or return it &mdash; no special syntax required.</li>
+            <li><code>type(x)</code> tells you what it is; <code>id(x)</code> tells you which one it is.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>What a call actually passes</h4>
+          <ul>
+            <li><strong>Argument passing is name binding</strong> &mdash; the parameter becomes another name for the caller&rsquo;s object. Not by value, not by reference in the Pascal sense.</li>
+            <li>So a function <em>can</em> mutate your list, dict or set, and <em>cannot</em> rebind your name. <code>lst.append(x)</code> escapes; <code>lst = []</code> does not.</li>
+            <li><strong><code>del x</code> removes the name</strong>, not the object. Any other name still bound to it keeps it alive.</li>
+            <li>Rebinding in a loop, a comprehension or an <code>except ... as e</code> block follows the same rule &mdash; and <code>e</code> is deleted at the end of the <code>except</code> block.</li>
+            <li>Take a copy at the boundary if the caller must not see your edits; say so in the docstring either way.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Lifetime, and why <code>is</code> lies</h4>
+          <ul>
+            <li><strong>Reference counting</strong> frees an object the moment its last reference goes; a cycle detector handles the rest. What keeps an object alive is a reference, from anywhere &mdash; a list, a frame, a closure cell, a traceback.</li>
+            <li><strong><code>id()</code> is reused.</strong> It is the address in CPython, so a freed object&rsquo;s id can be handed straight to the next one. Never store an id as a key.</li>
+            <li><strong><code>is</code> on ints and strings is a bug that passes its own test.</strong> Interning is an implementation detail that varies between literal, computed, and interactive contexts.</li>
+            <li>A traceback holds a reference to every frame, and every frame holds its locals &mdash; this is how exception handling keeps large objects alive longer than expected.</li>
+            <li><code>sys.getrefcount</code>, <code>gc.get_referrers</code> and <code>weakref</code> are the tools when something will not die.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="mutability">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Mutability, copying, and the default-argument trap</h3>
+        <p class="lede">A default value is evaluated once, when the <code>def</code> statement runs &mdash; not once per call. If that value is mutable, every call shares it, and the function quietly accumulates state across the life of the process.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 344" role="img" aria-label="Left panel shows a mutable default list created once at definition time and growing across three successive calls; right panel compares a shallow copy that shares inner objects with a deep copy that duplicates them.">
+          <defs>
+            <marker id="pa-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A &middot; ONE LIST, MADE AT def TIME</text>
+          <g class="svg-l2">
+            <rect x="20" y="32" width="170" height="46" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="30" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">def add(item,</text>
+            <text x="30" y="70" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">        bucket=[]):</text>
+          </g>
+          <g class="svg-l3">
+            <path d="M190 55 L226 55" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-2)"/>
+            <rect x="230" y="32" width="160" height="46" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="240" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">one list object</text>
+            <text x="240" y="70" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">made once, here</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="20" y="100" width="110" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="120" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">add("a")</text>
+            <rect x="20" y="140" width="110" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="160" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">add("b")</text>
+            <rect x="20" y="180" width="110" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="200" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">add("c")</text>
+          </g>
+          <g class="svg-l3">
+            <path d="M130 115 L166 115" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-2)"/>
+            <path d="M130 155 L166 155" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-2)"/>
+            <path d="M130 195 L166 195" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-2)"/>
+            <rect x="170" y="100" width="170" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="182" y="120" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">["a"]</text>
+            <rect x="170" y="140" width="170" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="182" y="160" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">["a", "b"]</text>
+            <rect x="170" y="180" width="170" height="30" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="182" y="200" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">["a", "b", "c"]</text>
+          </g>
+          <text x="352" y="120" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">call 1</text>
+          <text x="352" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">call 2</text>
+          <text x="352" y="200" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">call 3</text>
+          <text x="20" y="232" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">The same object grows across calls,</text>
+          <text x="20" y="248" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">for the life of the process.</text>
+
+          <line x1="414" y1="14" x2="414" y2="258" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="430" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">B &middot; SHALLOW vs DEEP COPY</text>
+          <text x="430" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">orig</text>
+          <text x="430" y="104" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">copy.copy(orig)</text>
+          <text x="430" y="154" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">copy.deepcopy(orig)</text>
+          <g class="svg-l2">
+            <rect x="560" y="34" width="200" height="32" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <line x1="660" y1="34" x2="660" y2="66" stroke="currentColor" stroke-width="1.2"/>
+            <text x="578" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">obj A</text>
+            <text x="678" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">obj B</text>
+          </g>
+          <text x="772" y="54" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">the original</text>
+          <g class="svg-l3">
+            <rect x="560" y="84" width="200" height="32" fill="none" stroke="currentColor" stroke-width="2"/>
+            <line x1="660" y1="84" x2="660" y2="116" stroke="currentColor" stroke-width="1.2"/>
+            <text x="578" y="104" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">obj A</text>
+            <text x="678" y="104" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">obj B</text>
+            <text x="772" y="100" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">shares the</text>
+            <text x="772" y="114" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">same inners</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="560" y="134" width="200" height="32" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <line x1="660" y1="134" x2="660" y2="166" stroke="currentColor" stroke-width="1.2"/>
+            <text x="578" y="154" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">obj A2</text>
+            <text x="678" y="154" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">obj B2</text>
+            <text x="772" y="150" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">new inners</text>
+            <text x="772" y="164" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">as well</text>
+          </g>
+          <text x="430" y="190" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">A shallow copy duplicates the outer container only, so</text>
+          <text x="430" y="206" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">s[0].append(9) is visible through orig as well.</text>
+          <text x="430" y="226" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">deepcopy walks the whole graph &mdash; correct, and costly in time and memory.</text>
+          <text x="430" y="242" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">list(x), x.copy(), dict(x) and x[:] are all shallow.</text>
+
+          <line x1="20" y1="264" x2="880" y2="264" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="288" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Mutable means unhashable, and that is the same fact from the other side</text>
+          <text x="20" y="310" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">A key&rsquo;s hash must not change while it sits in a dict, so list, dict and set set <tspan font-family="IBM Plex Mono, monospace" font-size="11">__hash__</tspan> to None and raise TypeError.</text>
+          <text x="20" y="330" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">A tuple is hashable only if everything inside it is &mdash; <tspan font-family="IBM Plex Mono, monospace" font-size="11">(1, [2])</tspan> raises. Freeze with tuple and frozenset before you key on it.</text>
+        </svg>
+        <figcaption><b>The trap is not the list &mdash; it is the timing.</b> <code>def</code> is an executable statement: it evaluates the defaults and builds a function object once. <code>0</code>, <code>None</code> and <code>&quot;&quot;</code> are safe defaults because you cannot mutate them; anything you can call a method on to change is a shared cache you did not ask for.</figcaption>
+      </figure>
+
+      <pre class="l3">def add(item, bucket=[]):        <span class="c"># bucket is created ONCE, at def time</span>
+    bucket.append(item)
+    return bucket
+
+add("a")            <span class="c"># ["a"]</span>
+add("b")            <span class="c"># ["a", "b"]  &lt;- the same list, still there</span>
+add.__defaults__    <span class="c"># (["a", "b"],)  the evidence, on the function object</span>
+
+def add(item, bucket=None):      <span class="c"># the None-sentinel fix</span>
+    if bucket is None:
+        bucket = []              <span class="c"># a fresh list per call</span>
+    bucket.append(item)
+    return bucket</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Know which builtins bite</h4>
+          <ul>
+            <li><strong>Mutable</strong>: <code>list</code>, <code>dict</code>, <code>set</code>, <code>bytearray</code>, and instances of most classes you write.</li>
+            <li><strong>Immutable</strong>: <code>int</code>, <code>float</code>, <code>str</code>, <code>bytes</code>, <code>tuple</code>, <code>frozenset</code>, <code>bool</code>, <code>None</code>.</li>
+            <li><strong>The default-argument trap</strong> &mdash; never write <code>def f(x=[])</code> or <code>def f(x={})</code>. Use <code>None</code> and build inside the body.</li>
+            <li><strong><code>list.copy()</code> / <code>dict.copy()</code></strong> hand out an independent top level; <code>x[:]</code> does the same for sequences.</li>
+            <li>A linter catches this one &mdash; <code>ruff</code> rule B006 exists precisely because it is so common.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Copy depth and hashability</h4>
+          <ul>
+            <li><strong>Shallow vs deep</strong> &mdash; <code>copy.copy</code> duplicates one level; <code>copy.deepcopy</code> duplicates the whole reachable graph and keeps a memo so shared nodes stay shared and cycles terminate.</li>
+            <li><strong>deepcopy costs</strong> &mdash; it is recursive, pickle-adjacent, and easily the slowest line in a hot loop. Prefer restructuring so you do not need it.</li>
+            <li><strong>Mutable objects are unhashable</strong> because a dict places a key by its hash and would lose it if the hash moved.</li>
+            <li><strong>A tuple containing a list</strong> is immutable at the top and still unhashable &mdash; <code>hash((1, [2]))</code> raises TypeError.</li>
+            <li>Dataclasses: <code>field(default_factory=list)</code> is the same fix, spelled for a class.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Contracts and boundaries</h4>
+          <ul>
+            <li><strong>The <code>__hash__</code>/<code>__eq__</code> contract</strong>: equal objects must hash equal, and the hash must be stable for the object&rsquo;s lifetime. Defining <code>__eq__</code> alone sets <code>__hash__</code> to None.</li>
+            <li><strong>Freeze deliberately</strong> &mdash; <code>frozenset</code>, <code>tuple</code>, <code>@dataclass(frozen=True)</code>, or a <code>NamedTuple</code>, when a value must be a key or crosses a thread boundary.</li>
+            <li><strong>Defensive copying at API edges</strong>: copy on the way in if you will store it, on the way out if the caller might mutate it. Document the choice; do not make callers guess.</li>
+            <li><strong>Copy-on-write is a myth here.</strong> Python has none &mdash; not for lists, not across <code>fork()</code> (refcount updates dirty the pages anyway).</li>
+            <li><code>__copy__</code> and <code>__deepcopy__</code> let a type control its own duplication; use them for handles that must not be cloned.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="datamodel">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>The data model: protocols, not inheritance</h3>
+        <p class="lede">Syntax is a call. <code>len(x)</code> is <code>x.__len__()</code>, <code>x[k]</code> is <code>x.__getitem__(k)</code>, <code>with x</code> is <code>x.__enter__()</code>. Nothing checks a base class &mdash; the interpreter looks for the method and calls it.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 314" role="img" aria-label="One object at the centre with six pieces of syntax around it, each labelled with the dunder method the interpreter calls, illustrating that Python protocols are satisfied by having the method rather than by inheriting from a type.">
+          <defs>
+            <marker id="pa-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">SYNTAX IS A PROTOCOL &mdash; THE INTERPRETER CALLS A METHOD ON YOUR OBJECT</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="40" width="200" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="61" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">len(b)     &rarr; __len__</text>
+            <rect x="20" y="94" width="200" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="115" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">b[k]       &rarr; __getitem__</text>
+            <rect x="20" y="148" width="200" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="169" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">for x in b &rarr; __iter__</text>
+            <path d="M220 57 L366 128" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa-3)"/>
+            <path d="M220 111 L366 142" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa-3)"/>
+            <path d="M220 165 L366 158" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa-3)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="370" y="110" width="160" height="70" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="382" y="138" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">class Basket:</text>
+            <text x="382" y="160" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">one ordinary object</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="680" y="40" width="200" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="692" y="61" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">with b     &rarr; __enter__</text>
+            <rect x="680" y="94" width="200" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="692" y="115" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">b + c      &rarr; __add__</text>
+            <rect x="680" y="148" width="200" height="34" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="692" y="169" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">repr(b)    &rarr; __repr__</text>
+            <path d="M680 57 L534 128" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa-3)"/>
+            <path d="M680 111 L534 142" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa-3)"/>
+            <path d="M680 165 L534 158" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa-3)"/>
+          </g>
+
+          <text x="330" y="202" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.8">no base class, no registration &mdash; the method just has to exist</text>
+
+          <line x1="20" y1="218" x2="880" y2="218" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="242" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Duck typing is Go&rsquo;s implicit interfaces, moved from compile time to call time</text>
+          <text x="20" y="264" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">In Go, a type satisfies <tspan font-family="IBM Plex Mono, monospace" font-size="11">io.Writer</tspan> by having <tspan font-family="IBM Plex Mono, monospace" font-size="11">Write</tspan>; it never names the interface. Python is the same idea without the check.</text>
+          <text x="20" y="284" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">The cost of moving the check to runtime is that a missing method is an AttributeError in production, not a compile error.</text>
+          <text x="20" y="304" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Which is why <tspan font-family="IBM Plex Mono, monospace" font-size="11">typing.Protocol</tspan> exists: state the shape, let a type checker do statically what Go&rsquo;s compiler does.</text>
+        </svg>
+        <figcaption><b>This is the same design as Go&rsquo;s implicit interfaces.</b> Neither language asks a type to declare what it implements; both ask only whether the methods are there. Go checks at compile time and Python at the moment of the call &mdash; so in Python you write the protocol down with <code>typing.Protocol</code> or an ABC and let a type checker close the gap.</figcaption>
+      </figure>
+
+      <pre class="l2">class Money:
+    __slots__ = ("amount", "currency")
+
+    def __init__(self, amount, currency):
+        self.amount, self.currency = amount, currency
+
+    def __repr__(self):          <span class="c"># what logs, reprs and tracebacks show</span>
+        return f"Money({self.amount!r}, {self.currency!r})"
+
+    def __eq__(self, other):
+        if not isinstance(other, Money):
+            return NotImplemented    <span class="c"># let the other type try</span>
+        return (self.amount, self.currency) == (other.amount, other.currency)
+
+    def __hash__(self):          <span class="c"># define WITH __eq__ or the type is unhashable</span>
+        return hash((self.amount, self.currency))</pre>
+
+      <pre class="l2"><span class="c"># the container and context-manager protocols -- no base class, just the methods</span>
+class Basket:
+    def __init__(self):
+        self._items: list[str] = []
+
+    def __len__(self) -&gt; int:                 <span class="c"># bool(basket), len(basket)</span>
+        return len(self._items)
+
+    def __getitem__(self, i: int) -&gt; str:      <span class="c"># basket[0], and makes it iterable for free</span>
+        return self._items[i]
+
+    def __iadd__(self, item: str) -&gt; "Basket": <span class="c"># basket += "eggs"</span>
+        self._items.append(item)
+        return self
+
+class transaction:                             <span class="c"># with transaction(conn): ...</span>
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __enter__(self):
+        self.conn.execute("BEGIN")
+        return self.conn
+
+    def __exit__(self, exc_type, exc, tb) -&gt; bool:
+        self.conn.execute("ROLLBACK" if exc_type else "COMMIT")
+        return False                           <span class="c"># False: never swallow the exception</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>The dunders you write first</h4>
+          <ul>
+            <li><strong><code>__init__</code> initialises</strong> an object that already exists; <code>__new__</code> is what actually creates it, and you almost never touch it.</li>
+            <li><strong><code>__repr__</code> is for you</strong> &mdash; unambiguous, ideally something you could paste back in. <code>__str__</code> is for the user.</li>
+            <li><strong>Logs and tracebacks use <code>__repr__</code></strong>, and lists of objects print their repr. A default <code>&lt;Order object at 0x7f...&gt;</code> is a wasted debugging session.</li>
+            <li>If you define only one, define <code>__repr__</code> &mdash; <code>str()</code> falls back to it.</li>
+            <li>Dunder names are called by the interpreter. You define them; you rarely call them.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Implementing the protocols</h4>
+          <ul>
+            <li><strong><code>__eq__</code> and <code>__hash__</code> travel together</strong>; return <code>NotImplemented</code> (not False) for a type you do not understand, so the other operand gets its turn.</li>
+            <li><strong>Iteration</strong>: <code>__iter__</code> returns an iterator, whose <code>__next__</code> raises <code>StopIteration</code> when done. A generator function gives you both for free.</li>
+            <li><strong><code>__getitem__</code> alone</strong> makes an object indexable and, as a legacy fallback, iterable &mdash; which is why some old classes work in <code>for</code> without <code>__iter__</code>.</li>
+            <li><strong>Operator overloading</strong> is for types where the operator already means something &mdash; vectors, money, paths. Not for cleverness.</li>
+            <li><strong><code>functools.total_ordering</code></strong> fills in the other comparisons from <code>__eq__</code> plus one of <code>__lt__</code>.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Attribute machinery</h4>
+          <ul>
+            <li><strong>Descriptors</strong> are the mechanism under <code>@property</code>, methods, <code>classmethod</code> and <code>__slots__</code>: an object with <code>__get__</code>/<code>__set__</code> stored on the class.</li>
+            <li><strong><code>__slots__</code></strong> removes the per-instance <code>__dict__</code> &mdash; less memory, faster attribute access, no ad-hoc attributes. Worth it for millions of small objects.</li>
+            <li><strong><code>__getattr__</code> vs <code>__getattribute__</code></strong>: the first runs only after normal lookup fails, the second intercepts every access and is easy to make infinitely recursive.</li>
+            <li><strong>Metaclasses exist</strong>; <code>__init_subclass__</code> and <code>__set_name__</code> cover most of what people reach for them for. Learn them, deploy them rarely.</li>
+            <li><strong>Say the protocol out loud.</strong> An ABC or a <code>typing.Protocol</code> turns &ldquo;must have <code>read</code> and <code>close</code>&rdquo; from a comment into something a checker enforces.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="functions">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part two</span>
+      <h2>Functions and flow</h2>
+      <p>Python&rsquo;s function machinery is unusually rich: five kinds of parameter, laziness as a first-class control-flow tool, and closures that make decorators an ordinary consequence rather than a feature. All three shape how your API reads at the call site &mdash; and two of them have a trap that only shows up under load.</p>
+    </div>
+
+    <section class="topic" id="args">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Arguments: positional, keyword, and the star operators</h3>
+        <p class="lede">A signature has five zones, separated by <code>/</code> and by <code>*</code>. Where you put a parameter decides how callers may pass it &mdash; and therefore what you are free to change later without breaking them.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 314" role="img" aria-label="A Python function signature split into five zones (positional-only, positional-or-keyword, star-args, keyword-only, star-star-kwargs) with arrows mapping each argument of a call site onto the zone that receives it.">
+          <defs>
+            <marker id="pa-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE SIGNATURE, FIVE ZONES</text>
+          <text x="20" y="38" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">def f(a, /, b, c=0, *args, d, e=1, **kw):</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="52" width="110" height="46" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="30" y="72" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">a</text>
+            <text x="30" y="88" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">positional-only</text>
+            <text x="138" y="82" font-family="IBM Plex Mono, monospace" font-size="13" font-weight="700" fill="currentColor">/</text>
+            <rect x="155" y="52" width="125" height="46" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="165" y="72" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">b, c=0</text>
+            <text x="165" y="88" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">pos or keyword</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="295" y="52" width="115" height="46" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="305" y="72" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">*args</text>
+            <text x="305" y="88" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">extra positional</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="425" y="52" width="130" height="46" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="435" y="72" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">d, e=1</text>
+            <text x="435" y="88" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">keyword-only</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="570" y="52" width="110" height="46" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="580" y="72" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">**kw</text>
+            <text x="580" y="88" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">extra keyword</text>
+          </g>
+
+          <text x="700" y="60" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">Everything after *args is</text>
+          <text x="700" y="76" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">keyword-only. Callers cannot</text>
+          <text x="700" y="92" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">pass it positionally, so you</text>
+          <text x="700" y="108" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">may reorder or add without</text>
+          <text x="700" y="124" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">breaking a single call site.</text>
+
+          <g class="svg-l2">
+            <path d="M50 149 L50 110 L75 110 L75 102" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa-4)"/>
+            <path d="M135 149 L135 116 L217 116 L217 102" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa-4)"/>
+            <path d="M230 149 L230 122 L352 122 L352 102" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa-4)"/>
+            <path d="M325 149 L325 128 L490 128 L490 102" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa-4)"/>
+            <path d="M430 149 L430 134 L625 134 L625 102" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa-4)"/>
+            <rect x="20" y="150" width="60" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="44" y="170" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">1</text>
+            <rect x="95" y="150" width="80" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="110" y="170" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">2, 3</text>
+            <rect x="190" y="150" width="80" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="205" y="170" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">4, 5</text>
+            <rect x="285" y="150" width="80" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="298" y="170" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">d=9</text>
+            <rect x="380" y="150" width="100" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="392" y="170" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">x="k"</text>
+          </g>
+          <text x="500" y="170" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.7">&larr; one call, mapped onto the zones</text>
+          <text x="20" y="202" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.85">Positionals fill left to right until they run out; everything named is matched by name; the leftovers go into *args and **kw.</text>
+
+          <line x1="20" y1="218" x2="880" y2="218" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="242" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Parameter order is API surface, and positional order is the part you cannot change</text>
+          <text x="20" y="264" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Once a parameter can be passed positionally, its position is a promise. Swapping two of them is a silent, type-correct break.</text>
+          <text x="20" y="284" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">A bare <tspan font-family="IBM Plex Mono, monospace" font-size="11">*</tspan> in the signature costs nothing and buys you the freedom to reorder and extend the options forever.</text>
+          <text x="20" y="304" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">The <tspan font-family="IBM Plex Mono, monospace" font-size="11">/</tspan> does the opposite for the first argument: it keeps the name yours, so renaming it breaks nobody.</text>
+        </svg>
+        <figcaption><b>Two boring characters, two real design decisions.</b> Put <code>*</code> before every optional flag and the signature becomes extensible; put <code>/</code> after the obvious first argument and its name stops being part of your contract. Both changes are free at the call site and expensive to retrofit later.</figcaption>
+      </figure>
+
+      <pre class="l2">def connect(host, /, port=5432, *, timeout=5.0, sslmode="require"):
+    ...
+
+connect("db1")                       <span class="c"># host is positional-only</span>
+connect("db1", 6432)                 <span class="c"># port may be positional</span>
+connect("db1", timeout=1.0)          <span class="c"># timeout MUST be by keyword</span>
+connect(host="db1")                  <span class="c"># TypeError: host is positional-only</span>
+
+opts = {"timeout": 1.0, "sslmode": "disable"}
+connect("db1", **opts)               <span class="c"># unpack a dict into keyword arguments</span>
+
+args = ("db1", 6432)
+connect(*args, timeout=1.0)          <span class="c"># unpack an iterable into positionals</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Passing and collecting</h4>
+          <ul>
+            <li><strong>Defaults</strong> make a parameter optional; <strong>keyword arguments</strong> let the caller name it and skip ordering entirely.</li>
+            <li><strong><code>*args</code></strong> collects the leftover positionals into a tuple; <strong><code>**kwargs</code></strong> collects the leftover named ones into a dict.</li>
+            <li><strong>Unpacking at the call site</strong>: <code>f(*seq)</code> spreads an iterable into positions, <code>f(**mapping)</code> spreads a dict into names.</li>
+            <li>The names <code>args</code> and <code>kwargs</code> are convention only &mdash; the stars do the work.</li>
+            <li>Keyword arguments at a call site are documentation: <code>retry(3, True)</code> tells a reader nothing, <code>retry(3, jitter=True)</code> tells them everything.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Designing the signature</h4>
+          <ul>
+            <li><strong>Keyword-only parameters</strong> (after a bare <code>*</code>) can be reordered, renamed in position, and added to without breaking callers. Use them for every flag and option.</li>
+            <li><strong>Positional-only</strong> (before <code>/</code>) frees the <em>name</em>: useful for a first argument like <code>self</code>-ish subjects, and for wrappers that also take <code>**kwargs</code> and must avoid name clashes.</li>
+            <li><strong>Defaults are evaluated once</strong>, at <code>def</code> time &mdash; the same fact as the mutable-default trap above, and it applies to <code>datetime.now()</code> defaults too.</li>
+            <li>Booleans are almost always keyword-only. <code>send(msg, True, False)</code> is unreadable by construction.</li>
+            <li><code>*</code>-unpacking works in literals as well: <code>[*a, *b]</code>, <code>{**d1, **d2}</code>.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Binding, introspection and restraint</h4>
+          <ul>
+            <li><strong><code>functools.partial</code></strong> pre-binds arguments and returns a callable &mdash; cheaper and clearer than a lambda, and it keeps a usable repr.</li>
+            <li><strong><code>inspect.signature</code></strong> reads the real parameter list; <code>sig.bind(*a, **kw)</code> resolves a call the way the interpreter would, which is how frameworks do dependency injection.</li>
+            <li><strong>Accept <code>**kwargs</code> rarely.</strong> It defeats type checkers, autocomplete and <code>inspect</code>, turns typos into silent no-ops, and pushes errors down into whatever you forward to.</li>
+            <li><strong>Argument order is API surface</strong> and shows up in every caller&rsquo;s source. Treat a reorder like a rename: it needs a deprecation, not a patch release.</li>
+            <li><code>typing.ParamSpec</code> and <code>Concatenate</code> exist so a decorator can keep the wrapped signature visible to the checker.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="generators">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Comprehensions, generators and laziness</h3>
+        <p class="lede">A comprehension builds the whole result before anything downstream runs. A generator computes one element per request and forgets it. Same answer, same code shape, and a memory profile that differs by the size of your input.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 318" role="img" aria-label="Left panel: a list comprehension reads a million-line file and materialises a million objects before sum sees the first one. Right panel: a generator expression keeps one object in flight while sum pulls values, but can be iterated only once.">
+          <defs>
+            <marker id="pa-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A &middot; [int(l) for l in f] &mdash; MATERIALISE, THEN USE</text>
+          <g class="svg-l2">
+            <rect x="20" y="40" width="95" height="70" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="64" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">events.log</text>
+            <text x="32" y="84" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.75">1M lines</text>
+            <path d="M115 75 L156 75" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-5)"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="160" y="34" width="130" height="100" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="172" y="56" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">[ ... ]</text>
+            <text x="172" y="78" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">1M objects</text>
+            <text x="172" y="98" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">all resident</text>
+            <text x="172" y="120" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">peak ~ 40 MB</text>
+            <path d="M290 84 L326 84" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-5)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="330" y="60" width="90" height="48" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="342" y="89" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">sum(...)</text>
+          </g>
+          <text x="20" y="160" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">The list is complete before sum() sees element 0.</text>
+          <text x="20" y="182" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">In exchange it is reusable: len(), indexing, and</text>
+          <text x="20" y="198" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">as many passes as you like.</text>
+
+          <line x1="444" y1="14" x2="444" y2="210" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="460" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">B &middot; (int(l) for l in f) &mdash; ONE AT A TIME</text>
+          <g class="svg-l2">
+            <rect x="460" y="40" width="95" height="70" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="472" y="64" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">events.log</text>
+            <text x="472" y="84" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.75">1M lines</text>
+            <path d="M555 75 L596 75" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-5)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="600" y="34" width="130" height="100" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="612" y="56" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">( ... )</text>
+            <text x="612" y="78" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">1 object</text>
+            <text x="612" y="98" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">in flight</text>
+            <text x="612" y="120" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">peak ~ 200 B</text>
+            <path d="M730 84 L766 84" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-5)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="770" y="60" width="90" height="48" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="782" y="89" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">sum(...)</text>
+          </g>
+          <g class="svg-l1">
+            <path d="M815 108 L815 148 L665 148 L665 138" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-5)"/>
+          </g>
+          <text x="460" y="168" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">The consumer pulls: nothing runs until sum() asks.</text>
+          <g class="svg-l3">
+            <text x="460" y="190" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" fill="currentColor">Consumed once. A second pass yields nothing at all</text>
+            <text x="460" y="206" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" fill="currentColor">&mdash; no error, just an empty result.</text>
+          </g>
+
+          <line x1="20" y1="226" x2="880" y2="226" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="250" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Laziness moves the work; it does not remove it</text>
+          <text x="20" y="272" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">The same million calls happen either way. What changes is when they happen and how much is alive at once.</text>
+          <text x="20" y="292" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">So exceptions surface at consumption, not at construction, and a profile shows the cost inside the loop that drains it.</text>
+          <text x="20" y="312" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">If a generator is closed over a file handle, the handle must outlive the consumer &mdash; a classic &ldquo;I/O on closed file&rdquo; bug.</text>
+        </svg>
+        <figcaption><b>Choose by lifetime, not by taste.</b> Need <code>len()</code>, indexing, or two passes? Build the list. Feeding one consumer, or streaming something bigger than memory? Use a generator &mdash; and remember it is an iterator that is now spent, which is why <code>list(g)</code> twice returns data and then nothing.</figcaption>
+      </figure>
+
+      <pre class="l1"><span class="c"># Materialises every line: peak memory is the whole file.</span>
+total = sum([int(line) for line in open("events.log")])
+
+<span class="c"># Streams: one line resident at a time, same answer.</span>
+with open("events.log") as f:
+    total = sum(int(line) for line in f)
+
+<span class="c"># A pipeline of generators -- still one element in flight.</span>
+def parse(lines):
+    for line in lines:
+        if line.strip():
+            yield json.loads(line)
+
+with open("events.ndjson") as f:
+    errors = (e for e in parse(f) if e["level"] == "error")
+    first_ten = list(itertools.islice(errors, 10))   <span class="c"># stops reading after 10</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Building sequences</h4>
+          <ul>
+            <li><strong>Comprehensions</strong> come in three shapes: <code>[x for ...]</code> list, <code>{k: v for ...}</code> dict, <code>{x for ...}</code> set.</li>
+            <li>They replace the <code>result = []</code> / <code>append</code> loop and are usually faster, because the append is done in C.</li>
+            <li><strong><code>range</code> is lazy</strong> &mdash; <code>range(10**9)</code> costs nothing until you iterate it. So are <code>zip</code>, <code>map</code>, <code>filter</code> and <code>enumerate</code>.</li>
+            <li><strong><code>yield</code> makes a generator</strong>: calling the function runs no code, it hands back an object that runs on demand.</li>
+            <li>One condition and one loop is a comprehension; two of either is a <code>for</code> loop.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Picking lazy or eager</h4>
+          <ul>
+            <li><strong>Generator expression vs list comprehension</strong> &mdash; parentheses instead of brackets. Choose the generator when the result is consumed once, the list when you need <code>len</code>, indexing or a second pass.</li>
+            <li><strong>Generators are single-use.</strong> Re-iterating a spent generator silently yields nothing, which looks like missing data, not like an error.</li>
+            <li><strong><code>itertools</code></strong> is the standard toolkit: <code>islice</code> (take n), <code>chain</code> (concatenate), <code>groupby</code> (needs sorted input), <code>batched</code> (fixed-size chunks, 3.12+).</li>
+            <li><strong><code>enumerate</code> and <code>zip</code></strong> replace index arithmetic; <code>zip(strict=True)</code> catches length mismatches instead of truncating.</li>
+            <li>A generator that wraps a resource should be consumed inside the <code>with</code> block that owns it.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Pipelines and their cost</h4>
+          <ul>
+            <li><strong><code>yield from</code></strong> delegates to a sub-generator, forwarding values, <code>send</code> and exceptions &mdash; and flattens recursion without a manual loop.</li>
+            <li><strong>Generators were the original coroutines</strong>: <code>send</code>, <code>throw</code> and <code>close</code> predate <code>async</code>/<code>await</code>, which was built on exactly this machinery. Write new async code with <code>async def</code>.</li>
+            <li><strong>A pipeline of generators</strong> keeps one item per stage alive, so memory is O(stages), not O(input) &mdash; the same shape as a Go channel pipeline, minus the concurrency.</li>
+            <li><strong><code>__iter__</code> returning <code>self</code></strong> is what makes an iterator work in <code>for</code>; a re-iterable <em>iterable</em> returns a fresh iterator each time. Confusing the two is why a class works once and then stops.</li>
+            <li><strong>Laziness moves work rather than removing it</strong>: tracebacks point at the consumer, and per-element function-call overhead can make a generator slower than one bulk operation.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="closures">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Scope, closures and decorators</h3>
+        <p class="lede">A name is resolved local, enclosing, global, built-in &mdash; first match wins. A closure captures the enclosing <em>variable</em>, not its value at capture time, and a decorator is nothing more than a function that takes a function and returns one.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 366" role="img" aria-label="Three panels: the LEGB name lookup order as a downward chain, a loop closure capturing a variable by reference and its default-argument fix, and a decorator drawn as a wrapper function that contains the original.">
+          <defs>
+            <marker id="pa-6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A &middot; LEGB &mdash; LOOKUP ORDER</text>
+          <g class="svg-l1">
+            <rect x="20" y="34" width="210" height="32" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="55" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">Local &mdash; this function</text>
+            <rect x="20" y="76" width="210" height="32" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="97" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">Enclosing &mdash; outer def</text>
+            <rect x="20" y="118" width="210" height="32" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="139" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">Global &mdash; this module</text>
+            <rect x="20" y="160" width="210" height="32" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="181" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">Built-in &mdash; len, print</text>
+          </g>
+          <g class="svg-l2">
+            <path d="M248 40 L248 186" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#pa-6)"/>
+          </g>
+          <text x="20" y="214" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">First match wins, then NameError.</text>
+          <text x="20" y="234" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">There is no block scope: a name set</text>
+          <text x="20" y="250" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">inside an if or for outlives it.</text>
+          <text x="20" y="272" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">global / nonlocal to write, not read.</text>
+
+          <line x1="296" y1="14" x2="296" y2="284" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="312" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">B &middot; LATE BINDING</text>
+          <g class="svg-l3">
+            <rect x="312" y="34" width="270" height="64" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="322" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">fs = [lambda: i for i in range(3)]</text>
+            <text x="322" y="74" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">[f() for f in fs] &rarr; [2, 2, 2]</text>
+            <text x="322" y="92" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.75">not [0, 1, 2]</text>
+          </g>
+          <text x="312" y="122" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">Each lambda captured the variable i,</text>
+          <text x="312" y="138" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">not the value of i. It is read at call</text>
+          <text x="312" y="154" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">time &mdash; by then the loop left i at 2.</text>
+          <g class="svg-l1">
+            <rect x="312" y="170" width="270" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="322" y="190" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">fs = [lambda i=i: i for i in range(3)]</text>
+            <text x="322" y="208" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">default binds NOW &rarr; [0, 1, 2]</text>
+          </g>
+          <text x="312" y="238" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">The default-argument trap, used on purpose.</text>
+
+          <line x1="616" y1="14" x2="616" y2="284" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="632" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">C &middot; @d means f = d(f)</text>
+          <g class="svg-l2">
+            <rect x="632" y="36" width="100" height="32" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="644" y="57" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">def f()</text>
+            <path d="M732 52 L776 52" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-6)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="780" y="36" width="100" height="32" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="792" y="57" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">d(f)</text>
+            <path d="M830 68 L830 88" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa-6)"/>
+            <rect x="632" y="92" width="248" height="96" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="642" y="112" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">wrapper</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="700" y="124" width="110" height="40" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="712" y="148" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">original f</text>
+          </g>
+          <text x="642" y="180" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.7">before / after code lives here</text>
+          <text x="632" y="210" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">The name f now points at wrapper,</text>
+          <text x="632" y="226" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">and only the closure still holds the</text>
+          <text x="632" y="242" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">original &mdash; hence functools.wraps.</text>
+
+          <line x1="20" y1="298" x2="880" y2="298" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="322" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">A closure is a function plus the cells it reads &mdash; and it keeps them alive</text>
+          <text x="20" y="344" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Inspect them with <tspan font-family="IBM Plex Mono, monospace" font-size="11">f.__closure__</tspan>. A callback closed over a large object holds that object until the callback itself is dropped.</text>
+        </svg>
+        <figcaption><b>Late binding is not a bug, it is the definition.</b> The closure holds a cell, and the cell holds whatever the variable holds <em>now</em>. That is exactly why the <code>i=i</code> default fixes it &mdash; the default is evaluated at definition time, so the value is frozen into the signature instead of being looked up later.</figcaption>
+      </figure>
+
+      <pre class="l2">import functools, time
+
+def timed(fn):
+    @functools.wraps(fn)                 <span class="c"># keeps __name__, __doc__, __wrapped__</span>
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            ms = (time.perf_counter() - start) * 1000
+            log.info("%s took %.1f ms", fn.__name__, ms)
+    return wrapper
+
+@timed                                   <span class="c"># charge = timed(charge)</span>
+def charge(order_id):
+    ...</pre>
+
+      <pre class="l3"><span class="c"># the late-binding trap: a closure reads the variable, not a snapshot of it</span>
+handlers = []
+for route in ["orders", "users", "health"]:
+    handlers.append(lambda: log.info("handling %s", route))
+
+[h() for h in handlers]        <span class="c"># "handling health" three times -- route is one shared cell</span>
+
+<span class="c"># the fix: bind it as a default argument, evaluated once, right now</span>
+handlers = []
+for route in ["orders", "users", "health"]:
+    handlers.append(lambda route=route: log.info("handling %s", route))
+
+[h() for h in handlers]        <span class="c"># "handling orders", "handling users", "handling health"</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Where names live</h4>
+          <ul>
+            <li><strong>Local vs global</strong> &mdash; assigning to a name anywhere in a function makes it local for the whole function, even on lines above the assignment.</li>
+            <li><strong><code>global</code> and <code>nonlocal</code></strong> are needed only to <em>rebind</em> an outer name. Reading and mutating need neither.</li>
+            <li><strong>A closure keeps its enclosing variables alive</strong> after the outer function has returned &mdash; that is what makes inner functions useful.</li>
+            <li><strong><code>@decorator</code> is <code>f = decorator(f)</code></strong>, applied right after the <code>def</code>. Nothing more.</li>
+            <li>Module-level mutable state is global state; it will be shared by every import.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Writing decorators that behave</h4>
+          <ul>
+            <li><strong>Late binding in loops</strong> &mdash; closures created in a loop all see the final value. Bind with a default (<code>x=x</code>) or <code>functools.partial</code>.</li>
+            <li><strong><code>functools.wraps</code></strong> copies <code>__name__</code>, <code>__doc__</code>, <code>__module__</code>, annotations and sets <code>__wrapped__</code>. Without it, every decorated function is called &ldquo;wrapper&rdquo; in logs and docs.</li>
+            <li><strong>A decorator with arguments is three nested functions</strong>: factory takes the arguments, returns a decorator, which returns the wrapper.</li>
+            <li><strong><code>functools.lru_cache</code></strong> memoises on the arguments &mdash; which requires them to be hashable, and leaks if the key space is unbounded. <code>cache</code> is the unbounded form.</li>
+            <li>Always use <code>try/finally</code> in a timing or resource decorator, or exceptions skip your teardown.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Where decorators get expensive</h4>
+          <ul>
+            <li><strong>Class-based decorators</strong> (<code>__call__</code>) hold state cleanly, but an instance is not a descriptor &mdash; decorating a method loses the automatic <code>self</code> binding unless you implement <code>__get__</code>.</li>
+            <li><strong>Order with <code>classmethod</code>/<code>staticmethod</code> matters</strong>: those must be outermost, because what they wrap has to be a plain function.</li>
+            <li><strong>Stacking applies bottom-up</strong> &mdash; the decorator nearest the <code>def</code> wraps first and ends up innermost, which is the opposite of reading order.</li>
+            <li><strong>Decorators hide signatures</strong>: a bare <code>*args, **kwargs</code> wrapper erases the parameter list for the type checker and the IDE. <code>ParamSpec</code> restores it.</li>
+            <li>Every decorator adds a frame to the traceback and a call to the hot path. Cheap individually, visible five deep.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </div>
+</section>

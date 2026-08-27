@@ -1,0 +1,8 @@
+{
+  "name": "backend-ladder",
+  "private": true,
+  "dependencies": {
+    "@tanstack/highlight": "^0.0.10",
+    "playwright": "^1.62.1"
+  }
+}

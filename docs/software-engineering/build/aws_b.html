@@ -1,0 +1,717 @@
+<section class="part" id="relational">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part two</span>
+      <h2>Relational: RDS and Aurora</h2>
+      <p>RDS is your database with the operations attached. Aurora is a different storage engine wearing the same wire protocol. The distinction decides your failover time, your bill, and how much of your recovery plan is a button versus a weekend.</p>
+    </div>
+
+    <section class="topic" id="rds">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>RDS: every knob, and which ones cost you an outage</h3>
+        <p class="lede">An RDS instance is a normal Postgres or MySQL server plus six configuration surfaces &mdash; compute, storage, parameters, backups, availability and maintenance. Changing three of them is instant; changing the other three restarts your database.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 396" role="img" aria-label="The six configuration surfaces of one RDS instance — compute, storage, parameter group, backups, availability and maintenance — annotated with whether a change applies immediately, requires a reboot, or causes downtime; plus the storage type decision and the backup mechanism.">
+          <defs>
+            <marker id="aw-04" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE DB INSTANCE &mdash; WHAT A CHANGE COSTS YOU</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="30" width="278" height="72" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">COMPUTE &middot; db.r7g.2xlarge</text>
+            <text x="32" y="68" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Class change = reboot. Multi-AZ makes</text>
+            <text x="32" y="84" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">it a failover instead: seconds, not</text>
+            <text x="32" y="97" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">minutes. Graviton is ~20% cheaper.</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="311" y="30" width="278" height="72" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="323" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">STORAGE &middot; gp3, 500 GiB</text>
+            <text x="323" y="68" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Grow online. Never shrink &mdash; that is a</text>
+            <text x="323" y="84" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">dump and restore. IOPS and throughput</text>
+            <text x="323" y="97" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">are separate dials on gp3.</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="602" y="30" width="278" height="72" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="614" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">PARAMETER GROUP</text>
+            <text x="614" y="68" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Dynamic params apply live. Static ones</text>
+            <text x="614" y="84" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">sit in pending-reboot until you reboot</text>
+            <text x="614" y="97" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">&mdash; silently, for months.</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="20" y="116" width="278" height="72" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="136" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">BACKUP &middot; 7&ndash;35 DAYS</text>
+            <text x="32" y="154" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Daily snapshot + WAL every 5 min &rArr;</text>
+            <text x="32" y="170" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">restore to any second in the window.</text>
+            <text x="32" y="183" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Always into a NEW instance.</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="311" y="116" width="278" height="72" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="323" y="136" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">AVAILABILITY</text>
+            <text x="323" y="154" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Multi-AZ instance: 1 hidden standby,</text>
+            <text x="323" y="170" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">60&ndash;120s failover. Multi-AZ cluster: 2</text>
+            <text x="323" y="183" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">readable standbys, under 35s.</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="602" y="116" width="278" height="72" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="614" y="136" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">MAINTENANCE WINDOW</text>
+            <text x="614" y="154" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Minor versions auto-apply here. Major</text>
+            <text x="614" y="170" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">versions never do, and are one-way.</text>
+            <text x="614" y="183" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">CA rotation lands here too.</text>
+          </g>
+
+          <line x1="20" y1="210" x2="880" y2="210" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="232" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Point-in-time recovery is a restore, not a rewind</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="250" width="150" height="52" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="30" y="270" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">daily snapshot</text>
+            <text x="30" y="286" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">incremental, in S3</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="206" y="250" width="150" height="52" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="216" y="270" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">WAL, every 5 min</text>
+            <text x="216" y="286" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">the RPO you get</text>
+            <line x1="174" y1="276" x2="202" y2="276" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-04)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="392" y="250" width="176" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="402" y="270" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">new instance, new</text>
+            <text x="402" y="286" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">endpoint</text>
+            <line x1="360" y1="276" x2="388" y2="276" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-04)"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="604" y="250" width="276" height="52" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="616" y="270" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">SO YOUR RTO INCLUDES</text>
+            <text x="616" y="286" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">restore + DNS change + cache warm-up</text>
+            <line x1="572" y1="276" x2="600" y2="276" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-04)"/>
+          </g>
+
+          <text x="20" y="330" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">A restored volume loads lazily from S3, so the first pass over cold data is slow &mdash; the restore finishing is not the recovery finishing.</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="344" width="860" height="42" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="32" y="362" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">THE THREE THAT ARE NOT REVERSIBLE IN PLACE</text>
+            <text x="32" y="378" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Turning on encryption &middot; shrinking storage &middot; a major version upgrade. Each one is snapshot, restore, cut over.</text>
+          </g>
+        </svg>
+        <figcaption><b>The parameter group is the surface people misjudge.</b> Postgres <code>max_connections</code>, <code>shared_buffers</code> and <code>rds.force_ssl</code> are static: you can save the change, see it in the console, and still be running the old value until something reboots the instance &mdash; often the next failover, at the worst possible moment.</figcaption>
+      </figure>
+
+      <div class="svc">
+        <div><span class="h">Storage &middot; gp3</span><span class="b">3,000 IOPS and 125 MB/s baseline included, both independently provisionable. The default for almost everything, and it removed gp2&rsquo;s burst-credit cliff.</span></div>
+        <div><span class="h">Storage &middot; io2</span><span class="b">Up to 256,000 IOPS with a five-nines durability claim. You want it when a sustained write workload is IOPS-bound, and you will feel the price.</span></div>
+        <div><span class="h">Autoscaling</span><span class="b">Grows storage when free space drops below 10%. Set a maximum &mdash; without one a runaway write can grow you into a very large bill.</span></div>
+        <div><span class="h">T-class</span><span class="b">Burstable CPU credits. Fine for dev, dangerous in production: when credits run out the instance is throttled to baseline and everything queues at once.</span></div>
+      </div>
+
+      <h4>The parameters worth setting on day one</h4>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Parameter (Postgres)</th><th>Default</th><th>Set to</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td><code>statement_timeout</code></td><td>0 &mdash; unlimited</td><td>Slightly above your slowest legitimate query</td><td>Without it, one bad plan holds a connection until someone notices. This is the single highest-value parameter on the list.</td></tr>
+            <tr><td><code>idle_in_transaction_session_timeout</code></td><td>0</td><td>30&ndash;60s</td><td>An application that opens a transaction and then makes an HTTP call will hold locks and block <code>VACUUM</code> for as long as that call takes.</td></tr>
+            <tr><td><code>log_min_duration_statement</code></td><td>&minus;1 &mdash; off</td><td>500&ndash;1000&nbsp;ms</td><td>Turns &ldquo;the database is slow&rdquo; into a list of statements. Cheap; log volume is bounded by how bad things are.</td></tr>
+            <tr><td><code>rds.force_ssl</code></td><td>0 (1 on newer engines)</td><td>1</td><td>Otherwise a misconfigured client silently talks plaintext inside your VPC. <b>Static &mdash; needs a reboot.</b></td></tr>
+            <tr><td><code>max_connections</code></td><td><code>LEAST({DBInstanceClassMemory/9531392}, 5000)</code></td><td>Leave it; fix the pool instead</td><td>Raising it moves the failure from &ldquo;cannot connect&rdquo; to &ldquo;everything is slow&rdquo;. Connections cost memory per backend.</td></tr>
+            <tr><td><code>log_autovacuum_min_duration</code></td><td>&minus;1</td><td>0</td><td>Autovacuum problems are invisible until table bloat becomes an incident. Log every run and you will see it coming.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>A pre-deploy guard for the database</h4>
+      <p>Three RDS facts should block a release: pending maintenance that will reboot you mid-deploy, a certificate authority about to expire, and storage close to the autoscaling ceiling. All three are one API call each.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// preflight fails the pipeline if the database is about to move under us.</span>
+func preflight(ctx context.Context, c *rds.Client, id string) error {
+    d, err := c.DescribeDBInstances(ctx, &amp;rds.DescribeDBInstancesInput{
+        DBInstanceIdentifier: aws.String(id),
+    })
+    if err != nil {
+        return err
+    }
+    in := d.DBInstances[0]
+
+    <span class="c">// 1. a modification already queued for the next window (class, storage, params)</span>
+    if p := in.PendingModifiedValues; p != nil &amp;&amp; p.DBInstanceClass != nil {
+        return fmt.Errorf("pending class change to %s", aws.ToString(p.DBInstanceClass))
+    }
+
+    <span class="c">// 2. static parameters saved but not yet live — the reboot is still owed</span>
+    for _, g := range in.DBParameterGroups {
+        if aws.ToString(g.ParameterApplyStatus) == "pending-reboot" {
+            return fmt.Errorf("parameter group %s awaits a reboot",
+                aws.ToString(g.DBParameterGroupName))
+        }
+    }
+
+    <span class="c">// 3. maintenance AWS will apply for us, whether or not we are deploying</span>
+    m, err := c.DescribePendingMaintenanceActions(ctx,
+        &amp;rds.DescribePendingMaintenanceActionsInput{
+            ResourceIdentifier: in.DBInstanceArn,
+        })
+    if err != nil {
+        return err
+    }
+    for _, r := range m.PendingMaintenanceActions {
+        for _, a := range r.PendingMaintenanceActionDetails {
+            log.Warn("pending maintenance",
+                "action", aws.ToString(a.Action),                 <span class="c">// system-update, ca-certificate-rotation…</span>
+                "auto_applied_after", a.AutoAppliedAfterDate)
+        }
+    }
+    log.Info("db ok", "ca", aws.ToString(in.CACertificateIdentifier),
+        "engine", aws.ToString(in.EngineVersion),
+        "multi_az", aws.ToBool(in.MultiAZ))
+    return nil
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># preflight() fails the pipeline if the database is about to move under us.</span>
+RDS = boto3.client("rds", config=CFG)
+
+
+def preflight(db_id: str) -&gt; None:
+    inst = RDS.describe_db_instances(DBInstanceIdentifier=db_id)["DBInstances"][0]
+
+    <span class="c"># 1. a modification already queued for the next window (class, storage, params)</span>
+    pending = inst.get("PendingModifiedValues") or {}
+    if "DBInstanceClass" in pending:
+        raise Blocked(f"pending class change to {pending['DBInstanceClass']}")
+
+    <span class="c"># 2. static parameters saved but not yet live — the reboot is still owed</span>
+    for group in inst["DBParameterGroups"]:
+        if group["ParameterApplyStatus"] == "pending-reboot":
+            raise Blocked(f"{group['DBParameterGroupName']} awaits a reboot")
+
+    <span class="c"># 3. maintenance AWS will apply for us, whether or not we are deploying</span>
+    actions = RDS.describe_pending_maintenance_actions(
+        ResourceIdentifier=inst["DBInstanceArn"]
+    )["PendingMaintenanceActions"]
+    for res in actions:
+        for a in res["PendingMaintenanceActionDetails"]:
+            log.warning(
+                "pending maintenance",
+                extra={"action": a["Action"],            <span class="c"># ca-certificate-rotation…</span>
+                       "after": a.get("AutoAppliedAfterDate")},
+            )
+
+    log.info("db ok", extra={"ca": inst["CACertificateIdentifier"],
+                             "engine": inst["EngineVersion"],
+                             "multi_az": inst["MultiAZ"]})</pre>
+
+      <h4>The recovery you should have rehearsed</h4>
+      <p>&ldquo;Someone dropped a table at 14:07&rdquo; is not a backup restore &mdash; it is a point-in-time restore into a <i>new</i> instance, from which you copy the one table back. Practise it once and the real thing is forty minutes instead of a day.</p>
+
+<pre class="l1" data-lang="go"><span class="c">// Restore to one second before the mistake. This never touches production:</span>
+<span class="c">// it creates a second instance you then read from.</span>
+target := "orders-prod-recovery-1407"
+_, err := c.RestoreDBInstanceToPointInTime(ctx, &amp;rds.RestoreDBInstanceToPointInTimeInput{
+    SourceDBInstanceIdentifier: aws.String("orders-prod"),
+    TargetDBInstanceIdentifier: aws.String(target),
+    RestoreTime:                aws.Time(dropTime.Add(-1 * time.Second)),
+    DBSubnetGroupName:          aws.String("private"),        <span class="c">// same VPC, no public IP</span>
+    VpcSecurityGroupIds:        []string{"sg-db"},
+    DBInstanceClass:            aws.String("db.r7g.xlarge"),  <span class="c">// size for the copy job</span>
+    MultiAZ:                    aws.Bool(false),              <span class="c">// it is temporary</span>
+    DeletionProtection:         aws.Bool(false),
+})
+if err != nil {
+    return err
+}
+
+<span class="c">// Restores take tens of minutes on a large volume; the waiter has a cap so a</span>
+<span class="c">// stuck restore fails the runbook instead of hanging it.</span>
+err = rds.NewDBInstanceAvailableWaiter(c).Wait(ctx,
+    &amp;rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(target)},
+    45*time.Minute)</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># Restore to one second before the mistake. This never touches production:</span>
+<span class="c"># it creates a second instance you then read from.</span>
+target = "orders-prod-recovery-1407"
+RDS.restore_db_instance_to_point_in_time(
+    SourceDBInstanceIdentifier="orders-prod",
+    TargetDBInstanceIdentifier=target,
+    RestoreTime=drop_time - timedelta(seconds=1),
+    DBSubnetGroupName="private",          <span class="c"># same VPC, no public IP</span>
+    VpcSecurityGroupIds=["sg-db"],
+    DBInstanceClass="db.r7g.xlarge",      <span class="c"># size for the copy job, not for prod</span>
+    MultiAZ=False,                        <span class="c"># it is temporary</span>
+    DeletionProtection=False,
+)
+
+<span class="c"># Restores take tens of minutes on a large volume; the waiter has a cap so a</span>
+<span class="c"># stuck restore fails the runbook instead of hanging it.</span>
+RDS.get_waiter("db_instance_available").wait(
+    DBInstanceIdentifier=target,
+    WaiterConfig={"Delay": 30, "MaxAttempts": 90},    <span class="c"># 45 minutes</span>
+)</pre>
+
+      <div class="pair">
+        <div class="note">
+          <h4>Blue/Green is the upgrade path</h4>
+          <p>RDS Blue/Green clones the instance, keeps it in sync by logical replication, lets you upgrade and test the green copy, then switches over in about a minute with the endpoint names swapped. It is the only sane way to do a major version upgrade on a database you care about.</p>
+        </div>
+        <div class="note warn">
+          <h4>Performance Insights or nothing</h4>
+          <p>CloudWatch tells you CPU is 90%. Performance Insights tells you <i>which SQL</i>, waiting on <i>what</i>, measured as average active sessions against your vCPU count. Seven days of retention is free. Turn it on before you need it &mdash; it cannot show you yesterday.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="topic" id="aurora">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>Aurora: the log is the database</h3>
+        <p class="lede">Aurora keeps the Postgres or MySQL front end and replaces everything below the buffer pool. Instances ship redo log records to a distributed storage fleet; storage materialises pages. Every property people like about Aurora falls out of that one decision.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 400" role="img" aria-label="Aurora architecture: a writer instance sending only redo log records to a storage fleet of six segment copies across three availability zones with a four-of-six write quorum, readers attached to the same shared volume, and the endpoints — cluster, reader and custom — that route traffic; below, a failover timeline.">
+          <defs>
+            <marker id="aw-05" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WRITES GO DOWN AS LOG RECORDS &mdash; NOT PAGES</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="34" width="150" height="56" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="30" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">WRITER</text>
+            <text x="30" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">one, always</text>
+            <text x="30" y="84" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">no checkpointing</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="20" y="106" width="150" height="52" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="30" y="126" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">reader &times; up to 15</text>
+            <text x="30" y="142" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">lag: 10&ndash;20 ms typical</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="238" y="34" width="330" height="124" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="250" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">SHARED STORAGE VOLUME &middot; 10 GiB SEGMENTS</text>
+            <rect x="250" y="66" width="94" height="34" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="260" y="80" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">AZ-a</text>
+            <text x="260" y="93" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">copy 1, 2</text>
+            <rect x="356" y="66" width="94" height="34" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="366" y="80" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">AZ-b</text>
+            <text x="366" y="93" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">copy 3, 4</text>
+            <rect x="462" y="66" width="94" height="34" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="472" y="80" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">AZ-c</text>
+            <text x="472" y="93" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">copy 5, 6</text>
+            <text x="250" y="120" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Commit needs 4 of 6. Reads need 3 of 6.</text>
+            <text x="250" y="136" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Lose a whole AZ plus one more copy and</text>
+            <text x="250" y="150" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the volume still takes writes.</text>
+            <line x1="174" y1="62" x2="234" y2="62" stroke="currentColor" stroke-width="1.4" marker-end="url(#aw-05)"/>
+            <text x="176" y="56" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">redo</text>
+          </g>
+          <g class="svg-l2">
+            <line x1="174" y1="130" x2="234" y2="130" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#aw-05)"/>
+            <text x="176" y="124" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">page reads</text>
+          </g>
+
+          <rect x="606" y="34" width="274" height="124" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4"/>
+          <text x="618" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">THE ENDPOINTS</text>
+          <text x="618" y="74" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor"><tspan font-weight="600">cluster</tspan> &mdash; always the writer</text>
+          <text x="618" y="92" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor"><tspan font-weight="600">reader</tspan> &mdash; DNS round-robin, readers only</text>
+          <text x="618" y="110" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor"><tspan font-weight="600">custom</tspan> &mdash; your own subset, e.g. analytics</text>
+          <text x="618" y="132" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">DNS TTL is 5 seconds. A driver that</text>
+          <text x="618" y="148" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">caches DNS forever will not fail over.</text>
+
+          <line x1="20" y1="182" x2="880" y2="182" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="204" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Failover: nothing is copied, so it is fast</text>
+
+          <line x1="30" y1="252" x2="870" y2="252" stroke="currentColor" stroke-width="1.4"/>
+          <g class="svg-l3">
+            <line x1="80" y1="240" x2="80" y2="264" stroke="currentColor" stroke-width="1.6"/>
+            <text x="60" y="234" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">t = 0s</text>
+            <text x="60" y="282" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">writer dies</text>
+          </g>
+          <g class="svg-l2">
+            <line x1="300" y1="240" x2="300" y2="264" stroke="currentColor" stroke-width="1.6"/>
+            <text x="270" y="234" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">~5&ndash;10s</text>
+            <text x="248" y="282" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">reader promoted, tier 0 first</text>
+          </g>
+          <g class="svg-l2">
+            <line x1="560" y1="240" x2="560" y2="264" stroke="currentColor" stroke-width="1.6"/>
+            <text x="534" y="234" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">~15s</text>
+            <text x="500" y="282" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">cluster DNS now points at it</text>
+          </g>
+          <g class="svg-l1">
+            <line x1="820" y1="240" x2="820" y2="264" stroke="currentColor" stroke-width="1.6"/>
+            <text x="790" y="234" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">~30s</text>
+            <text x="742" y="282" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">your pool has reconnected</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="20" y="306" width="860" height="80" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="32" y="326" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">WHAT YOUR APPLICATION SEES IN THAT WINDOW</text>
+            <text x="32" y="346" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">In-flight transactions are lost &mdash; the writer is gone, so they were never committed. Existing pooled</text>
+            <text x="32" y="362" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">connections do not heal: they are TCP sessions to a machine that is now a reader, and writes through</text>
+            <text x="32" y="378" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">them fail with &ldquo;cannot execute in a read-only transaction&rdquo;. The pool has to be told to discard them.</text>
+          </g>
+        </svg>
+        <figcaption><b>The last line is the one that turns a 30-second blip into a 30-minute outage.</b> Aurora finishes failing over in well under a minute; applications routinely take far longer because their connection pool holds sockets to the demoted instance and nothing invalidates them. The fix is in the next topic, and it is four lines long.</figcaption>
+      </figure>
+
+      <div class="svc">
+        <div><span class="h">Serverless v2</span><span class="b">Capacity in ACUs, roughly 2&nbsp;GiB of memory each, scaling in place without dropping connections. It can scale to zero, at the price of a resume delay on the next connection.</span></div>
+        <div><span class="h">Cloning</span><span class="b">Copy-on-write on the storage volume: a full-size test cluster in minutes, paying only for pages that then diverge. The best staging trick AWS sells.</span></div>
+        <div><span class="h">Global Database</span><span class="b">Storage-level replication to another region, typically under a second behind, with managed planned switchover and unplanned promotion in minutes.</span></div>
+        <div><span class="h">I/O-Optimized</span><span class="b">A flat compute-and-storage price with no per-request I/O charge. Worth switching to once I/O passes roughly a quarter of the cluster bill.</span></div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Behaviour</th><th>RDS Postgres</th><th>Aurora Postgres</th></tr></thead>
+          <tbody>
+            <tr><td>Write path</td><td>Pages + WAL to an EBS volume, checkpoints, full-page writes</td><td>Redo records only, to six storage nodes. No checkpoint, no full-page writes.</td></tr>
+            <tr><td>Failover</td><td>60&ndash;120s instance, under 35s for a Multi-AZ cluster</td><td>Typically 10&ndash;30s &mdash; nothing is copied, only promoted</td></tr>
+            <tr><td>Replicas</td><td>Up to 15, asynchronous, each with its own storage copy</td><td>15, reading the <b>same</b> volume, lag in milliseconds</td></tr>
+            <tr><td>Storage growth</td><td>Provisioned; you pay for allocated space</td><td>Automatic in 10&nbsp;GiB steps to 128&nbsp;TiB; you pay for used</td></tr>
+            <tr><td>Restore a copy</td><td>Full restore from snapshot, minutes to hours</td><td>Clone in minutes, copy-on-write</td></tr>
+            <tr><td>Cost shape</td><td>Instance + provisioned storage + provisioned IOPS</td><td>Instance + used storage + <b>per million I/Os</b>, unless I/O-Optimized</td></tr>
+            <tr><td>Extensions</td><td>Wide support, close to community Postgres</td><td>Slightly behind, and some extensions never arrive</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>The Data API: SQL over HTTPS, no pool at all</h4>
+      <p>Aurora &mdash; provisioned and Serverless&nbsp;v2 alike &mdash; exposes an HTTP endpoint that runs statements with IAM auth and credentials from Secrets Manager. There is no connection to manage, which makes it the right answer for Lambda &mdash; and the wrong answer for a chatty request path, because every statement is a signed HTTPS round trip.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// Data API: no driver, no pool, no VPC attachment. Each call is signed HTTPS.</span>
+rd := rdsdata.NewFromConfig(cfg)
+
+const clusterARN = "arn:aws:rds:eu-west-1:1234:cluster:orders"
+const secretARN = "arn:aws:secretsmanager:eu-west-1:1234:secret:orders-db"
+
+out, err := rd.ExecuteStatement(ctx, &amp;rdsdata.ExecuteStatementInput{
+    ResourceArn: aws.String(clusterARN),
+    SecretArn:   aws.String(secretARN),
+    Database:    aws.String("orders"),
+    Sql:         aws.String(`INSERT INTO orders (id, email, total_cents)
+                             VALUES (:id, :email, :total)
+                             ON CONFLICT (id) DO NOTHING
+                             RETURNING created_at`),
+    Parameters: []types.SqlParameter{                     <span class="c">// never string-concatenate SQL</span>
+        {Name: aws.String("id"), Value: &amp;types.FieldMemberStringValue{Value: id}},
+        {Name: aws.String("email"), Value: &amp;types.FieldMemberStringValue{Value: email}},
+        {Name: aws.String("total"), Value: &amp;types.FieldMemberLongValue{Value: cents}},
+    },
+    FormatRecordsAs: types.RecordsFormatTypeJson,          <span class="c">// JSON rows, not column soup</span>
+})
+if err != nil {
+    return err
+}
+if out.NumberOfRecordsUpdated == 0 {
+    return ErrAlreadyExists                                <span class="c">// the ON CONFLICT branch</span>
+}
+
+<span class="c">// Multi-statement work needs an explicit transaction: BeginTransaction returns</span>
+<span class="c">// an id you pass to each call, then Commit or Rollback. An abandoned</span>
+<span class="c">// transaction is rolled back after about three minutes idle — do not rely on it.</span>
+tx, err := rd.BeginTransaction(ctx, &amp;rdsdata.BeginTransactionInput{
+    ResourceArn: aws.String(clusterARN), SecretArn: aws.String(secretARN),
+    Database: aws.String("orders"),
+})</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># Data API: no driver, no pool, no VPC attachment. Each call is signed HTTPS.</span>
+DATA = boto3.client("rds-data", config=CFG)
+
+CLUSTER = "arn:aws:rds:eu-west-1:1234:cluster:orders"
+SECRET = "arn:aws:secretsmanager:eu-west-1:1234:secret:orders-db"
+
+res = DATA.execute_statement(
+    resourceArn=CLUSTER,
+    secretArn=SECRET,
+    database="orders",
+    sql="""INSERT INTO orders (id, email, total_cents)
+           VALUES (:id, :email, :total)
+           ON CONFLICT (id) DO NOTHING
+           RETURNING created_at""",
+    parameters=[                                   <span class="c"># never string-format SQL</span>
+        {"name": "id", "value": {"stringValue": order_id}},
+        {"name": "email", "value": {"stringValue": email}},
+        {"name": "total", "value": {"longValue": cents}},
+    ],
+    formatRecordsAs="JSON",                        <span class="c"># rows as JSON, not column soup</span>
+)
+if res["numberOfRecordsUpdated"] == 0:
+    raise AlreadyExists                            <span class="c"># the ON CONFLICT branch</span>
+
+<span class="c"># Multi-statement work needs an explicit transaction: begin_transaction returns</span>
+<span class="c"># an id you pass to each call, then commit or rollback. An abandoned</span>
+<span class="c"># transaction is rolled back after about three minutes idle — do not rely on it.</span>
+tx = DATA.begin_transaction(resourceArn=CLUSTER, secretArn=SECRET, database="orders")
+try:
+    DATA.execute_statement(resourceArn=CLUSTER, secretArn=SECRET,
+                           transactionId=tx["transactionId"], sql="…")
+    DATA.commit_transaction(resourceArn=CLUSTER, secretArn=SECRET,
+                            transactionId=tx["transactionId"])
+except Exception:
+    DATA.rollback_transaction(resourceArn=CLUSTER, secretArn=SECRET,
+                              transactionId=tx["transactionId"])
+    raise</pre>
+
+      <h4>Rehearse the failover, in a script</h4>
+      <p>A failover you have never triggered deliberately is a failover you do not know the cost of. Run this against staging monthly with traffic flowing, and watch your own error rate rather than the console.</p>
+
+<pre class="l1" data-lang="go"><span class="c">// Game day: promote a specific reader and time what the application sees.</span>
+start := time.Now()
+_, err := c.FailoverDBCluster(ctx, &amp;rds.FailoverDBClusterInput{
+    DBClusterIdentifier:        aws.String("orders"),
+    TargetDBInstanceIdentifier: aws.String("orders-reader-1"),   <span class="c">// pick, do not guess</span>
+})
+if err != nil {
+    return err
+}
+
+<span class="c">// The cluster reports "available" almost at once; what matters is when a</span>
+<span class="c">// write through the cluster endpoint succeeds again. Measure THAT.</span>
+for {
+    if _, err := pool.Exec(ctx, "SELECT pg_is_in_recovery()"); err == nil {
+        var readOnly bool
+        _ = pool.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&amp;readOnly)
+        if !readOnly {
+            log.Info("writable again", "after", time.Since(start))
+            break
+        }
+    }
+    select {
+    case &lt;-ctx.Done():
+        return ctx.Err()
+    case &lt;-time.After(500 * time.Millisecond):
+    }
+}</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># Game day: promote a specific reader and time what the application sees.</span>
+start = time.monotonic()
+RDS.failover_db_cluster(
+    DBClusterIdentifier="orders",
+    TargetDBInstanceIdentifier="orders-reader-1",     <span class="c"># pick, do not guess</span>
+)
+
+<span class="c"># The cluster reports "available" almost at once; what matters is when a</span>
+<span class="c"># write through the cluster endpoint succeeds again. Measure THAT.</span>
+while True:
+    try:
+        with engine.connect() as conn:
+            read_only = conn.exec_driver_sql("SELECT pg_is_in_recovery()").scalar()
+        if not read_only:
+            log.info("writable again", extra={"after_s": time.monotonic() - start})
+            break
+    except OperationalError:
+        pass                       <span class="c"># expected: the old writer is gone</span>
+    time.sleep(0.5)</pre>
+
+      <div class="note warn">
+        <h4>Aurora DSQL is a different product with a familiar name</h4>
+        <p>Aurora DSQL is a serverless, distributed, active-active SQL database with a Postgres-compatible wire protocol and optimistic concurrency control. It is not &ldquo;Aurora, but more so&rdquo;: there are no instances to size, no failover, and no long-lived transactions holding locks &mdash; conflicting writes are rejected at commit and your code must retry them. Reach for it for multi-region write workloads, not as a drop-in for an existing Aurora cluster.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="db-connect">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>Connecting to it without falling over</h3>
+        <p class="lede">Three application-side decisions determine whether a database incident is thirty seconds or thirty minutes: how many connections you open, how you authenticate, and what your pool does when the server on the other end changes identity.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 372" role="img" aria-label="Connection arithmetic showing tasks multiplied by pool size against the instance connection limit, the role of RDS Proxy in multiplexing, and a timeline of what a connection pool must do during a failover.">
+          <defs>
+            <marker id="aw-06" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE ARITHMETIC NOBODY DOES UNTIL IT BREAKS</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="32" width="196" height="70" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">40 TASKS</text>
+            <text x="32" y="70" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">each with its own process</text>
+            <text x="32" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">and its own pool</text>
+          </g>
+          <text x="228" y="72" font-family="Bricolage Grotesque, sans-serif" font-size="16" font-weight="700" fill="currentColor">&times;</text>
+          <g class="svg-l2">
+            <rect x="252" y="32" width="196" height="70" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="264" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">POOL MAX 25</text>
+            <text x="264" y="70" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">a number somebody</text>
+            <text x="264" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">copied from a blog post</text>
+          </g>
+          <text x="460" y="72" font-family="Bricolage Grotesque, sans-serif" font-size="16" font-weight="700" fill="currentColor">=</text>
+          <g class="svg-l3">
+            <rect x="486" y="32" width="196" height="70" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="498" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">1,000 CONNECTIONS</text>
+            <text x="498" y="70" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">against a db.r7g.large</text>
+            <text x="498" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">that allows about 1,700</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="700" y="32" width="180" height="70" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="712" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">AND THEN</text>
+            <text x="712" y="70" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">a deploy doubles it</text>
+            <text x="712" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">for ninety seconds</text>
+            <line x1="686" y1="67" x2="696" y2="67" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-06)"/>
+          </g>
+
+          <text x="20" y="128" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">Each Postgres connection is a process with its own memory. The limit is not a quota you can raise your way out of &mdash; it is RAM.</text>
+
+          <line x1="20" y1="148" x2="880" y2="148" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="170" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">What the pool must do during a failover</text>
+
+          <line x1="30" y1="216" x2="870" y2="216" stroke="currentColor" stroke-width="1.4"/>
+          <g class="svg-l3">
+            <line x1="90" y1="204" x2="90" y2="228" stroke="currentColor" stroke-width="1.6"/>
+            <text x="66" y="198" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">t = 0s</text>
+            <text x="40" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">writer demoted</text>
+            <text x="40" y="260" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">sockets stay open</text>
+          </g>
+          <g class="svg-l3">
+            <line x1="330" y1="204" x2="330" y2="228" stroke="currentColor" stroke-width="1.6"/>
+            <text x="306" y="198" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">t + 1s</text>
+            <text x="272" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">writes fail: read-only</text>
+            <text x="272" y="260" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">transaction, SQLSTATE 25006</text>
+          </g>
+          <g class="svg-l2">
+            <line x1="580" y1="204" x2="580" y2="228" stroke="currentColor" stroke-width="1.6"/>
+            <text x="556" y="198" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">t + 15s</text>
+            <text x="520" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">DNS now resolves to the</text>
+            <text x="520" y="260" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">new writer &mdash; for NEW sockets</text>
+          </g>
+          <g class="svg-l1">
+            <line x1="820" y1="204" x2="820" y2="228" stroke="currentColor" stroke-width="1.6"/>
+            <text x="796" y="198" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">t + 16s</text>
+            <text x="716" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">you discard the pool and</text>
+            <text x="716" y="260" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">reconnect &mdash; or you do not</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="20" y="286" width="424" height="76" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="306" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">RDS PROXY EARNS ITS FEE HERE</text>
+            <text x="32" y="324" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">It holds the database connections, multiplexes</text>
+            <text x="32" y="340" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">many clients onto few, follows the failover for</text>
+            <text x="32" y="356" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">you, and speaks IAM auth natively.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="460" y="286" width="420" height="76" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="472" y="306" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">&hellip;UNTIL YOU PIN IT</text>
+            <text x="472" y="324" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Session state &mdash; SET, temp tables, advisory locks,</text>
+            <text x="472" y="340" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">server-side prepared statements &mdash; pins a client to</text>
+            <text x="472" y="356" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">one backend, and the multiplexing stops.</text>
+          </g>
+        </svg>
+        <figcaption><b>Pinning is why teams conclude &ldquo;RDS Proxy did nothing&rdquo;.</b> The <code>DatabaseConnectionsCurrentlySessionPinned</code> metric tells you the truth in one number. In Go with pgx, the usual culprit is the extended query protocol: set <code>default_query_exec_mode=exec</code> behind a transaction-mode proxy. In Python with SQLAlchemy it is usually a <code>SET</code> in a connect event.</figcaption>
+      </figure>
+
+<pre class="l2" data-lang="go"><span class="c">// pgxpool, sized deliberately, with IAM auth and a failover-aware health check.</span>
+cfgp, err := pgxpool.ParseConfig(
+    "host=orders.cluster-abc.eu-west-1.rds.amazonaws.com port=5432 " +
+        "user=orders_app dbname=orders sslmode=verify-full " +
+        "sslrootcert=/etc/ssl/certs/rds-global-bundle.pem")
+if err != nil {
+    return err
+}
+
+<span class="c">// Sizing: (max_connections * 0.8) / number of tasks, then leave headroom for a</span>
+<span class="c">// deploy running twice the tasks. Bigger is not better — it just queues later.</span>
+cfgp.MaxConns = 10
+cfgp.MinConns = 2
+cfgp.MaxConnLifetime = 30 * time.Minute      <span class="c">// forces rebalancing after a failover</span>
+cfgp.MaxConnIdleTime = 5 * time.Minute
+cfgp.HealthCheckPeriod = 30 * time.Second
+
+<span class="c">// IAM auth: the password is a signed, 15-minute token, generated per connection.</span>
+<span class="c">// No secret to rotate, and every connection is attributable in CloudTrail.</span>
+cfgp.BeforeConnect = func(ctx context.Context, c *pgx.ConnConfig) error {
+    tok, err := auth.BuildAuthToken(ctx, c.Host+":5432", "eu-west-1",
+        c.User, cfg.Credentials)
+    if err != nil {
+        return err
+    }
+    c.Password = tok
+    return nil
+}
+
+<span class="c">// The four lines that turn a 30-minute outage into a 30-second one: refuse to</span>
+<span class="c">// hand out a connection to an instance that is no longer the writer.</span>
+cfgp.BeforeAcquire = func(ctx context.Context, c *pgx.Conn) bool {
+    var inRecovery bool
+    if err := c.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&amp;inRecovery); err != nil {
+        return false                          <span class="c">// broken: destroy it</span>
+    }
+    return !inRecovery                        <span class="c">// demoted: destroy it, reconnect via DNS</span>
+}
+
+pool, err := pgxpool.NewWithConfig(ctx, cfgp)</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># SQLAlchemy, sized deliberately, with IAM auth and a failover-aware check.</span>
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.exc import DisconnectionError
+
+HOST = "orders.cluster-abc.eu-west-1.rds.amazonaws.com"
+
+engine = create_engine(
+    f"postgresql+psycopg://orders_app@{HOST}:5432/orders",
+    <span class="c"># Sizing: (max_connections * 0.8) / workers, with headroom for a deploy</span>
+    <span class="c"># running twice the tasks. pool_size + max_overflow is the real ceiling.</span>
+    pool_size=8,
+    max_overflow=2,
+    pool_timeout=3,            <span class="c"># fail fast; do not queue behind a saturated pool</span>
+    pool_recycle=1800,         <span class="c"># forces rebalancing after a failover</span>
+    pool_pre_ping=True,        <span class="c"># cheap SELECT 1 before handing a connection out</span>
+    connect_args={"sslmode": "verify-full",
+                  "sslrootcert": "/etc/ssl/certs/rds-global-bundle.pem"},
+)
+
+
+@event.listens_for(engine, "do_connect")
+def _iam_token(dialect, conn_rec, cargs, cparams):
+    <span class="c"># IAM auth: the password is a signed, 15-minute token, per connection.</span>
+    <span class="c"># No secret to rotate, and every connection is attributable in CloudTrail.</span>
+    cparams["password"] = RDS.generate_db_auth_token(
+        DBHostname=HOST, Port=5432, DBUsername="orders_app", Region="eu-west-1"
+    )
+
+
+@event.listens_for(engine, "checkout")
+def _reject_demoted(dbapi_conn, conn_rec, conn_proxy):
+    <span class="c"># The check that turns a 30-minute outage into a 30-second one: never hand</span>
+    <span class="c"># out a connection to an instance that is no longer the writer.</span>
+    with dbapi_conn.cursor() as cur:
+        cur.execute("SELECT pg_is_in_recovery()")
+        if cur.fetchone()[0]:
+            raise DisconnectionError("demoted to reader")   <span class="c"># pool discards + retries</span></pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Decision</th><th>Choose</th><th>Reasoning</th></tr></thead>
+          <tbody>
+            <tr><td>Where the pool lives</td><td>In the process, small &mdash; plus RDS Proxy if you have Lambda or many tasks</td><td>Lambda cannot pool across invocations; hundreds of short-lived environments each opening one connection is exactly what Proxy exists for.</td></tr>
+            <tr><td>Password or IAM</td><td>IAM for services, Secrets Manager for anything that cannot use it</td><td>IAM tokens last 15 minutes and leave a CloudTrail entry per connection. There is nothing to leak and nothing to rotate.</td></tr>
+            <tr><td>Reads on the reader endpoint</td><td>A second, explicitly-named pool &mdash; never automatic routing</td><td>Replica lag is real. &ldquo;Read your own writes&rdquo; breaks silently and only under load, which is the worst way to find out.</td></tr>
+            <tr><td>Retry on failover</td><td>Retry the transaction, not the statement, and only if it is idempotent</td><td>A retried <code>INSERT</code> after a lost commit is a duplicate order. Use a unique key or a conditional write to make it safe.</td></tr>
+            <tr><td>TLS</td><td><code>verify-full</code> with the regional CA bundle, pinned in the image</td><td><code>require</code> encrypts but does not authenticate the server. The bundle expires &mdash; RDS certificate rotation is an announced, dated event.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <h4>The rule that survives every architecture</h4>
+        <p>Connections are the scarcest resource in the system and the least elastic. Everything else in this part &mdash; Proxy, IAM auth, pool sizing, reader endpoints, Serverless&nbsp;v2 &mdash; is a way of spending fewer of them or recovering faster when they all break at once. If you only take one number away: work out <b>tasks &times; pool_max</b> at peak <i>during a deploy</i>, and compare it with your instance&rsquo;s real limit before you ship.</p>
+      </div>
+    </section>
+  </div>
+</section>

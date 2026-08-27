@@ -1,0 +1,625 @@
+<section class="part" id="compute">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part four</span>
+      <h2>Compute: Lambda and ECS</h2>
+      <p>Two ways to run your code, with different units of scaling: Lambda scales the number of concurrent <i>invocations</i>, ECS scales the number of long-lived <i>processes</i>. Almost every difference in cost, latency and operational feel follows from that.</p>
+    </div>
+
+    <section class="topic" id="lambda">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>Lambda: the execution environment is the whole model</h3>
+        <p class="lede">A Lambda function is not invoked &mdash; an execution environment is created, initialised, then used for many invocations, frozen between them, and eventually destroyed. Cold starts, connection reuse, background threads and half the surprises all live in that lifecycle.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 396" role="img" aria-label="The Lambda execution environment lifecycle: an init phase running module-level code once with full CPU, then repeated invoke phases with freezes in between, then shutdown; alongside the three invocation models — synchronous, asynchronous with retries and a dead letter queue, and poll-based event source mappings.">
+          <defs>
+            <marker id="aw-10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE EXECUTION ENVIRONMENT, START TO FINISH</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="34" width="196" height="66" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">INIT &mdash; ONCE</text>
+            <text x="32" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Download, start runtime,</text>
+            <text x="32" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">run module-level code.</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="256" y="34" width="146" height="66" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="266" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">INVOKE 1</text>
+            <text x="266" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">handler runs</text>
+            <text x="266" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">billed per ms</text>
+            <line x1="220" y1="66" x2="252" y2="66" stroke="currentColor" stroke-width="1.3" marker-end="url(#aw-10)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="442" y="34" width="146" height="66" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4"/>
+            <text x="452" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">FROZEN</text>
+            <text x="452" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">no CPU, memory</text>
+            <text x="452" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">kept, not billed</text>
+            <line x1="406" y1="66" x2="438" y2="66" stroke="currentColor" stroke-width="1.3" marker-end="url(#aw-10)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="628" y="34" width="146" height="66" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="638" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">INVOKE 2&hellip;n</text>
+            <text x="638" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">same process,</text>
+            <text x="638" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">same globals</text>
+            <line x1="592" y1="66" x2="624" y2="66" stroke="currentColor" stroke-width="1.3" marker-end="url(#aw-10)"/>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="800" y="34" width="80" height="66" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="810" y="54" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">SHUTDOWN</text>
+            <text x="810" y="72" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">no warning</text>
+            <text x="810" y="88" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">for your code</text>
+            <line x1="778" y1="66" x2="796" y2="66" stroke="currentColor" stroke-width="1.3" marker-end="url(#aw-10)"/>
+          </g>
+
+          <text x="20" y="124" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">Anything built during INIT is reused for free by every later invocation &mdash; and anything you start in the handler is suspended the moment you return.</text>
+
+          <line x1="20" y1="146" x2="880" y2="146" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="168" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Three invocation models, three retry stories</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="184" width="278" height="120" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="204" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">SYNCHRONOUS</text>
+            <text x="32" y="222" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">API Gateway, ALB, direct Invoke</text>
+            <text x="32" y="244" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">No Lambda-side retry at all. The</text>
+            <text x="32" y="260" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">caller sees the error, and the</text>
+            <text x="32" y="276" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">caller&rsquo;s SDK may retry it.</text>
+            <text x="32" y="296" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">payload limit 6 MB</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="311" y="184" width="278" height="120" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="323" y="204" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">ASYNCHRONOUS</text>
+            <text x="323" y="222" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">S3, SNS, EventBridge</text>
+            <text x="323" y="244" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Lambda queues it, then retries</text>
+            <text x="323" y="260" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">twice with backoff. After that:</text>
+            <text x="323" y="276" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">on-failure destination, or gone.</text>
+            <text x="323" y="296" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">payload limit 256 KB</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="602" y="184" width="278" height="120" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="614" y="204" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">EVENT SOURCE MAPPING</text>
+            <text x="614" y="222" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">SQS, Kinesis, DynamoDB, Kafka</text>
+            <text x="614" y="244" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Lambda polls for you. A failure</text>
+            <text x="614" y="260" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">redelivers the whole batch unless</text>
+            <text x="614" y="276" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">you report partial failures.</text>
+            <text x="614" y="296" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">batching is the throughput dial</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="20" y="326" width="860" height="60" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="32" y="346" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">MEMORY IS THE CPU DIAL</text>
+            <text x="32" y="366" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">vCPU is allocated in proportion to memory; 1,769 MB buys one full vCPU, a second near 3,538. Doubling memory on a CPU-bound</text>
+            <text x="32" y="380" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">function often halves the duration, which means the same bill and half the latency. Measure, do not assume.</text>
+          </g>
+        </svg>
+        <figcaption><b>&ldquo;Frozen&rdquo; is the detail that catches people.</b> A goroutine, thread or <code>asyncio</code> task still running when the handler returns is suspended mid-instruction &mdash; possibly for hours, possibly for ever. Fire-and-forget logging, metric flushes and span exports must complete before you return, which is exactly what the Lambda extensions and Powertools flush hooks are for.</figcaption>
+      </figure>
+
+      <div class="svc">
+        <div><span class="h">Reserved concurrency</span><span class="b">Both a floor and a ceiling for one function: it is guaranteed that much, and can never exceed it. The blast-radius control &mdash; set it on anything that talks to a database.</span></div>
+        <div><span class="h">Provisioned concurrency</span><span class="b">Environments kept initialised and warm, billed by the hour. The only real fix for cold-start-sensitive user-facing paths, and it can be scheduled or autoscaled.</span></div>
+        <div><span class="h">SnapStart</span><span class="b">Snapshots the environment after init and restores from it &mdash; large cold-start wins for Java, Python and .NET. Your init must not bake in anything unique, such as a random seed or an open socket.</span></div>
+        <div><span class="h">Scaling rate</span><span class="b">A function can add on the order of 1,000 concurrent executions every 10 seconds, up to the account limit. A genuine spike is throttled at the edge of that ramp, not at the account cap.</span></div>
+      </div>
+
+      <h4>The handler shape that gets everything right</h4>
+      <p>Clients built at module scope, per-invocation deadlines derived from the remaining time, and partial batch failure reporting so one poison message does not replay the other nine.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// main.go — Go runs on provided.al2023 as a custom runtime; the binary is the</span>
+<span class="c">// runtime. Everything above main() happens once, during INIT, with full CPU.</span>
+var (
+    cfg = mustConfig()                          <span class="c">// credential chain resolved once</span>
+    ddb = dynamodb.NewFromConfig(cfg)           <span class="c">// pool survives across invocations</span>
+    log = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+)
+
+func handle(ctx context.Context, ev events.SQSEvent) (events.SQSEventResponse, error) {
+    <span class="c">// Leave headroom: finish, flush and return before Lambda kills us.</span>
+    if dl, ok := ctx.Deadline(); ok {
+        var cancel context.CancelFunc
+        ctx, cancel = context.WithDeadline(ctx, dl.Add(-500*time.Millisecond))
+        defer cancel()
+    }
+
+    <span class="c">// Partial batch response: without this, ONE bad message redelivers all ten,</span>
+    <span class="c">// which is how a single poison record becomes a permanent replay loop.</span>
+    var failures []events.SQSBatchItemFailure
+
+    for _, m := range ev.Records {
+        if err := process(ctx, m); err != nil {
+            log.Error("record failed", "message_id", m.MessageId, "err", err)
+            failures = append(failures, events.SQSBatchItemFailure{
+                ItemIdentifier: m.MessageId,
+            })
+        }
+    }
+    <span class="c">// Return nil error: the batch itself succeeded. Only the listed ids return</span>
+    <span class="c">// to the queue. Requires ReportBatchItemFailures on the event source mapping.</span>
+    return events.SQSEventResponse{BatchItemFailures: failures}, nil
+}
+
+func main() { lambda.Start(handle) }</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># handler.py — everything at module scope runs once, during INIT, with full</span>
+<span class="c"># CPU. Imports and client construction belong here, not in the handler.</span>
+import json, os, time
+import boto3
+from aws_lambda_powertools import Logger, Metrics, Tracer
+from aws_lambda_powertools.utilities.batch import (
+    BatchProcessor, EventType, process_partial_response,
+)
+
+logger, tracer, metrics = Logger(), Tracer(), Metrics()
+DDB = boto3.client("dynamodb")          <span class="c"># connection pool survives invocations</span>
+TABLE = os.environ["TABLE_NAME"]
+
+processor = BatchProcessor(event_type=EventType.SQS)
+
+
+@tracer.capture_method
+def record_handler(record):
+    body = json.loads(record.body)
+    DDB.put_item(
+        TableName=TABLE,
+        Item={"pk": {"S": body["id"]}, "payload": {"S": record.body}},
+        ConditionExpression="attribute_not_exists(pk)",   <span class="c"># at-least-once delivery</span>
+    )
+
+
+@logger.inject_lambda_context
+@tracer.capture_lambda_handler
+@metrics.log_metrics                    <span class="c"># flushes EMF metrics BEFORE the freeze</span>
+def handler(event, context):
+    <span class="c"># Partial batch response: without this, ONE bad message redelivers all ten,</span>
+    <span class="c"># which is how a single poison record becomes a permanent replay loop.</span>
+    <span class="c"># Requires ReportBatchItemFailures on the event source mapping.</span>
+    return process_partial_response(
+        event=event, record_handler=record_handler,
+        processor=processor, context=context,
+    )</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Symptom</th><th>Usually</th><th>Fix</th></tr></thead>
+          <tbody>
+            <tr><td>p99 far above p50, in bursts</td><td>Cold starts, or a scaling ramp</td><td>Provisioned concurrency for the user-facing path; SnapStart where the runtime supports it; shrink the deployment package.</td></tr>
+            <tr><td>Duration close to the timeout, then a hard kill</td><td>A downstream call with no deadline of its own</td><td>Derive every client timeout from the remaining execution time. A Lambda timeout gives you no stack trace and no flushed logs.</td></tr>
+            <tr><td>The same message processed over and over</td><td>Batch failure without partial reporting, or a visibility timeout below the function timeout</td><td>Turn on <code>ReportBatchItemFailures</code>; set the queue&rsquo;s visibility timeout to at least six times the function timeout; add a DLQ with <code>maxReceiveCount</code>.</td></tr>
+            <tr><td><code>Rate exceeded</code> on the database</td><td>Lambda scaled to hundreds of concurrent environments, each opening connections</td><td>Reserved concurrency on the function, and RDS Proxy in front of the database.</td></tr>
+            <tr><td>Works locally, times out deployed</td><td>The function is in a VPC with no route to the internet</td><td>Interface endpoints for the AWS services, and a NAT route only if you genuinely call the public internet.</td></tr>
+            <tr><td>Logs missing for failed invocations</td><td>Buffered output lost when the process was killed</td><td>Log unbuffered and flush before returning; the Powertools logger and Go&rsquo;s <code>slog</code> to stdout both do the right thing.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pair">
+        <div class="note">
+          <h4>Tune memory with data, not instinct</h4>
+          <p>Duration typically falls faster than price rises, up to the point where the function stops being CPU-bound. Sweep 512&nbsp;MB to 3&nbsp;GB against a real payload and plot cost per invocation &mdash; the minimum is often at three or four times the memory somebody guessed, and it is faster as well as cheaper.</p>
+        </div>
+        <div class="note warn">
+          <h4>Arm64 unless something stops you</h4>
+          <p>Graviton pricing is roughly 20% lower per GB-second and the same code is usually a little faster. The only reasons to stay on x86 are a native dependency with no <code>aarch64</code> wheel or binary, and a container image you have not rebuilt.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="topic" id="ecs">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>ECS and Fargate: the deployment is the interesting part</h3>
+        <p class="lede">A task definition is easy. What decides whether ECS is calm is the deployment configuration &mdash; the percentages, the circuit breaker, the health check grace period and the shutdown sequence, all of which have defaults that will eventually hurt.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 392" role="img" aria-label="An ECS rolling deployment: old and new task counts moving between the minimum healthy and maximum percentage bounds, the target group health check gating registration, the deployment circuit breaker rolling back on repeated failures, and the shutdown sequence from deregistration through SIGTERM to SIGKILL.">
+          <defs>
+            <marker id="aw-11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ROLLING DEPLOYMENT &mdash; DESIRED 4, MIN 100%, MAX 200%</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="32" width="200" height="88" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">STEP 1 &middot; 4 old</text>
+            <text x="32" y="70" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">ECS starts new tasks first</text>
+            <text x="32" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">because min healthy is 100%</text>
+            <text x="32" y="108" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">capacity now 4 &rarr; up to 8</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="240" y="32" width="200" height="88" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="252" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">STEP 2 &middot; HEALTH GATE</text>
+            <text x="252" y="70" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Target group must see N</text>
+            <text x="252" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">consecutive successes before</text>
+            <text x="252" y="102" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">a task counts as healthy.</text>
+            <line x1="224" y1="76" x2="236" y2="76" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-11)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="460" y="32" width="200" height="88" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="472" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">STEP 3 &middot; DRAIN OLD</text>
+            <text x="472" y="70" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Deregister, wait out the</text>
+            <text x="472" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">deregistration delay, then</text>
+            <text x="472" y="102" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">SIGTERM the container.</text>
+            <line x1="444" y1="76" x2="456" y2="76" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-11)"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="680" y="32" width="200" height="88" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="692" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">CIRCUIT BREAKER</text>
+            <text x="692" y="70" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Repeated launch failures</text>
+            <text x="692" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">stop the deployment and,</text>
+            <text x="692" y="102" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">if enabled, roll it back.</text>
+            <line x1="664" y1="76" x2="676" y2="76" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-11)"/>
+          </g>
+
+          <text x="20" y="146" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">Min 100% and max 200% means a deploy briefly doubles your task count &mdash; and therefore your database connections, your ENIs, and your subnet addresses.</text>
+
+          <line x1="20" y1="168" x2="880" y2="168" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="190" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Shutdown: four clocks that must be ordered correctly</text>
+
+          <line x1="40" y1="240" x2="860" y2="240" stroke="currentColor" stroke-width="1.4"/>
+          <g class="svg-l2">
+            <line x1="80" y1="228" x2="80" y2="252" stroke="currentColor" stroke-width="1.6"/>
+            <text x="56" y="222" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">t = 0</text>
+            <text x="46" y="270" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">deregistered from</text>
+            <text x="46" y="284" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">the target group</text>
+          </g>
+          <g class="svg-l2">
+            <line x1="320" y1="228" x2="320" y2="252" stroke="currentColor" stroke-width="1.6"/>
+            <text x="286" y="222" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">+300s default</text>
+            <text x="262" y="270" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">deregistration delay ends;</text>
+            <text x="262" y="284" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">in-flight requests finished</text>
+          </g>
+          <g class="svg-l1">
+            <line x1="580" y1="228" x2="580" y2="252" stroke="currentColor" stroke-width="1.6"/>
+            <text x="558" y="222" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">SIGTERM</text>
+            <text x="520" y="270" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">your handler runs: stop</text>
+            <text x="520" y="284" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">accepting, drain, close</text>
+          </g>
+          <g class="svg-l3">
+            <line x1="820" y1="228" x2="820" y2="252" stroke="currentColor" stroke-width="1.6"/>
+            <text x="770" y="222" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">+stopTimeout</text>
+            <text x="742" y="270" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">SIGKILL, 30s by default</text>
+            <text x="742" y="284" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">&mdash; raise it if you drain</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="20" y="310" width="860" height="66" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="32" y="330" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">GET THIS ORDER WRONG AND YOU DROP REQUESTS ON EVERY DEPLOY</text>
+            <text x="32" y="350" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">If the container exits on SIGTERM immediately, requests already in flight through the load balancer fail. If stopTimeout</text>
+            <text x="32" y="366" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">is shorter than your drain, SIGKILL truncates them instead. Both look like random 502s that only happen during deploys.</text>
+          </g>
+        </svg>
+        <figcaption><b>ECS gives you the timers; ordering them is your job.</b> The safe recipe: deregistration delay slightly longer than your longest request, a SIGTERM handler that stops accepting new connections and finishes existing ones, and a <code>stopTimeout</code> comfortably longer than the drain. Then a deploy is invisible in your error rate.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Piece of the task definition</th><th>What it controls</th><th>The detail</th></tr></thead>
+          <tbody>
+            <tr><td><code>taskRoleArn</code></td><td>The IAM role <b>your code</b> assumes</td><td>Delivered over the container credentials endpoint. This is the role your SDK picks up.</td></tr>
+            <tr><td><code>executionRoleArn</code></td><td>The role <b>ECS itself</b> uses</td><td>Pulls the image from ECR, writes the log stream, and reads the secrets you inject. Confusing these two is the classic first-deploy failure.</td></tr>
+            <tr><td><code>networkMode: awsvpc</code></td><td>One ENI, one private IP, per task</td><td>The task gets its own security group. It also consumes a subnet address, and ENI attachment adds several seconds to task start.</td></tr>
+            <tr><td><code>secrets</code></td><td>Environment variables from Secrets Manager or SSM</td><td>Resolved at task start by the execution role, so a rotated secret needs a new task &mdash; not a restart of your process.</td></tr>
+            <tr><td>Container <code>healthCheck</code></td><td>Whether ECS considers the container healthy</td><td>Separate from the load balancer&rsquo;s check. Use both: the container check catches a wedged process with no traffic on it.</td></tr>
+            <tr><td><code>stopTimeout</code></td><td>SIGTERM to SIGKILL</td><td>Default 30s, maximum 120s on Fargate. If your drain is longer than this, the drain does not happen.</td></tr>
+            <tr><td><code>cpu</code> / <code>memory</code></td><td>Fargate&rsquo;s billable size</td><td>Only certain combinations are valid, and the whole task is billed on the total &mdash; a fat sidecar costs the same as fat application.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Shut down properly, or drop requests forever</h4>
+
+<pre class="l2" data-lang="go"><span class="c">// The four-stage shutdown ECS expects. Nothing here is Go-specific except the</span>
+<span class="c">// syntax — the sequence is what matters.</span>
+srv := &amp;http.Server{Addr: ":8080", Handler: mux}
+
+go func() {
+    if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+        log.Error("listen", "err", err)
+        os.Exit(1)
+    }
+}()
+
+sig := make(chan os.Signal, 1)
+signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+&lt;-sig
+
+<span class="c">// 1. Fail readiness first, so the load balancer stops sending new requests</span>
+<span class="c">//    even before ECS deregisters us. A few seconds of overlap is deliberate.</span>
+ready.Store(false)
+time.Sleep(5 * time.Second)
+
+<span class="c">// 2. Stop accepting, finish what is in flight. Shutdown does exactly this.</span>
+ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+defer cancel()
+if err := srv.Shutdown(ctx); err != nil {
+    log.Warn("graceful shutdown timed out", "err", err)   <span class="c">// stopTimeout must exceed 25s</span>
+}
+
+<span class="c">// 3. Then, and only then, release everything downstream.</span>
+pool.Close()
+_ = tracerProvider.Shutdown(ctx)</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># The four-stage shutdown ECS expects. Uvicorn already handles SIGTERM by</span>
+<span class="c"># draining, but the readiness flip in front of it is yours to write.</span>
+import signal, asyncio, contextlib, uvicorn
+
+READY = True
+
+
+@app.get("/readyz")
+async def readyz():
+    <span class="c"># 1. Fail readiness first, so the load balancer stops sending new requests</span>
+    <span class="c">#    even before ECS deregisters us. A few seconds of overlap is deliberate.</span>
+    return Response(status_code=200 if READY else 503)
+
+
+<span class="c"># Run uvicorn programmatically, so the signal handler can hand the signal</span>
+<span class="c"># back to it. The graceful timeout must be SHORTER than stopTimeout.</span>
+server = uvicorn.Server(uvicorn.Config(
+    app, host="0.0.0.0", port=8080,
+    timeout_keep_alive=75,             <span class="c"># above the ALB idle timeout</span>
+    timeout_graceful_shutdown=20,      <span class="c"># below stopTimeout, which we set to 60</span>
+))
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app):
+    loop = asyncio.get_running_loop()
+
+    def _term():
+        global READY
+        READY = False
+        <span class="c"># Installing this handler REPLACED uvicorn&rsquo;s own, so we have to pass</span>
+        <span class="c"># the signal on — otherwise nothing drains and ECS just SIGKILLs us.</span>
+        loop.call_later(5.0, server.handle_exit, signal.SIGTERM, None)
+
+    loop.add_signal_handler(signal.SIGTERM, _term)
+    yield
+    <span class="c"># 2. By the time teardown runs, uvicorn has stopped accepting and has</span>
+    <span class="c">#    already waited out the in-flight requests.</span>
+    <span class="c"># 3. Then, and only then, release everything downstream.</span>
+    await engine.dispose()
+    await tracer_provider.shutdown()</pre>
+
+      <h4>Deploy from code, and fail the pipeline honestly</h4>
+
+<pre class="l1" data-lang="go"><span class="c">// UpdateService returns as soon as the deployment is accepted — not when it</span>
+<span class="c">// is safe. The waiter is what makes a pipeline meaningful.</span>
+_, err := ecsc.UpdateService(ctx, &amp;ecs.UpdateServiceInput{
+    Cluster:            aws.String("prod"),
+    Service:            aws.String("orders-api"),
+    TaskDefinition:     aws.String(newTaskDefARN),
+    ForceNewDeployment: aws.Bool(true),
+    DeploymentConfiguration: &amp;types.DeploymentConfiguration{
+        MinimumHealthyPercent: aws.Int32(100),
+        MaximumPercent:        aws.Int32(200),
+        DeploymentCircuitBreaker: &amp;types.DeploymentCircuitBreaker{
+            Enable:   true,
+            Rollback: true,       <span class="c">// revert to the last good task definition</span>
+        },
+    },
+})
+if err != nil {
+    return err
+}
+
+<span class="c">// "Stable" means: desired count running, one deployment, all targets healthy.</span>
+if err := ecs.NewServicesStableWaiter(ecsc).Wait(ctx, &amp;ecs.DescribeServicesInput{
+    Cluster: aws.String("prod"), Services: []string{"orders-api"},
+}, 15*time.Minute); err != nil {
+    <span class="c">// The circuit breaker may have rolled us back to the previous revision —</span>
+    <span class="c">// which is a successful rollback and a FAILED deploy. Say so.</span>
+    return fmt.Errorf("deployment did not stabilise: %w", err)
+}</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># update_service returns as soon as the deployment is accepted — not when it</span>
+<span class="c"># is safe. The waiter is what makes a pipeline meaningful.</span>
+ECS = boto3.client("ecs", config=CFG)
+
+ECS.update_service(
+    cluster="prod",
+    service="orders-api",
+    taskDefinition=new_task_def_arn,
+    forceNewDeployment=True,
+    deploymentConfiguration={
+        "minimumHealthyPercent": 100,
+        "maximumPercent": 200,
+        "deploymentCircuitBreaker": {
+            "enable": True,
+            "rollback": True,       <span class="c"># revert to the last good task definition</span>
+        },
+    },
+)
+
+<span class="c"># "Stable" means: desired count running, one deployment, all targets healthy.</span>
+try:
+    ECS.get_waiter("services_stable").wait(
+        cluster="prod", services=["orders-api"],
+        WaiterConfig={"Delay": 15, "MaxAttempts": 60},   <span class="c"># 15 minutes</span>
+    )
+except WaiterError as e:
+    <span class="c"># The circuit breaker may have rolled us back to the previous revision —</span>
+    <span class="c"># which is a successful rollback and a FAILED deploy. Say so.</span>
+    events = ECS.describe_services(cluster="prod", services=["orders-api"])
+    for ev in events["services"][0]["events"][:5]:
+        log.error("ecs event", extra={"message": ev["message"]})
+    raise DeployFailed("deployment did not stabilise") from e</pre>
+
+      <div class="pair">
+        <div class="note">
+          <h4>Autoscale on the right signal</h4>
+          <p>Target tracking on <code>ALBRequestCountPerTarget</code> beats CPU for a web service: it reacts to arriving work rather than to the symptom of work. Keep a scale-in cooldown longer than the scale-out one, and remember that scaling is bounded by how fast a task can start &mdash; image pull plus ENI attach plus your own init.</p>
+        </div>
+        <div class="note warn">
+          <h4>Fargate Spot is real capacity with a real catch</h4>
+          <p>Around 70% cheaper, and reclaimed with a two-minute SIGTERM warning. Perfect for queue consumers that checkpoint, wrong for anything holding a long request. Mix capacity providers: a base of on-demand tasks with the elastic portion on Spot.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="topic" id="pick-compute">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>Choosing between them, with arithmetic</h3>
+        <p class="lede">The Lambda-versus-containers argument is usually settled by taste. It should be settled by two numbers: your requests per second and your p50 duration, which together tell you exactly where the crossover sits.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 344" role="img" aria-label="A comparison of Lambda, Fargate, EC2 and EKS across scaling unit, idle cost, cold start, maximum request duration and the operational work each demands, with a crossover curve showing where per-request pricing stops being cheaper than a reserved container.">
+          <defs>
+            <marker id="aw-12" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">COST PER MONTH AS TRAFFIC GROWS</text>
+
+          <line x1="70" y1="180" x2="560" y2="180" stroke="currentColor" stroke-width="1.2"/>
+          <line x1="70" y1="40" x2="70" y2="180" stroke="currentColor" stroke-width="1.2"/>
+          <text x="18" y="46" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">cost</text>
+          <text x="500" y="198" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">requests / month</text>
+
+          <g class="svg-l1">
+            <path d="M70 176 L560 60" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="470" y="80" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Lambda</text>
+            <text x="470" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">pay per ms</text>
+          </g>
+          <g class="svg-l2">
+            <path d="M70 120 L280 118 L560 96" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="6 4"/>
+            <text x="86" y="112" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Fargate &middot; 2 tasks always on</text>
+          </g>
+          <g class="svg-l3">
+            <line x1="330" y1="46" x2="330" y2="180" stroke="currentColor" stroke-width="1.4" stroke-dasharray="4 3"/>
+            <text x="338" y="150" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">crossover</text>
+            <text x="338" y="164" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">work it out, do not guess</text>
+          </g>
+
+          <rect x="600" y="40" width="280" height="140" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4"/>
+          <text x="612" y="60" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">WHY THE LINES BEND</text>
+          <text x="612" y="80" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Lambda is a straight line from zero:</text>
+          <text x="612" y="96" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">no idle cost, no floor.</text>
+          <text x="612" y="118" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Fargate starts above zero and stays</text>
+          <text x="612" y="134" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">nearly flat until you add tasks.</text>
+          <text x="612" y="156" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Spiky and occasional favours the</text>
+          <text x="612" y="172" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">first; steady and busy the second.</text>
+
+          <line x1="20" y1="216" x2="880" y2="216" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+
+          <g class="svg-l1">
+            <rect x="20" y="234" width="204" height="96" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="254" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">LAMBDA</text>
+            <text x="32" y="272" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">15 min ceiling &middot; no idle cost</text>
+            <text x="32" y="288" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">cold starts &middot; no daemons</text>
+            <text x="32" y="310" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">Events, spikes, glue, cron</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="236" y="234" width="204" height="96" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="248" y="254" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">FARGATE</text>
+            <text x="248" y="272" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">no servers &middot; per-task price</text>
+            <text x="248" y="288" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">warm always &middot; any runtime</text>
+            <text x="248" y="310" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">Steady web services, workers</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="452" y="234" width="204" height="96" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="464" y="254" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">EC2 / ECS ON EC2</text>
+            <text x="464" y="272" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">cheapest per vCPU at scale</text>
+            <text x="464" y="288" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">you patch it &middot; GPUs, local NVMe</text>
+            <text x="464" y="310" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">Big steady fleets, special kit</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="668" y="234" width="212" height="96" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="680" y="254" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">EKS</text>
+            <text x="680" y="272" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">portable &middot; huge ecosystem</text>
+            <text x="680" y="288" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">a control plane fee + a team</text>
+            <text x="680" y="310" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">Many teams, many services</text>
+          </g>
+        </svg>
+        <figcaption><b>The honest rule: pick Lambda until the arithmetic says otherwise, then move the hot path.</b> Nothing stops one system from doing both &mdash; a Fargate service for the steady request path and Lambda for the spiky, event-driven edges is the most common shape in practice, and each part is billed on its own terms.</figcaption>
+      </figure>
+
+<pre class="l1" data-lang="go"><span class="c">// Work out the crossover instead of arguing about it. Prices are illustrative</span>
+<span class="c">// US-East-1 list rates — substitute your own before quoting anyone.</span>
+const (
+    lambdaPerGBSecond = 0.0000166667
+    lambdaPerRequest  = 0.0000002
+    fargateVCPUHour   = 0.04048       <span class="c">// x86; Graviton and Spot are cheaper</span>
+    fargateGBHour     = 0.004445
+)
+
+<span class="c">// One Lambda invocation: memory in GB, duration rounded up to the millisecond.</span>
+func lambdaMonthly(reqsPerMonth float64, memGB, durSec float64) float64 {
+    return reqsPerMonth*(lambdaPerRequest+memGB*durSec*lambdaPerGBSecond)
+}
+
+<span class="c">// A Fargate task charges whether or not a request arrives.</span>
+func fargateMonthly(tasks, vcpu, memGB float64) float64 {
+    return tasks * 730 * (vcpu*fargateVCPUHour + memGB*fargateGBHour)
+}
+
+<span class="c">// 40 ms at 512 MB, against two 0.5 vCPU / 1 GB tasks:</span>
+<span class="c">//   5M requests/month   Lambda $2.67   Fargate $36.04   → Lambda, easily</span>
+<span class="c">//   500M requests/month Lambda $267    Fargate $36.04   → containers, easily</span>
+<span class="c">// The crossover is near 68M requests — but only if the tasks can actually</span>
+<span class="c">// serve them. Capacity check first: reqs/sec x duration must fit in</span>
+<span class="c">// tasks x concurrency_per_task, or you are comparing against a fantasy.</span>
+fmt.Printf("%.2f vs %.2f\n",
+    lambdaMonthly(5e6, 0.5, 0.04), fargateMonthly(2, 0.5, 1))</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># Work out the crossover instead of arguing about it. Prices are illustrative</span>
+<span class="c"># US-East-1 list rates — substitute your own before quoting anyone.</span>
+LAMBDA_GB_SECOND = 0.0000166667
+LAMBDA_REQUEST = 0.0000002
+FARGATE_VCPU_HOUR = 0.04048        <span class="c"># x86; Graviton and Spot are cheaper</span>
+FARGATE_GB_HOUR = 0.004445
+
+
+def lambda_monthly(reqs: float, mem_gb: float, dur_s: float) -&gt; float:
+    <span class="c"># One invocation: memory in GB, duration rounded up to the millisecond.</span>
+    return reqs * (LAMBDA_REQUEST + mem_gb * dur_s * LAMBDA_GB_SECOND)
+
+
+def fargate_monthly(tasks: float, vcpu: float, mem_gb: float) -&gt; float:
+    <span class="c"># A Fargate task charges whether or not a request arrives.</span>
+    return tasks * 730 * (vcpu * FARGATE_VCPU_HOUR + mem_gb * FARGATE_GB_HOUR)
+
+
+<span class="c"># 40 ms at 512 MB, against two 0.5 vCPU / 1 GB tasks:</span>
+<span class="c">#   5M requests/month   Lambda $2.67   Fargate $36.04   → Lambda, easily</span>
+<span class="c">#   500M requests/month Lambda $267    Fargate $36.04   → containers, easily</span>
+<span class="c"># The crossover is near 68M requests — but only if the tasks can actually</span>
+<span class="c"># serve them. Capacity check first: reqs/sec * duration must fit in</span>
+<span class="c"># tasks * concurrency_per_task, or you are comparing against a fantasy.</span>
+print(f"{lambda_monthly(5e6, 0.5, 0.04):.2f} vs {fargate_monthly(2, 0.5, 1):.2f}")</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>If this is true</th><th>Choose</th></tr></thead>
+          <tbody>
+            <tr><td>Traffic is spiky, occasional, or zero most of the time</td><td>Lambda &mdash; nothing else bills at zero</td></tr>
+            <tr><td>A request can take longer than fifteen minutes</td><td>Fargate or EC2; Lambda cannot, at any price</td></tr>
+            <tr><td>You need a persistent connection pool, or a warm in-process cache</td><td>Fargate or EC2. Lambda can hold one per environment, and you do not control how many there are</td></tr>
+            <tr><td>Cold-start latency is visible to a human</td><td>Fargate, or Lambda with provisioned concurrency &mdash; and price that concurrency honestly</td></tr>
+            <tr><td>The work is a reaction to an event that already exists in AWS</td><td>Lambda &mdash; the event source mapping is the integration you would otherwise write</td></tr>
+            <tr><td>You are running more than a handful of services with a platform team</td><td>EKS starts to pay for its own complexity; below that it rarely does</td></tr>
+            <tr><td>You need a GPU, local NVMe, or a specific kernel</td><td>EC2. This is the remaining reason to manage instances</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</section>

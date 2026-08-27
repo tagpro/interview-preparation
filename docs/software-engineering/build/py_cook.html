@@ -1,0 +1,709 @@
+<section class="part" id="cookbook">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part nine</span>
+      <h2>Five things you will actually be asked to write</h2>
+      <p>Everything up to here was mechanism. This part is the code &mdash; five ordinary backend jobs written the way a reviewer would want them, with the reasoning attached. Read the L2 column of each for why it is written that way rather than the shorter way.</p>
+    </div>
+
+    <section class="topic" id="ex-validate">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Parsing an untrusted payload with Pydantic</h3>
+        <p class="lede">The job: turn a JSON body you did not write into an object your code can trust. Pydantic does it in one call, and the important part is what it means afterwards &mdash; nothing downstream ever has to ask whether <code>qty</code> is a number.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 322" role="img" aria-label="A raw JSON request body on the left, passing through model_validate in the middle, becoming a fully typed object on the right; below, the failure path producing a ValidationError whose loc field is the JSON path of the offending value.">
+          <defs>
+            <marker id="pf-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE BOUNDARY &mdash; UNTRUSTED JSON IN, TYPED OBJECT OUT</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="32" width="250" height="122" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="32" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">raw request body</text>
+            <text x="32" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">{"email": "a@b.co",</text>
+            <text x="32" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85"> "currency": "GBP",</text>
+            <text x="32" y="100" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85"> "items": [{"sku": "ABC-0001",</text>
+            <text x="32" y="114" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">   "qty": "3", "price": "12.50"}]}</text>
+            <text x="32" y="138" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">every value is a str, a list or a dict</text>
+            <line x1="272" y1="93" x2="298" y2="93" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-1)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="302" y="32" width="250" height="122" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="314" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">model_validate(body)</text>
+            <text x="314" y="76" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">coerce  "3" &rarr; 3</text>
+            <text x="314" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">coerce  "12.50" &rarr; Decimal</text>
+            <text x="314" y="112" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">check   qty &ge; 1, sku pattern</text>
+            <text x="314" y="130" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">reject  any unknown key</text>
+            <line x1="554" y1="93" x2="580" y2="93" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-1)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="584" y="32" width="296" height="122" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="596" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">CreateOrder</text>
+            <text x="596" y="76" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">order.items[0].qty &rarr; int</text>
+            <text x="596" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">order.items[0].price &rarr; Decimal</text>
+            <text x="596" y="112" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">order.currency &rarr; "GBP"|"EUR"|"USD"</text>
+            <text x="596" y="138" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">frozen, and mypy knows all of it</text>
+          </g>
+
+          <line x1="427" y1="156" x2="427" y2="186" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-1)"/>
+          <text x="20" y="182" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">OR, IF ONE FIELD IS WRONG</text>
+
+          <g class="svg-l3">
+            <rect x="302" y="190" width="578" height="84" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="314" y="210" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">ValidationError</text>
+            <text x="314" y="230" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">[{"type": "int_parsing",</text>
+            <text x="314" y="246" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">  "loc": ("items", 0, "qty"),  &larr; the JSON path, ready to return</text>
+            <text x="314" y="262" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">  "msg": "Input should be a valid integer", "input": "three"}]</text>
+          </g>
+          <text x="20" y="216" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">One bad field, one 422,</text>
+          <text x="20" y="234" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">no partial write, and an</text>
+          <text x="20" y="252" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">error the caller can act on.</text>
+
+          <text x="20" y="304" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Parse, do not validate. After that one line, the wrong shape is unrepresentable &mdash; which is the same trick as a Go struct, arriving one layer later.</text>
+        </svg>
+        <figcaption><b>One call is the whole boundary.</b> Everything before it is untyped text off a socket; everything after it is an object whose invariants the checker and the reader can both rely on.</figcaption>
+      </figure>
+
+      <pre class="l2"><span class="c"># models.py — the contract, written once</span>
+from decimal import Decimal
+from typing import Annotated, Literal, Self
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+Money = Annotated[Decimal, Field(gt=0, max_digits=12, decimal_places=2)]
+Sku   = Annotated[str, Field(pattern=r"^[A-Z]{3}-\d{4}$")]
+
+class LineItem(BaseModel):
+    sku: Sku
+    qty: Annotated[int, Field(ge=1, le=100)]
+    price: Money
+
+class CreateOrder(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)   <span class="c"># unknown key = error</span>
+
+    email: EmailStr
+    currency: Literal["GBP", "EUR", "USD"]
+    items: Annotated[list[LineItem], Field(min_length=1, max_length=50)]
+    note: str | None = None</pre>
+
+      <pre class="l2"><span class="c"># two kinds of rule: one field, or the whole object</span>
+    @field_validator("note")
+    @classmethod
+    def strip_and_bound(cls, v: str | None) -&gt; str | None:
+        return v.strip()[:500] if v else None
+
+    @model_validator(mode="after")                <span class="c"># runs once, after coercion</span>
+    def within_unattended_limit(self) -&gt; Self:
+        if sum(i.qty * i.price for i in self.items) &gt; Decimal("10000"):
+            raise ValueError("order exceeds the unattended limit")
+        return self</pre>
+
+      <pre class="l1"><span class="c"># using it — the only three calls you need day to day</span>
+try:
+    order = CreateOrder.model_validate(request_json)   <span class="c"># dict  -&gt; object</span>
+except ValidationError as e:
+    return 422, {"errors": e.errors(include_url=False)}
+
+order.items[0].price * order.items[0].qty     <span class="c"># Decimal arithmetic, exact</span>
+payload = order.model_dump(mode="json")       <span class="c"># object -&gt; JSON-safe dict</span>
+CreateOrder.model_json_schema()               <span class="c"># the OpenAPI schema, free</span></pre>
+
+      <div class="note">
+        <h4>The same class does your configuration</h4>
+        <p><code>pydantic-settings</code> is the same machinery pointed at the environment, which is why the config topic earlier could promise &ldquo;fails at start-up, not at 3am&rdquo;: <code>class Settings(BaseSettings): database_url: PostgresDsn; timeout_s: float = 2.0; api_key: SecretStr</code> &mdash; then <code>settings = Settings()</code> at import raises immediately if <code>API_KEY</code> is missing or <code>TIMEOUT_S</code> is not a number. <code>SecretStr</code> also keeps the value out of every log line and traceback that repr the object.</p>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What the code does</h4>
+          <ul>
+            <li><strong><code>BaseModel</code></strong> turns annotations into run-time checks &mdash; the one place in Python where a type hint has teeth.</li>
+            <li><strong><code>Field</code></strong> carries the constraints: <code>gt</code>, <code>ge</code>, <code>le</code>, <code>min_length</code>, <code>pattern</code>. They land in the JSON schema too.</li>
+            <li><strong><code>model_validate</code></strong> takes a dict and returns an instance or raises; <code>model_dump</code> goes back the other way.</li>
+            <li><strong><code>Annotated[Decimal, Field(...)]</code></strong> names a reusable rule &mdash; <code>Money</code> is now one word you can put on any field.</li>
+            <li><code>ValidationError.errors()</code> is a list of dicts, not a string. Return it as the response body.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Why it is written this way</h4>
+          <ul>
+            <li><strong><code>extra="forbid"</code></strong> makes a typo in the client an error instead of a silently ignored field &mdash; the default is to drop unknown keys, which hides bugs for months.</li>
+            <li><strong><code>frozen=True</code></strong> makes the parsed request immutable, so no later code can &ldquo;fix up&rdquo; the input and leave the log disagreeing with what happened.</li>
+            <li><strong><code>Decimal</code> for money, never <code>float</code></strong> &mdash; and pydantic will coerce the string <code>"12.50"</code> straight to <code>Decimal</code> without going through binary floating point.</li>
+            <li><strong><code>field_validator</code> for one field, <code>model_validator(mode="after")</code> for a rule that needs several</strong>; <code>mode="after"</code> means every value is already the right type.</li>
+            <li><strong>Separate the request model from the database model.</strong> They change for different reasons, and merging them is how internal columns end up in your public API.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What bites in production</h4>
+          <ul>
+            <li><strong>Validation is not free.</strong> v2&rsquo;s core is Rust and fast, but validating the same object at four internal layers is four times the cost for no extra safety. Parse once, at the edge.</li>
+            <li><strong><code>model_construct</code></strong> skips validation for data you already trust &mdash; useful on a hot path out of the database, dangerous anywhere near a socket.</li>
+            <li><strong>Union order matters.</strong> Prefer a discriminated union (<code>Field(discriminator="kind")</code>) over a bare <code>A | B</code>: it picks by tag rather than by trying each in turn, and the errors name one branch instead of all of them.</li>
+            <li><strong><code>ValidationError</code> messages can leak input</strong>. Return <code>type</code> and <code>loc</code> to the caller; keep <code>input</code> for your logs, and never let a <code>SecretStr</code> reach either.</li>
+            <li><strong>Generated schemas are a contract.</strong> If clients consume your OpenAPI, adding <code>extra="forbid"</code> or tightening a pattern is a breaking change &mdash; version it like one.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="ex-endpoint">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>One endpoint, end to end</h3>
+        <p class="lede">The job: accept an order, write it once, and return an answer the caller can retry safely. Four layers, each owning exactly one thing &mdash; and the transaction boundary drawn so a raised exception cannot leave half an order behind.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 336" role="img" aria-label="A request passing through validation, a session dependency that opens a transaction, the handler and the domain layer, with three error branches mapping to 422, 409 and 500, and the transaction rolled back on the last two.">
+          <defs>
+            <marker id="pf-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">POST /orders</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="32" width="164" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">CreateOrder</text>
+            <text x="32" y="70" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">runs before your code</text>
+            <line x1="186" y1="58" x2="210" y2="58" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-2)"/>
+            <rect x="214" y="32" width="164" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="226" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">get_session()</text>
+            <text x="226" y="70" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">BEGIN</text>
+            <line x1="380" y1="58" x2="404" y2="58" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-2)"/>
+            <rect x="408" y="32" width="164" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="420" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">create_order()</text>
+            <text x="420" y="70" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">HTTP shapes only</text>
+            <line x1="574" y1="58" x2="598" y2="58" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-2)"/>
+            <rect x="602" y="32" width="164" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="614" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">orders.place()</text>
+            <text x="614" y="70" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">knows no HTTP</text>
+          </g>
+
+          <text x="790" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor" opacity="0.75">201</text>
+          <text x="790" y="70" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.7">COMMIT</text>
+          <line x1="768" y1="58" x2="784" y2="58" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-2)"/>
+
+          <line x1="20" y1="104" x2="880" y2="104" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="128" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">AND THE THREE WAYS OUT THAT ARE NOT 201</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="142" width="276" height="94" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="32" y="162" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">422 Unprocessable</text>
+            <text x="32" y="182" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">Pydantic rejected the body.</text>
+            <text x="32" y="200" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">Your handler never ran, so</text>
+            <text x="32" y="218" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">no transaction was opened.</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="312" y="142" width="276" height="94" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="324" y="162" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">409 Conflict</text>
+            <text x="324" y="182" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">A domain rule said no &mdash; out</text>
+            <text x="324" y="200" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">of stock. Expected, named,</text>
+            <text x="324" y="218" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">rolled back, not an alert.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="604" y="142" width="276" height="94" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="616" y="162" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">500 &mdash; anything else</text>
+            <text x="616" y="182" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">Unhandled. The context</text>
+            <text x="616" y="200" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">manager still rolls back,</text>
+            <text x="616" y="218" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">because that is its job.</text>
+          </g>
+
+          <text x="20" y="266" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE SAME REQUEST, SENT TWICE</text>
+          <g class="svg-l1">
+            <rect x="20" y="278" width="860" height="42" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="34" y="304" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">Idempotency-Key &rarr; unique index &rarr; second attempt hits DuplicateKey &rarr; return the first answer, still 201</text>
+          </g>
+        </svg>
+        <figcaption><b>The transaction boundary is the dependency, not the handler.</b> Because <code>get_session</code> yields inside <code>session.begin()</code>, every exit path &mdash; return, raise, cancellation &mdash; commits or rolls back exactly once, and no handler has to remember to.</figcaption>
+      </figure>
+
+      <pre class="l2"><span class="c"># deps.py — one session and one transaction per request</span>
+async def get_session() -&gt; AsyncIterator[AsyncSession]:
+    async with SessionLocal() as session:      <span class="c"># closes, returns to the pool</span>
+        async with session.begin():            <span class="c"># COMMIT on clean exit,</span>
+            yield session                      <span class="c"># ROLLBACK on any exception</span></pre>
+
+      <pre class="l1"><span class="c"># routes.py — HTTP shapes in, HTTP shapes out, nothing else</span>
+router = APIRouter(prefix="/orders", tags=["orders"])
+
+class OrderCreated(BaseModel):        <span class="c"># response contract ≠ request contract</span>
+    id: UUID
+    status: Literal["accepted"]
+    total: Decimal
+
+@router.post("", status_code=201, response_model=OrderCreated)
+async def create_order(
+    body: CreateOrder,                                  <span class="c"># validated already</span>
+    idem_key: Annotated[str, Header(alias="Idempotency-Key")],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -&gt; OrderCreated:
+    try:
+        order = await orders.place(session, body, idem_key)   <span class="c"># INSERT inside session.begin_nested()</span>
+    except orders.DuplicateKey as e:
+        order = await orders.get(session, e.existing_id)  <span class="c"># same answer</span>
+    except orders.OutOfStock as e:
+        raise HTTPException(409, str(e)) from e           <span class="c"># keeps the cause</span>
+    return OrderCreated(id=order.id, status="accepted", total=order.total)</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What the code does</h4>
+          <ul>
+            <li><strong>The type hints are the wiring.</strong> <code>body: CreateOrder</code> means &ldquo;parse the JSON body into this&rdquo;; <code>Header(...)</code> means &ldquo;read this header&rdquo;.</li>
+            <li><strong><code>Depends(get_session)</code></strong> runs the dependency, hands you what it yields, and resumes it after the response.</li>
+            <li><strong>The savepoint is load-bearing.</strong> A unique-key violation aborts a plain Postgres transaction &mdash; every later statement fails with <code>InFailedSQLTransaction</code>. Because <code>place()</code> wraps its INSERT in <code>session.begin_nested()</code>, only the savepoint rolls back, and the <code>orders.get</code> on the next line still runs inside a healthy transaction.</li>
+            <li><strong><code>response_model</code></strong> filters the response through a second model, so an internal field cannot leak by accident.</li>
+            <li><strong><code>raise HTTPException(409, ...)</code></strong> is how you choose a status code deliberately.</li>
+            <li><code>from e</code> keeps the original traceback attached &mdash; the chained cause you saw in the exceptions topic.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Why it is written this way</h4>
+          <ul>
+            <li><strong>The route knows HTTP; the domain does not.</strong> <code>orders.place</code> raises <code>OutOfStock</code>, never <code>HTTPException</code> &mdash; so the same function works from a worker, a CLI and a test.</li>
+            <li><strong>Yield-style dependencies own the resource.</strong> The <code>async with</code> pair means the transaction cannot outlive the request, no matter how the handler exits.</li>
+            <li><strong>Request and response models are separate classes</strong> even when they look alike today; they diverge the first time you add an internal field.</li>
+            <li><strong>Idempotency is a database constraint, not an <code>if</code>.</strong> A unique index on the key is the only version that survives two concurrent retries.</li>
+            <li><strong>A duplicate is not an error.</strong> Returning the original answer is what makes a client retry safe, which is what makes at-least-once delivery workable.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What bites in production</h4>
+          <ul>
+            <li><strong>One blocking call poisons the loop.</strong> A synchronous driver, <code>time.sleep</code> or a CPU-heavy hash inside an <code>async def</code> stalls every other request on that worker &mdash; <code>asyncio.to_thread</code> or a sync <code>def</code> endpoint instead.</li>
+            <li><strong>The client can vanish mid-request.</strong> A disconnect cancels the task and raises <code>CancelledError</code> inside your handler; the rollback is correct, but any external side effect already sent is not undone.</li>
+            <li><strong>Long transactions hold locks.</strong> Do not call another service inside <code>session.begin()</code> &mdash; a two-second HTTP timeout becomes a two-second row lock.</li>
+            <li><strong>The dependency&rsquo;s COMMIT runs after the response is sent</strong> &mdash; FastAPI resumes yield dependencies once the body is out the door. If the caller must be able to trust the 201, commit explicitly in the handler before returning, and keep the dependency as the rollback-on-error backstop.</li>
+            <li><strong>Pool sizing is a total, not a per-worker setting.</strong> Eight workers &times; a pool of 20 is 160 connections; Postgres&rsquo;s default <code>max_connections</code> is 100.</li>
+            <li><strong>Validation errors are a 422 by default</strong>, which many clients treat as unretryable &mdash; deliberate, and worth documenting rather than discovering.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="ex-outbound">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Calling another service without hanging</h3>
+        <p class="lede">The job: call an internal API, survive its bad minutes, and never become the reason your own workers are all stuck. Two numbers decide everything &mdash; the per-attempt timeout and the total budget the caller is willing to wait.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 300" role="img" aria-label="A timeline of three retry attempts against a two-second caller deadline, where the third attempt finishes after the deadline and is therefore wasted work, and below, the four separate httpx timeouts mapped onto the stages of one connection.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">RETRIES ONLY HELP INSIDE THE BUDGET</text>
+
+          <text x="660" y="46" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.9">caller deadline, 2.0s</text>
+          <g class="svg-l3">
+            <line x1="660" y1="54" x2="660" y2="80" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 3"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="20" y="60" width="192" height="14" fill="currentColor" opacity="0.5"/>
+            <rect x="260" y="60" width="192" height="14" fill="currentColor" opacity="0.5"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="532" y="60" width="192" height="14" fill="currentColor" opacity="0.5"/>
+          </g>
+
+          <text x="20" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">attempt 1 &mdash; 503</text>
+          <text x="260" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">attempt 2 &mdash; 503</text>
+          <text x="532" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">attempt 3 &mdash; answers after the caller gave up</text>
+
+          <g class="svg-l2">
+            <line x1="20" y1="120" x2="830" y2="120" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="20" y1="120" x2="20" y2="126" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="180" y1="120" x2="180" y2="126" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="340" y1="120" x2="340" y2="126" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="500" y1="120" x2="500" y2="126" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="660" y1="120" x2="660" y2="126" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="820" y1="120" x2="820" y2="126" stroke="currentColor" stroke-width="1.2"/>
+          </g>
+          <text x="20" y="140" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.7">0s</text>
+          <text x="180" y="140" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.7">0.5</text>
+          <text x="340" y="140" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.7">1.0</text>
+          <text x="500" y="140" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.7">1.5</text>
+          <text x="660" y="140" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.7">2.0</text>
+          <text x="820" y="140" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.7">2.5</text>
+
+          <text x="20" y="166" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Three attempts of 600&nbsp;ms plus two backoff waits do not fit in two seconds. Either cut the per-attempt timeout, or accept two tries &mdash; a third that lands</text>
+          <text x="20" y="184" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">after the caller has gone is pure added load on a service that is already failing.</text>
+
+          <text x="20" y="216" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">AND WHAT EACH OF THE FOUR httpx TIMEOUTS COVERS</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="228" width="200" height="50" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="248" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">pool</text>
+            <text x="32" y="266" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">waiting for a free socket</text>
+            <rect x="224" y="228" width="200" height="50" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="236" y="248" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">connect</text>
+            <text x="236" y="266" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">TCP handshake and TLS</text>
+            <rect x="428" y="228" width="200" height="50" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="440" y="248" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">write</text>
+            <text x="440" y="266" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">sending the request body</text>
+            <rect x="632" y="228" width="248" height="50" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="644" y="248" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">read</text>
+            <text x="644" y="266" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">gap between two chunks of response</text>
+          </g>
+        </svg>
+        <figcaption><b><code>read</code> is a gap, not a total.</b> A response that trickles a byte every second never trips a read timeout &mdash; which is why a retry budget and an overall deadline are separate settings from the four above.</figcaption>
+      </figure>
+
+      <pre class="l2"><span class="c"># client.py — one client for the process, not one per call</span>
+TIMEOUT = httpx.Timeout(connect=1.0, read=2.0, write=2.0, pool=1.0)
+LIMITS  = httpx.Limits(max_connections=100, max_keepalive_connections=20)
+
+client = httpx.AsyncClient(base_url="https://ledger.internal",
+                           timeout=TIMEOUT, limits=LIMITS)
+<span class="c"># a fresh AsyncClient per call throws away the connection pool and the</span>
+<span class="c"># TLS session, and turns a 2 ms call into a 40 ms one</span>
+
+class Retryable(Exception): ...      <span class="c"># 5xx, timeouts: worth another try</span>
+class Permanent(Exception): ...      <span class="c"># 4xx: retrying cannot help</span>
+
+@retry(stop=stop_after_attempt(3),
+       wait=wait_exponential_jitter(initial=0.1, max=1.0),   <span class="c"># jitter matters</span>
+       retry=retry_if_exception_type((httpx.TransportError, Retryable)),
+       reraise=True)
+async def post_entry(entry: LedgerEntry, idem_key: str) -&gt; LedgerRef:
+    r = await client.post("/entries", json=entry.model_dump(mode="json"),
+                          headers={"Idempotency-Key": idem_key})
+    if r.status_code &gt;= 500:
+        raise Retryable(f"ledger {r.status_code}")
+    if r.status_code &gt;= 400:
+        raise Permanent(r.text[:200])
+    return LedgerRef.model_validate(r.json())   <span class="c"># their JSON is untrusted too</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What the code does</h4>
+          <ul>
+            <li><strong>Every call has a timeout.</strong> <code>httpx</code> defaults to five seconds; <code>requests</code> defaults to waiting forever, which is the difference that matters.</li>
+            <li><strong>One client, reused</strong> &mdash; it holds the connection pool. Create it at start-up, close it at shutdown.</li>
+            <li><strong>Retry only what a retry can fix</strong>: connection errors and 5xx. A 400 will be a 400 again.</li>
+            <li><strong>Back off between attempts</strong>, and add jitter so a thousand clients do not all retry on the same tick.</li>
+            <li>Validate their response too &mdash; another service&rsquo;s JSON is exactly as untrusted as a browser&rsquo;s.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Why it is written this way</h4>
+          <ul>
+            <li><strong>Two exception types, not status-code checks at the call site.</strong> <code>Retryable</code> and <code>Permanent</code> put the policy in one place and make the retry decorator declarative.</li>
+            <li><strong>The idempotency key is generated by the caller</strong> and reused across all attempts &mdash; that is what makes a retry safe rather than a second charge.</li>
+            <li><strong>Timeouts are named separately</strong> so you can allow a slow response while still failing fast on a dead host.</li>
+            <li><strong>Cap the total attempts against the caller&rsquo;s deadline</strong>, not against a number that felt right. Three &times; 600&nbsp;ms does not fit in a 2s budget.</li>
+            <li><strong><code>max_connections</code> is your bound on the downstream</strong>, and it is the only thing standing between a slow dependency and every worker you own.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What bites in production</h4>
+          <ul>
+            <li><strong>Retries are a load multiplier.</strong> A struggling service that you hit three times instead of once gets 3&times; the traffic exactly when it can least take it &mdash; the metastable failure from the foundations page.</li>
+            <li><strong>A circuit breaker is the missing piece.</strong> After N consecutive failures, fail immediately for a cooldown instead of queueing more work against a service that is down.</li>
+            <li><strong>Retrying a non-idempotent POST duplicates work</strong> unless the server enforces the key. &ldquo;We send a key&rdquo; and &ldquo;they honour it&rdquo; are different claims &mdash; check which one is true.</li>
+            <li><strong>Propagate the deadline</strong>, not just a timeout: pass the remaining budget downstream so the whole chain gives up together, the way a Go <code>context</code> does.</li>
+            <li><strong>Connection pools and forked workers</strong> &mdash; a client created before <code>fork</code> shares sockets across processes. Build it in the worker&rsquo;s own start-up hook.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="ex-fanout">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Fan-out with a bound on it</h3>
+        <p class="lede">The job: enrich two hundred records by calling a service for each. The naive version issues two hundred simultaneous requests, and the thing that breaks is not your process &mdash; it is theirs.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 320" role="img" aria-label="Two hundred coroutines passing through a semaphore holding twenty permits, giving a steady twenty in flight against a downstream service; below, the unbounded version opening two hundred sockets against a pool of twenty-five and timing out.">
+          <defs>
+            <marker id="pf-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WITH A SEMAPHORE</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="36" width="150" height="16" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="20" y="58" width="150" height="16" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="20" y="80" width="150" height="16" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="20" y="102" width="150" height="16" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="20" y="138" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">&hellip; 200 coroutines</text>
+            <line x1="172" y1="76" x2="196" y2="76" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-4)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="200" y="36" width="176" height="104" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="212" y="54" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Semaphore(20)</text>
+            <rect x="212" y="64" width="12" height="12" fill="currentColor"/>
+            <rect x="228" y="64" width="12" height="12" fill="currentColor"/>
+            <rect x="244" y="64" width="12" height="12" fill="currentColor"/>
+            <rect x="260" y="64" width="12" height="12" fill="currentColor"/>
+            <rect x="276" y="64" width="12" height="12" fill="currentColor"/>
+            <rect x="212" y="80" width="12" height="12" fill="currentColor"/>
+            <rect x="228" y="80" width="12" height="12" fill="currentColor"/>
+            <rect x="244" y="80" width="12" height="12" fill="currentColor"/>
+            <rect x="260" y="80" width="12" height="12" fill="currentColor"/>
+            <rect x="276" y="80" width="12" height="12" fill="currentColor"/>
+            <rect x="212" y="96" width="12" height="12" fill="currentColor"/>
+            <rect x="228" y="96" width="12" height="12" fill="currentColor"/>
+            <rect x="244" y="96" width="12" height="12" fill="currentColor"/>
+            <rect x="260" y="96" width="12" height="12" fill="currentColor"/>
+            <rect x="276" y="96" width="12" height="12" fill="currentColor"/>
+            <rect x="212" y="112" width="12" height="12" fill="currentColor"/>
+            <rect x="228" y="112" width="12" height="12" fill="currentColor"/>
+            <rect x="244" y="112" width="12" height="12" fill="currentColor"/>
+            <rect x="260" y="112" width="12" height="12" fill="currentColor"/>
+            <rect x="276" y="112" width="12" height="12" fill="currentColor"/>
+            <text x="300" y="76" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">20 permits,</text>
+            <text x="300" y="90" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">180 waiting</text>
+            <line x1="378" y1="88" x2="402" y2="88" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-4)"/>
+            <rect x="406" y="52" width="170" height="72" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="418" y="76" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">20 in flight</text>
+            <text x="418" y="96" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">steady, all the way</text>
+            <line x1="578" y1="88" x2="602" y2="88" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-4)"/>
+            <rect x="606" y="52" width="274" height="72" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="618" y="76" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">downstream: pool of 25</text>
+            <text x="618" y="96" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">Latency rises a little. Nothing fails.</text>
+          </g>
+
+          <line x1="20" y1="158" x2="880" y2="158" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="182" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WITHOUT ONE &mdash; gather(*(fetch(i) for i in ids))</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="196" width="196" height="60" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="32" y="220" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">200 at once</text>
+            <text x="32" y="240" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">the loop is happy</text>
+            <line x1="218" y1="226" x2="242" y2="226" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-4)"/>
+            <rect x="246" y="196" width="196" height="60" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="258" y="220" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">200 sockets</text>
+            <text x="258" y="240" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">or a pool-timeout storm</text>
+            <line x1="444" y1="226" x2="468" y2="226" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-4)"/>
+            <rect x="472" y="196" width="196" height="60" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="484" y="220" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">their pool: 25</text>
+            <text x="484" y="240" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">175 queue, then 503</text>
+            <line x1="670" y1="226" x2="694" y2="226" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-4)"/>
+            <rect x="698" y="196" width="182" height="60" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="710" y="220" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">retries &rarr; 400</text>
+            <text x="710" y="240" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">now it cannot recover</text>
+          </g>
+
+          <text x="20" y="292" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Concurrency is cheap in your process and expensive in theirs. The bound belongs on your side, because you are the one who knows how many</text>
+          <text x="20" y="310" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">of you there are.</text>
+        </svg>
+        <figcaption><b>The semaphore is the backpressure.</b> Without it, <code>gather</code> converts a list length into a concurrency level &mdash; and the list length is chosen by whoever sent the request, not by you.</figcaption>
+      </figure>
+
+      <pre class="l1"><span class="c"># bounded fan-out, partial failure allowed</span>
+async def enrich_all(ids: list[str], *, limit: int = 20) -&gt; list[Result | BaseException]:
+    sem = asyncio.Semaphore(limit)
+
+    async def one(oid: str) -&gt; Result:
+        async with sem:                        <span class="c"># the bound, not the loop</span>
+            async with asyncio.timeout(2.0):   <span class="c"># per item, not per batch</span>
+                return await enrich(oid)
+
+    return await asyncio.gather(*(one(i) for i in ids), return_exceptions=True)
+    <span class="c"># return_exceptions=True: one bad id does not lose the other 199 results</span></pre>
+
+      <pre class="l3"><span class="c"># all-or-nothing instead: 3.11+ TaskGroup cancels siblings on first failure</span>
+async def must_all_succeed(ids: list[str]) -&gt; dict[str, Result]:
+    async with asyncio.TaskGroup() as tg:
+        tasks = {i: tg.create_task(enrich(i)) for i in ids}
+    return {i: t.result() for i, t in tasks.items()}
+
+<span class="c"># the exit raises ExceptionGroup — handle by type, not by position:</span>
+try:
+    results = await must_all_succeed(ids)
+except* TimeoutError as eg:
+    log.warning("slow upstream", count=len(eg.exceptions))
+except* ValidationError as eg:
+    log.error("bad payload", count=len(eg.exceptions))</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What the code does</h4>
+          <ul>
+            <li><strong><code>gather</code> starts everything at once</strong> and waits for all of it. The list you pass decides how much runs concurrently.</li>
+            <li><strong><code>Semaphore(20)</code></strong> hands out twenty permits; the twenty-first <code>async with</code> waits until one is returned.</li>
+            <li><strong><code>return_exceptions=True</code></strong> puts failures in the result list instead of losing the successes.</li>
+            <li><strong><code>asyncio.timeout</code></strong> is a context manager, so it bounds a block rather than a single call.</li>
+            <li><code>TaskGroup</code> is the newer, stricter option: if one child fails the rest are cancelled.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Why it is written this way</h4>
+          <ul>
+            <li><strong>The timeout is inside the semaphore</strong>, so the two seconds measure the actual call &mdash; not two seconds of queueing behind other tasks.</li>
+            <li><strong>Choose the failure mode deliberately.</strong> <code>gather(return_exceptions=True)</code> for &ldquo;do as much as you can&rdquo;; <code>TaskGroup</code> for &ldquo;all of it or none&rdquo;.</li>
+            <li><strong><code>except*</code> handles an <code>ExceptionGroup</code></strong>, which is what a <code>TaskGroup</code> raises when several children fail at once.</li>
+            <li><strong>The limit should be derived, not guessed</strong>: their capacity divided by the number of instances of you.</li>
+            <li><strong>Order out matches order in.</strong> <code>gather</code> preserves position, so you can zip results back to inputs; <code>as_completed</code> does not.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What bites in production</h4>
+          <ul>
+            <li><strong>Cancellation is cooperative.</strong> A cancelled task resumes with <code>CancelledError</code> at its next <code>await</code> &mdash; if it is blocked in C code it will not stop at all.</li>
+            <li><strong>Never swallow <code>CancelledError</code>.</strong> <code>except Exception</code> will not catch it &mdash; it inherits from <code>BaseException</code>, deliberately. What breaks shutdown is <code>except BaseException</code> or a bare <code>except:</code> that catches it and carries on.</li>
+            <li><strong>Fire-and-forget tasks get garbage collected.</strong> <code>create_task</code> without keeping a reference can have the task vanish mid-flight; hold it in a set and discard on completion.</li>
+            <li><strong>Two hundred coroutines is memory too</strong> &mdash; each holds its own frame and its own response buffer. Bounded concurrency bounds peak memory as well.</li>
+            <li><strong>The real limit is often theirs, expressed as 429.</strong> Read the <code>Retry-After</code> header rather than guessing your own backoff.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="ex-stream">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>A file that does not fit in memory</h3>
+        <p class="lede">The job: load an 8&nbsp;GB compressed export into the database. The version that works and the version that gets OOM-killed differ by one word &mdash; <code>list</code> &mdash; and the generator topic earlier is the reason.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 310" role="img" aria-label="A memory profile comparing reading a whole file into a list, which climbs into the container limit and is killed, with a generator pipeline that stays flat at the size of one batch; below, the pipeline stages and how much each holds.">
+          <defs>
+            <marker id="pf-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">RESIDENT MEMORY, SAME 8 GB FILE</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="32" width="416" height="150" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="34" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">rows = list(csv.DictReader(fh))</text>
+            <text x="34" y="88" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.75">container limit, 2 GB</text>
+            <line x1="34" y1="96" x2="422" y2="96" stroke="currentColor" stroke-width="1.3" stroke-dasharray="4 3"/>
+            <polyline points="34,166 110,152 170,136 220,118 258,98" fill="none" stroke="currentColor" stroke-width="2"/>
+            <line x1="250" y1="90" x2="266" y2="106" stroke="currentColor" stroke-width="1.8"/>
+            <line x1="266" y1="90" x2="250" y2="106" stroke="currentColor" stroke-width="1.8"/>
+            <text x="278" y="126" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">OOMKilled,</text>
+            <text x="278" y="142" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">40% through</text>
+            <line x1="34" y1="166" x2="422" y2="166" stroke="currentColor" stroke-width="1.2"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="464" y="32" width="416" height="150" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="478" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">for batch in batched(valid(rows(p)), 1000):</text>
+            <text x="478" y="88" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.75">container limit, 2 GB</text>
+            <line x1="478" y1="96" x2="866" y2="96" stroke="currentColor" stroke-width="1.3" stroke-dasharray="4 3"/>
+            <polyline points="478,152 540,149 610,150 680,148 760,150 866,149" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="478" y="142" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.9">Flat at about 30 MB &mdash; one batch, whatever the file size.</text>
+            <line x1="478" y1="166" x2="866" y2="166" stroke="currentColor" stroke-width="1.2"/>
+          </g>
+
+          <text x="20" y="206" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT EACH STAGE HOLDS</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="220" width="150" height="48" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="240" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">rows()</text>
+            <text x="32" y="258" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">one line</text>
+            <line x1="172" y1="244" x2="196" y2="244" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-5)"/>
+            <rect x="200" y="220" width="150" height="48" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="212" y="240" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">valid()</text>
+            <text x="212" y="258" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">one Order</text>
+            <line x1="352" y1="244" x2="376" y2="244" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-5)"/>
+            <rect x="380" y="220" width="170" height="48" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="392" y="240" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">batched(1000)</text>
+            <text x="392" y="258" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">1000 &mdash; the only knob</text>
+            <line x1="552" y1="244" x2="576" y2="244" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-5)"/>
+            <rect x="580" y="220" width="160" height="48" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="592" y="240" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">executemany</text>
+            <text x="592" y="258" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">one round trip</text>
+            <line x1="742" y1="244" x2="766" y2="244" stroke="currentColor" stroke-width="1.3" marker-end="url(#pf-5)"/>
+            <rect x="770" y="220" width="110" height="48" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="782" y="240" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Counter</text>
+            <text x="782" y="258" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">one small dict</text>
+          </g>
+
+          <text x="20" y="296" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Nothing in the chain ever holds more than one batch, so the size of the input stops being a variable your service has to survive.</text>
+        </svg>
+        <figcaption><b>The knob is the batch size, and it is the only one.</b> Everything upstream of it is lazy, so peak memory is a number you chose rather than a number the input chose for you.</figcaption>
+      </figure>
+
+      <pre class="l1"><span class="c"># each stage is lazy; nothing is read until the for loop pulls</span>
+def rows(path: str) -&gt; Iterator[dict[str, str]]:
+    with gzip.open(path, "rt", newline="") as fh:      <span class="c"># decompresses as it reads</span>
+        yield from csv.DictReader(fh)
+
+def valid(raw: Iterable[dict[str, str]]) -&gt; Iterator[Order]:
+    for i, r in enumerate(raw, start=2):               <span class="c"># line 1 is the header</span>
+        try:
+            yield Order.model_validate(r)              <span class="c"># pydantic, at the edge again</span>
+        except ValidationError as e:
+            log.warning("skipped row", line=i, errors=e.error_count())</pre>
+
+      <pre class="l2"><span class="c"># the driver: one transaction per batch, so a failure loses 1000 rows, not 8 GB</span>
+from itertools import batched            <span class="c"># 3.12+; recipe in the docs before that</span>
+
+totals: Counter[str] = Counter()
+for n, batch in enumerate(batched(valid(rows("orders.csv.gz")), 1000), start=1):
+    with session.begin():
+        session.execute(insert(OrderRow), [o.model_dump() for o in batch])
+    totals.update(o.currency for o in batch)
+    if n % 100 == 0:
+        log.info("progress", batches=n, rows=n * 1000, totals=dict(totals))</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What the code does</h4>
+          <ul>
+            <li><strong><code>yield</code> makes the function lazy</strong> &mdash; calling <code>rows(path)</code> reads nothing; the <code>for</code> loop at the end pulls one row at a time through the whole chain.</li>
+            <li><strong><code>yield from</code></strong> forwards every item of an inner iterable without a loop.</li>
+            <li><strong><code>with gzip.open(...)</code></strong> decompresses on the fly; the file is never on disk uncompressed and never fully in memory.</li>
+            <li><strong><code>batched</code></strong> turns a stream of items into a stream of tuples of <em>n</em>.</li>
+            <li><code>Counter.update</code> accumulates counts without building an intermediate list.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Why it is written this way</h4>
+          <ul>
+            <li><strong>Each stage does one thing</strong>, so each can be tested with a three-item list instead of an 8&nbsp;GB file.</li>
+            <li><strong>Bad rows are skipped with the line number</strong>, not silently dropped and not fatal &mdash; an import that dies on row 4 million is an import you run four times.</li>
+            <li><strong>One transaction per batch</strong> bounds both the lock duration and how much work a crash costs.</li>
+            <li><strong>Batch inserts, not row inserts.</strong> A thousand single <code>INSERT</code>s is a thousand round trips; the batch is one.</li>
+            <li><strong>Log progress by batch count.</strong> A silent job that runs for an hour is indistinguishable from a hung one.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What bites in production</h4>
+          <ul>
+            <li><strong>A generator holds its resources open.</strong> The <code>with</code> inside <code>rows</code> only closes when the generator is exhausted or garbage collected &mdash; break out early and the file handle lingers.</li>
+            <li><strong>Restartability beats speed.</strong> Record the last committed batch so a rerun resumes rather than starting again; with a unique key the insert can be an upsert and the whole job idempotent.</li>
+            <li><strong>The database is usually the bottleneck, not the parse.</strong> Measure before reaching for multiprocessing &mdash; then <code>COPY</code> beats every Python-side optimisation by an order of magnitude.</li>
+            <li><strong>Generators and exceptions interact badly under concurrency</strong>: a generator is not thread-safe, and sharing one across workers corrupts its state silently.</li>
+            <li><strong>Watch fragmentation, not just peak.</strong> A long-running loop can hold flat RSS while the allocator never returns freed arenas to the OS.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </div>
+</section>

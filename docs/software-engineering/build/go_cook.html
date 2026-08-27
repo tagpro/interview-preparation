@@ -1,0 +1,757 @@
+<section class="part" id="cookbook">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part eight</span>
+      <h2>Five things you will actually be asked to write</h2>
+      <p>Everything up to here was mechanism. This part is the code &mdash; five ordinary backend jobs written the way a Go reviewer would want them, with the reasoning attached. The L2 column of each says why it is written that way rather than the shorter way.</p>
+    </div>
+
+    <section class="topic" id="gx-main">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>A service <code>main()</code>, start to finish</h3>
+        <p class="lede">The job: wire up a service so it fails loudly at start-up and quietly on the way down. The shape is always the same &mdash; <code>main</code> does nothing but call <code>run</code> and exit, because a function that returns an error is testable and a function that calls <code>os.Exit</code> is not.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 276" role="img" aria-label="Five start-up steps left to right — config, logger, database pool, server, signal handling — and the exact reverse order on the way down, from SIGTERM through Shutdown and draining to closing the database and exiting.">
+          <defs>
+            <marker id="gx-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">START-UP &mdash; EACH STEP NEEDS ONLY THE ONES TO ITS LEFT</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="32" width="156" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">config.Load()</text>
+            <text x="32" y="70" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">or return an error</text>
+            <line x1="178" y1="58" x2="192" y2="58" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-1)"/>
+            <rect x="196" y="32" width="156" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="208" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">slog handler</text>
+            <text x="208" y="70" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">set once, in run()</text>
+            <line x1="354" y1="58" x2="368" y2="58" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-1)"/>
+            <rect x="372" y="32" width="156" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="384" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">sql.Open + Ping</text>
+            <text x="384" y="70" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">pool limits here</text>
+            <line x1="530" y1="58" x2="544" y2="58" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-1)"/>
+            <rect x="548" y="32" width="156" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">http.Server</text>
+            <text x="560" y="70" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">all four timeouts</text>
+            <line x1="706" y1="58" x2="720" y2="58" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-1)"/>
+            <rect x="724" y="32" width="156" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="736" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">NotifyContext</text>
+            <text x="736" y="70" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">SIGINT, SIGTERM</text>
+          </g>
+
+          <text x="20" y="110" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Every one of these returns an error rather than calling <tspan font-family="IBM Plex Mono, monospace" font-size="10">log.Fatal</tspan> &mdash; which is what makes the whole of <tspan font-family="IBM Plex Mono, monospace" font-size="10">run()</tspan> testable.</text>
+
+          <text x="20" y="140" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">SHUTDOWN &mdash; THE SAME LIST, BACKWARDS</text>
+
+          <g class="svg-l2">
+            <rect x="724" y="152" width="156" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="736" y="172" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">SIGTERM</text>
+            <text x="736" y="190" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">ctx.Done() fires</text>
+            <line x1="722" y1="178" x2="708" y2="178" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-1)"/>
+            <rect x="548" y="152" width="156" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="172" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">srv.Shutdown</text>
+            <text x="560" y="190" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">stop accepting</text>
+            <line x1="546" y1="178" x2="532" y2="178" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-1)"/>
+            <rect x="372" y="152" width="156" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="384" y="172" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">drain in flight</text>
+            <text x="384" y="190" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">25s grace</text>
+            <line x1="370" y1="178" x2="356" y2="178" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-1)"/>
+            <rect x="196" y="152" width="156" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="208" y="172" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">db.Close</text>
+            <text x="208" y="190" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">after the last query</text>
+            <line x1="194" y1="178" x2="180" y2="178" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-1)"/>
+            <rect x="20" y="152" width="156" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="172" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">return nil</text>
+            <text x="32" y="190" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">exit 0</text>
+          </g>
+
+          <text x="20" y="234" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Deferred calls unwind in exactly this order for free, which is why every resource is acquired with its <tspan font-family="IBM Plex Mono, monospace" font-size="10.5">defer</tspan> written on the next line.</text>
+          <text x="20" y="256" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Keep the grace period below the platform&rsquo;s own kill deadline &mdash; on Kubernetes that is <tspan font-family="IBM Plex Mono, monospace" font-size="10.5">terminationGracePeriodSeconds</tspan>, default 30s.</text>
+        </svg>
+        <figcaption><b><code>main</code> exits; <code>run</code> does the work.</b> One error return instead of a scattering of <code>log.Fatal</code> calls means start-up can be exercised in a test, and every <code>defer</code> in the function actually gets to run.</figcaption>
+      </figure>
+
+      <pre class="l1">func main() {
+	if err := run(context.Background()); err != nil {
+		slog.Error("fatal", "err", err)
+		os.Exit(1)                      <span class="c">// the only Exit in the programme</span>
+	}
+}
+
+func run(ctx context.Context) error {
+	cfg, err := config.Load()               <span class="c">// fails now, not at 3am</span>
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	db, err := sql.Open("pgx", cfg.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(cfg.DBMaxConns)      <span class="c">// default is unlimited</span>
+	db.SetConnMaxLifetime(30 * time.Minute) <span class="c">// survives a failover</span>
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping db: %w", err)
+	}</pre>
+
+      <pre class="l2">	srv := &amp;http.Server{
+		Addr:              cfg.Addr,
+		Handler:           routes(db),
+		ReadHeaderTimeout: 5 * time.Second,   <span class="c">// the anti-Slowloris one</span>
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	errc := make(chan error, 1)               <span class="c">// buffered: the goroutine never blocks</span>
+	go func() { errc &lt;- srv.ListenAndServe() }()
+
+	select {
+	case err := &lt;-errc:
+		return fmt.Errorf("serve: %w", err)   <span class="c">// could not bind, or a real failure</span>
+	case &lt;-ctx.Done():
+		slog.Info("signal received, draining")
+	}
+
+	grace, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()                            <span class="c">// NOT ctx — that one is cancelled</span>
+	return srv.Shutdown(grace)
+}</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What the code does</h4>
+          <ul>
+            <li><strong><code>run</code> returns <code>error</code></strong>; <code>main</code> prints it and exits. Everything else is ordinary code.</li>
+            <li><strong><code>signal.NotifyContext</code></strong> gives you a context that is cancelled when SIGTERM arrives &mdash; no channel plumbing needed.</li>
+            <li><strong><code>defer db.Close()</code></strong> immediately after a successful open, so there is no path that forgets it.</li>
+            <li><strong><code>%w</code></strong> wraps: the caller can still match the underlying error with <code>errors.Is</code>.</li>
+            <li><code>ListenAndServe</code> blocks, so it goes in a goroutine and reports back on a channel.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Why it is written this way</h4>
+          <ul>
+            <li><strong><code>log.Fatal</code> skips every <code>defer</code>.</strong> It is <code>os.Exit</code> with a print &mdash; connections stay open, buffers stay unflushed, and the function cannot be tested.</li>
+            <li><strong>The shutdown context is a fresh one.</strong> Deriving it from the cancelled <code>ctx</code> makes <code>Shutdown</code> return instantly and kills in-flight requests, which is the exact bug this code is avoiding.</li>
+            <li><strong><code>errc</code> is buffered with capacity one</strong> so the serving goroutine can send and exit even after <code>select</code> has already taken the shutdown branch. Unbuffered, it leaks.</li>
+            <li><strong><code>ReadHeaderTimeout</code> is the one that matters</strong> for an exposed service; without it a client can hold a connection open with a slow trickle of header bytes.</li>
+            <li><strong><code>SetMaxOpenConns</code> defaults to unlimited</strong>, which means one traffic spike can exhaust the database&rsquo;s own connection limit.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What bites in production</h4>
+          <ul>
+            <li><strong><code>Shutdown</code> does not touch hijacked or long-lived connections</strong> &mdash; WebSockets and SSE streams need their own cancellation, usually a context stored per connection.</li>
+            <li><strong>Readiness must flip before the drain starts.</strong> Fail the readiness probe, wait one probe interval so the load balancer stops sending traffic, and only then call <code>Shutdown</code>.</li>
+            <li><strong><code>defer stop()</code> restores default signal handling</strong>; a second SIGTERM after that kills the process immediately, which is usually what an impatient operator wants.</li>
+            <li><strong>Background workers need the same treatment.</strong> Give them the same <code>ctx</code> and wait for them with an <code>errgroup</code>, or the process exits with work half-done.</li>
+            <li><strong><code>sql.Open</code> does not connect.</strong> Without the explicit <code>PingContext</code>, a bad password becomes a run-time error on the first request rather than a start-up failure.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="gx-pool">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>Bounded fan-out with <code>errgroup</code></h3>
+        <p class="lede">The job: call a service once per item for a few hundred items. Unbounded goroutines are cheap for you and expensive for whoever you are calling &mdash; and <code>errgroup</code> gives you the bound, the error and the cancellation in one type.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 306" role="img" aria-label="A job list passing through a concurrency limit of twenty into twenty running goroutines writing to a mutex-guarded map; below, the failure path where one goroutine returns an error, the group cancels the shared context, every sibling observes the cancellation and Wait returns the first error.">
+          <defs>
+            <marker id="gx-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE GROUP, ONE CONTEXT, ONE LIMIT</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="150" height="56" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="58" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">580 ids</text>
+            <text x="32" y="78" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">a plain slice</text>
+            <line x1="172" y1="62" x2="196" y2="62" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-2)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="200" y="34" width="180" height="56" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="212" y="58" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">g.SetLimit(20)</text>
+            <text x="212" y="78" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">g.Go blocks past 20</text>
+            <line x1="382" y1="62" x2="406" y2="62" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-2)"/>
+            <rect x="410" y="34" width="180" height="56" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="422" y="58" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">20 goroutines</text>
+            <text x="422" y="78" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">never 580</text>
+            <line x1="592" y1="62" x2="616" y2="62" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-2)"/>
+            <rect x="620" y="34" width="260" height="56" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="632" y="58" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">out[id] = r, under mu</text>
+            <text x="632" y="78" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">a map write is not atomic</text>
+          </g>
+
+          <text x="20" y="118" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">The limit is memory, sockets and downstream load all at once &mdash; and it is one line rather than a hand-rolled worker pool.</text>
+
+          <line x1="20" y1="136" x2="880" y2="136" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="160" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHEN ONE OF THEM FAILS</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="174" width="200" height="62" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="32" y="198" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">worker returns err</text>
+            <text x="32" y="218" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">the first one only</text>
+            <line x1="222" y1="205" x2="240" y2="205" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-2)"/>
+            <rect x="244" y="174" width="200" height="62" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="256" y="198" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">group cancels ctx</text>
+            <text x="256" y="218" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">the one from WithContext</text>
+            <line x1="446" y1="205" x2="464" y2="205" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-2)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="468" y="174" width="200" height="62" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="480" y="198" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">siblings observe it</text>
+            <text x="480" y="218" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">at their next I/O call</text>
+            <line x1="670" y1="205" x2="688" y2="205" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-2)"/>
+            <rect x="692" y="174" width="188" height="62" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="704" y="198" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">g.Wait() &rarr; err</text>
+            <text x="704" y="218" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">after all have stopped</text>
+          </g>
+
+          <text x="20" y="266" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Cancellation is cooperative: a sibling stuck in a call that ignores its context keeps running, and <tspan font-family="IBM Plex Mono, monospace" font-size="10.5">Wait</tspan> keeps waiting for it. That is</text>
+          <text x="20" y="288" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">the whole reason every blocking call in the standard library has a <tspan font-family="IBM Plex Mono, monospace" font-size="10.5">&hellip;Context</tspan> variant.</text>
+        </svg>
+        <figcaption><b><code>errgroup</code> is a <code>WaitGroup</code> that also carries an error and a context.</b> <code>SetLimit</code> is the bound, <code>WithContext</code> is the cancellation, and <code>Wait</code> is the join &mdash; three problems that used to need three hand-written pieces.</figcaption>
+      </figure>
+
+      <pre class="l1">func enrichAll(ctx context.Context, ids []string) (map[string]Result, error) {
+	g, ctx := errgroup.WithContext(ctx)   <span class="c">// shadowing ctx is idiomatic here</span>
+	g.SetLimit(20)                        <span class="c">// at most 20 in flight, ever</span>
+
+	var mu sync.Mutex
+	out := make(map[string]Result, len(ids))
+
+	for _, id := range ids {              <span class="c">// Go 1.22+: id is per-iteration</span>
+		g.Go(func() error {
+			r, err := enrich(ctx, id)     <span class="c">// the cancellable ctx, not the outer one</span>
+			if err != nil {
+				return fmt.Errorf("enrich %s: %w", id, err)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			out[id] = r
+			return nil
+		})
+	}
+	return out, g.Wait()                  <span class="c">// blocks until every goroutine is done</span>
+}</pre>
+
+      <pre class="l3"><span class="c">// when a partial answer is the right answer, collect instead of cancelling:</span>
+	var (
+		mu   sync.Mutex
+		errs []error
+	)
+	g := new(errgroup.Group)              <span class="c">// no WithContext — no sibling cancellation</span>
+	g.SetLimit(20)
+	for _, id := range ids {
+		g.Go(func() error {
+			r, err := enrich(ctx, id)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", id, err))
+				return nil                <span class="c">// nil: do not stop the others</span>
+			}
+			out[id] = r
+			return nil
+		})
+	}
+	_ = g.Wait()
+	return out, errors.Join(errs...)      <span class="c">// one error holding all of them</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What the code does</h4>
+          <ul>
+            <li><strong><code>errgroup.WithContext</code></strong> returns a group and a derived context that the group cancels as soon as any goroutine returns a non-nil error.</li>
+            <li><strong><code>g.Go(fn)</code></strong> starts a goroutine; <strong><code>g.Wait()</code></strong> blocks until they have all finished and returns the first error.</li>
+            <li><strong><code>SetLimit(n)</code></strong> makes <code>g.Go</code> itself block once <em>n</em> are running &mdash; the backpressure is at the submission point.</li>
+            <li><strong>A mutex around the map</strong> because concurrent map writes are a run-time crash in Go, not a race you get away with.</li>
+            <li><code>errors.Join</code> combines several errors into one that <code>errors.Is</code> can still search.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Why it is written this way</h4>
+          <ul>
+            <li><strong>Pass the group&rsquo;s <code>ctx</code> to the work</strong>, not the original. Using the outer context means the cancellation you carefully set up reaches nobody.</li>
+            <li><strong>Two shapes, chosen deliberately</strong>: <code>WithContext</code> for &ldquo;all of it or none&rdquo;, a bare <code>Group</code> plus <code>errors.Join</code> for &ldquo;do as much as you can and tell me what failed&rdquo;.</li>
+            <li><strong>Pre-size the map</strong> with <code>make(..., len(ids))</code> so it does not rehash while twenty goroutines contend for the lock.</li>
+            <li><strong>Wrap with the id.</strong> <code>enrich 8fa3: context deadline exceeded</code> is actionable; <code>context deadline exceeded</code> alone is not.</li>
+            <li><strong>The loop-variable capture bug is gone in Go 1.22+</strong> &mdash; but on an older module version this exact code silently enriches the last id <em>n</em> times.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What bites in production</h4>
+          <ul>
+            <li><strong><code>SetLimit</code> after <code>Go</code> panics</strong>, and a limit of zero deadlocks immediately. Set it once, before the loop.</li>
+            <li><strong>Cancellation does not unblock everything.</strong> A CPU-bound loop, a call without a context, or a <code>sync.Mutex</code> wait ignores it entirely &mdash; <code>Wait</code> then hangs for as long as that call does.</li>
+            <li><strong>The first error wins, the rest are dropped.</strong> If several failures are diagnostically different, collect them; the default hides everything after the first.</li>
+            <li><strong>A panic in a <code>g.Go</code> goroutine takes down the process</strong> &mdash; <code>errgroup</code> does not recover for you. Recover at the top of the closure if the work is untrusted.</li>
+            <li><strong>Bound by the downstream&rsquo;s capacity divided by your replica count.</strong> A limit of 20 on 30 pods is 600 concurrent calls arriving at one service.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="gx-client">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>An outbound call that cannot hang</h3>
+        <p class="lede">The job: call an internal API safely. Go gives you five separate deadlines and two easy ways to leak a connection &mdash; and the default <code>http.Client</code>, which has no timeout at all, is the one thing you must never use.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 300" role="img" aria-label="One request lifecycle showing where the dial, TLS handshake and response-header timeouts apply, with the overall client timeout spanning all of them including the body read; below, the difference between closing a response body and draining it first, in terms of connection reuse.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">FIVE DEADLINES, THREE OF THEM ON THE TRANSPORT</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="34" width="800" height="18" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="830" y="47" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">5s total</text>
+          </g>
+          <text x="20" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">client.Timeout &mdash; the only one that also covers reading the body</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="84" width="160" height="18" fill="currentColor" opacity="0.45"/>
+            <rect x="184" y="84" width="136" height="18" fill="currentColor" opacity="0.45"/>
+            <rect x="324" y="84" width="196" height="18" fill="currentColor" opacity="0.45"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="524" y="84" width="296" height="18" fill="currentColor" opacity="0.45"/>
+          </g>
+
+          <text x="20" y="120" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.85">Dialer.Timeout</text>
+          <text x="184" y="120" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.85">TLSHandshakeTimeout</text>
+          <text x="324" y="120" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.85">ResponseHeaderTimeout</text>
+          <text x="524" y="120" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.85">reading the body &mdash; no transport knob at all</text>
+          <text x="20" y="136" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.6">1s</text>
+          <text x="184" y="136" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.6">1s</text>
+          <text x="324" y="136" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.6">2s</text>
+          <text x="524" y="136" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.6">bounded only by client.Timeout and the request context</text>
+
+          <line x1="20" y1="156" x2="880" y2="156" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="180" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">AND THE TWO LINES EVERY REVIEWER LOOKS FOR</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="194" width="416" height="76" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="34" y="216" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">defer resp.Body.Close()</text>
+            <text x="34" y="238" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Closing an unread body abandons the connection.</text>
+            <text x="34" y="256" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Every call pays a fresh TCP and TLS handshake.</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="464" y="194" width="416" height="76" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="478" y="216" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">io.Copy(io.Discard, resp.Body); Close()</text>
+            <text x="478" y="238" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Draining first returns the connection to the pool,</text>
+            <text x="478" y="256" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">so the next call reuses it and costs microseconds.</text>
+          </g>
+        </svg>
+        <figcaption><b>The zero-value <code>http.Client</code> waits forever.</b> Not for a long time &mdash; forever. One unresponsive host will consume every goroutine that calls it, which is how a dependency&rsquo;s bad minute becomes your outage.</figcaption>
+      </figure>
+
+      <pre class="l2"><span class="c">// one client for the process; it is safe for concurrent use by design</span>
+var client = &amp;http.Client{
+	Timeout: 5 * time.Second,                 <span class="c">// dial + TLS + headers + body</span>
+	Transport: &amp;http.Transport{
+		DialContext:           (&amp;net.Dialer{Timeout: time.Second}).DialContext,
+		TLSHandshakeTimeout:   time.Second,
+		ResponseHeaderTimeout: 2 * time.Second,
+		MaxIdleConnsPerHost:   32,            <span class="c">// default is 2 — the silent bottleneck</span>
+		IdleConnTimeout:       90 * time.Second,
+	},
+}
+
+var (
+	ErrRetryable = errors.New("upstream unavailable")
+	ErrRejected  = errors.New("upstream rejected the request")
+)</pre>
+
+      <pre class="l1">func postEntry(ctx context.Context, e Entry, idem string) (Ref, error) {
+	body, err := json.Marshal(e)
+	if err != nil {
+		return Ref{}, fmt.Errorf("marshal entry: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		baseURL+"/entries", bytes.NewReader(body))
+	if err != nil {
+		return Ref{}, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", idem)   <span class="c">// same key on every retry</span>
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return Ref{}, fmt.Errorf("post entry: %w", err)  <span class="c">// wraps ctx deadlines</span>
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body) <span class="c">// drain, then close, in that order</span>
+		_ = resp.Body.Close()
+	}()
+
+	switch {
+	case resp.StatusCode &gt;= 500:
+		return Ref{}, fmt.Errorf("ledger %d: %w", resp.StatusCode, ErrRetryable)
+	case resp.StatusCode &gt;= 400:
+		return Ref{}, fmt.Errorf("ledger %d: %w", resp.StatusCode, ErrRejected)
+	}
+
+	var ref Ref
+	if err := json.NewDecoder(resp.Body).Decode(&amp;ref); err != nil {
+		return Ref{}, fmt.Errorf("decode ref: %w", err)
+	}
+	return ref, nil
+}</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What the code does</h4>
+          <ul>
+            <li><strong>One package-level client</strong>, reused. It holds the connection pool; a new one per call throws that pool away.</li>
+            <li><strong><code>NewRequestWithContext</code></strong>, never <code>http.Post</code> &mdash; the context is how a cancelled request actually stops.</li>
+            <li><strong><code>defer</code> drain-then-close</strong> on the body, immediately after checking <code>err</code>.</li>
+            <li><strong>Sentinel errors wrapped with <code>%w</code></strong> so the caller writes <code>errors.Is(err, ErrRetryable)</code> instead of re-parsing a status code.</li>
+            <li>A non-2xx is not an <code>err</code> from <code>Do</code>. You have to check <code>StatusCode</code> yourself.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Why it is written this way</h4>
+          <ul>
+            <li><strong>Timeouts are layered on purpose.</strong> <code>client.Timeout</code> is the backstop; the transport&rsquo;s three let you fail fast on a dead host while still allowing a slow response.</li>
+            <li><strong>The context deadline beats them all</strong>, because it also propagates: the callee learns how long the caller is still willing to wait.</li>
+            <li><strong><code>MaxIdleConnsPerHost</code> defaults to 2.</strong> On a service that talks mostly to one host, that is the single most common cause of unexplained latency.</li>
+            <li><strong>Retryable versus rejected is decided here</strong>, at the boundary, not by every caller inspecting numbers.</li>
+            <li><strong>Wrapping preserves <code>context.DeadlineExceeded</code></strong>, so a timeout is still matchable several layers up.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What bites in production</h4>
+          <ul>
+            <li><strong>A leaked body leaks a goroutine and a socket.</strong> It shows up as a slow climb in <code>goroutine</code> count &mdash; <code>pprof</code> will point straight at <code>net/http</code>.</li>
+            <li><strong>Draining a huge body is worse than dropping it.</strong> Cap it: <code>io.CopyN(io.Discard, resp.Body, 64&lt;&lt;10)</code>, then close.</li>
+            <li><strong>Retrying is only safe with a body you can rewind.</strong> A <code>bytes.Reader</code> can be re-read; an <code>io.Pipe</code> or a file stream cannot, so build the request inside the retry loop.</li>
+            <li><strong><code>client.Timeout</code> cannot be overridden per request</strong> &mdash; that is exactly what the request context is for.</li>
+            <li><strong>Sharing a <code>Transport</code> across clients is good</strong>; creating a <code>Transport</code> per request is a connection-pool leak with a slow, confusing failure mode.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="gx-repo">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>A repository over <code>database/sql</code></h3>
+        <p class="lede">The job: write two rows in one transaction and read one back. The interesting parts are the exits &mdash; a deferred rollback that is a no-op after a successful commit, and <code>sql.ErrNoRows</code>, which is the standard library asking you to decide what &ldquo;missing&rdquo; means in your domain.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 300" role="img" aria-label="A transaction with three exits — commit on success, deferred rollback on an error return, and deferred rollback on a panic — and below, an N plus one query pattern of two hundred and one round trips compared with a single query using ANY.">
+          <defs>
+            <marker id="gx-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE BeginTx, THREE WAYS OUT</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="170" height="52" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="56" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">BeginTx(ctx)</text>
+            <text x="32" y="74" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">defer tx.Rollback()</text>
+            <line x1="192" y1="60" x2="216" y2="60" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-4)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="220" y="34" width="200" height="52" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="232" y="56" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">return tx.Commit()</text>
+            <text x="232" y="74" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">rollback then no-ops</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="440" y="34" width="200" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="452" y="56" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">return err</text>
+            <text x="452" y="74" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">the defer rolls back</text>
+            <rect x="660" y="34" width="220" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="672" y="56" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">panic</text>
+            <text x="672" y="74" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">the defer still runs</text>
+          </g>
+
+          <text x="20" y="114" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Without that one deferred line, an early return leaves the transaction open until the connection is recycled &mdash; holding its locks the whole time.</text>
+
+          <line x1="20" y1="132" x2="880" y2="132" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="156" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">READING 200 ORDERS AND THEIR ITEMS</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="170" width="416" height="92" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="34" y="192" font-family="Bricolage Grotesque, sans-serif" font-size="12" font-weight="700" fill="currentColor">the loop</text>
+            <text x="34" y="214" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">SELECT * FROM orders            &rarr; 1 round trip</text>
+            <text x="34" y="232" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">for each: SELECT &hellip; WHERE id=$1 &rarr; 200 more</text>
+            <text x="34" y="252" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">201 &times; 0.4&nbsp;ms of network = 80&nbsp;ms of waiting.</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="464" y="170" width="416" height="92" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="478" y="192" font-family="Bricolage Grotesque, sans-serif" font-size="12" font-weight="700" fill="currentColor">one query</text>
+            <text x="478" y="214" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">SELECT * FROM orders            &rarr; 1 round trip</text>
+            <text x="478" y="232" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">WHERE order_id = ANY($1)        &rarr; 1 more</text>
+            <text x="478" y="252" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Two round trips, then group them in Go.</text>
+          </g>
+
+          <text x="20" y="290" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">Neither query is slow. The difference is entirely the number of times you cross the network, which is why an ORM&rsquo;s query log is worth reading.</text>
+        </svg>
+        <figcaption><b>The deferred rollback is unconditional on purpose.</b> After <code>Commit</code> it returns <code>sql.ErrTxDone</code> and changes nothing &mdash; which is a far better trade than one early return that forgets to clean up.</figcaption>
+      </figure>
+
+      <pre class="l1">func (r *Repo) Place(ctx context.Context, o Order) (uuid.UUID, error) {
+	tx, err := r.db.BeginTx(ctx, &amp;sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback() <span class="c">//nolint:errcheck // no-op once Commit has run</span>
+
+	var id uuid.UUID
+	err = tx.QueryRowContext(ctx,
+		`INSERT INTO orders (email, total) VALUES ($1, $2) RETURNING id`,
+		o.Email, o.Total,
+	).Scan(&amp;id)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("insert order: %w", err)
+	}
+
+	for _, it := range o.Items {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO items (order_id, sku, qty) VALUES ($1, $2, $3)`,
+			id, it.SKU, it.Qty,
+		); err != nil {
+			return uuid.Nil, fmt.Errorf("insert item %s: %w", it.SKU, err)
+		}
+	}
+	return id, tx.Commit()
+}</pre>
+
+      <pre class="l2">func (r *Repo) Get(ctx context.Context, id uuid.UUID) (Order, error) {
+	var o Order
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, email, total FROM orders WHERE id = $1`, id,
+	).Scan(&amp;o.ID, &amp;o.Email, &amp;o.Total)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return Order{}, ErrNotFound       <span class="c">// a domain error, not a driver one</span>
+	case err != nil:
+		return Order{}, fmt.Errorf("get order %s: %w", id, err)
+	}
+	return o, nil
+}
+
+<span class="c">// rows.Err() is not optional — a Rows loop that ends early because the</span>
+<span class="c">// connection dropped looks exactly like one that ran out of rows:</span>
+	for rows.Next() { <span class="c">/* … */</span> }
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate items: %w", err)
+	}</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What the code does</h4>
+          <ul>
+            <li><strong>Every call takes a <code>ctx</code></strong> &mdash; <code>QueryContext</code>, <code>ExecContext</code>, <code>BeginTx</code>. The non-context versions exist only for compatibility.</li>
+            <li><strong>Placeholders, always.</strong> <code>$1</code> on Postgres, <code>?</code> on MySQL &mdash; never string concatenation, which is how injection happens.</li>
+            <li><strong><code>QueryRow(...).Scan(&amp;x)</code></strong> is the one-row shape; it defers the error until <code>Scan</code>.</li>
+            <li><strong><code>RETURNING id</code></strong> gets the generated key back in the same round trip.</li>
+            <li><code>sql.ErrNoRows</code> is a normal outcome of a lookup, not a failure of the database.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Why it is written this way</h4>
+          <ul>
+            <li><strong>The deferred rollback is written on the line after <code>BeginTx</code></strong>, so no future early return can escape it.</li>
+            <li><strong>Translate <code>ErrNoRows</code> at the repository boundary.</strong> The layer above should not import <code>database/sql</code> to know a thing was missing.</li>
+            <li><strong><code>rows.Err()</code> after every <code>rows.Next()</code> loop</strong> &mdash; and <code>defer rows.Close()</code>, or the connection never returns to the pool.</li>
+            <li><strong>Wrap with identifying detail</strong>: which order, which SKU. The stack trace is not in the error, so the context has to be.</li>
+            <li><strong>Keep transactions short and free of network calls.</strong> Every millisecond inside <code>BeginTx</code> is a millisecond of held locks.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What bites in production</h4>
+          <ul>
+            <li><strong>A <code>Tx</code> pins one connection</strong> for its whole life. Long transactions plus a small pool is a deadlock waiting for traffic.</li>
+            <li><strong>Retry on serialisation failure</strong> if you use <code>LevelSerializable</code>: Postgres returns <code>40001</code> and expects the application to try again, which means the whole function must be safe to re-run.</li>
+            <li><strong>Prepared statements are per-connection.</strong> <code>db.Prepare</code> re-prepares on whichever connection it lands on; under a pool that is rarely the win people expect.</li>
+            <li><strong><code>context</code> cancellation mid-transaction</strong> leaves the driver to roll back asynchronously &mdash; the row locks can outlive your handler by a moment.</li>
+            <li><strong><code>SetConnMaxLifetime</code> matters behind a proxy or a failover.</strong> Without it, connections pinned to a demoted primary survive the failover and keep failing.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="gx-tests">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>Table-driven tests, fakes and <code>httptest</code></h3>
+        <p class="lede">The job: test the three things above without a network. Go&rsquo;s answer is unusually consistent &mdash; a map of cases, a subtest per case, an interface for the seam, and a real HTTP server when the thing under test is the HTTP client itself.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 300" role="img" aria-label="A table of four named cases fanning out into four subtests that run in parallel, each reporting under its own name; below, a comparison of an interface fake and an httptest server and what each one catches.">
+          <defs>
+            <marker id="gx-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE TABLE, ONE SUBTEST EACH, ALL IN PARALLEL</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="220" height="108" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="54" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">tests := map[string]struct</text>
+            <text x="32" y="76" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">"happy path"</text>
+            <text x="32" y="92" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">"ledger down"</text>
+            <text x="32" y="108" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">"ledger rejects"</text>
+            <text x="32" y="124" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.85">"empty basket"</text>
+            <line x1="242" y1="88" x2="266" y2="88" stroke="currentColor" stroke-width="1.3" marker-end="url(#gx-5)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="270" y="34" width="290" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="282" y="50" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">t.Run("happy path", &hellip;) &rarr; PASS</text>
+            <rect x="270" y="62" width="290" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="282" y="78" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">t.Run("ledger down", &hellip;) &rarr; PASS</text>
+            <rect x="270" y="90" width="290" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="282" y="106" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">t.Run("ledger rejects", &hellip;) &rarr; PASS</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="270" y="118" width="290" height="24" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="282" y="134" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">t.Run("empty basket", &hellip;) &rarr; FAIL</text>
+          </g>
+
+          <text x="580" y="62" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">The failure names the case, not a</text>
+          <text x="580" y="80" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">line number &mdash; and <tspan font-family="IBM Plex Mono, monospace" font-size="10.5">-run</tspan> can</text>
+          <text x="580" y="98" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">re-run just that one by name.</text>
+
+          <line x1="20" y1="162" x2="880" y2="162" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="186" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">TWO SEAMS, AND WHAT EACH ONE ACTUALLY CATCHES</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="200" width="416" height="80" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="34" y="222" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">an interface fake</text>
+            <text x="34" y="244" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Microseconds. Tests your branching and your</text>
+            <text x="34" y="262" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">error handling. Cannot catch a wrong header.</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="464" y="200" width="416" height="80" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="478" y="222" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">httptest.NewServer</text>
+            <text x="478" y="244" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Milliseconds, real sockets. Catches the header,</text>
+            <text x="478" y="262" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">the JSON tag and the status-code mapping.</text>
+          </g>
+        </svg>
+        <figcaption><b>Name the cases and the failure output writes itself.</b> <code>--- FAIL: TestPlace/empty_basket</code> tells you what broke before you have opened the file; a table indexed by number tells you it was case three.</figcaption>
+      </figure>
+
+      <pre class="l1">func TestPlace(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		order   Order
+		ledger  fakeLedger        <span class="c">// the seam: an interface, not a mock library</span>
+		wantErr error
+	}{
+		"happy path":     {order: valid, ledger: fakeLedger{ref: "led_1"}},
+		"ledger down":    {order: valid, ledger: fakeLedger{err: ErrRetryable}, wantErr: ErrRetryable},
+		"ledger rejects": {order: valid, ledger: fakeLedger{err: ErrRejected}, wantErr: ErrRejected},
+		"empty basket":   {order: Order{}, wantErr: ErrInvalid},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Place(t.Context(), tc.ledger, tc.order)   <span class="c">// 1.24+: t.Context()</span>
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("Place() error = %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}</pre>
+
+      <pre class="l2"><span class="c">// when the thing under test IS the HTTP client, use a real server</span>
+func TestPostEntry(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if got := r.Header.Get("Idempotency-Key"); got == "" {
+				t.Errorf("missing idempotency key")   <span class="c">// Errorf: this is the server goroutine</span>
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"ref":"led_123"}`)
+		}))
+	t.Cleanup(srv.Close)
+
+	ref, err := postEntry(t.Context(), Entry{Amount: 100}, "idem-1")
+	if err != nil {
+		t.Fatalf("postEntry() = %v", err)
+	}
+	if ref.ID != "led_123" {
+		t.Errorf("ref.ID = %q, want led_123", ref.ID)   <span class="c">// got, want — in that order</span>
+	}
+}</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What the code does</h4>
+          <ul>
+            <li><strong>A map from case name to inputs and expectations</strong>, then one <code>t.Run</code> per entry &mdash; the standard Go test shape.</li>
+            <li><strong><code>t.Fatalf</code> stops this subtest; <code>t.Errorf</code> records a failure and continues.</strong> Use <code>Fatal</code> when the rest of the test cannot run.</li>
+            <li><strong><code>errors.Is</code>, not <code>==</code></strong>, because the error you get back is wrapped.</li>
+            <li><strong><code>httptest.NewServer</code></strong> starts a real HTTP server on a random port and hands you its URL.</li>
+            <li>No assertion library needed &mdash; <code>if got != want { t.Errorf(...) }</code> is the convention.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Why it is written this way</h4>
+          <ul>
+            <li><strong>A map, not a slice</strong>, so cases are named, unordered, and impossible to reference by index.</li>
+            <li><strong><code>t.Parallel()</code> twice</strong> &mdash; once for the parent, once inside each subtest. Only then do the cases actually overlap.</li>
+            <li><strong>The fake is a struct implementing your own interface.</strong> Go&rsquo;s implicit interfaces make a five-line fake cheaper than any mocking framework.</li>
+            <li><strong><code>t.Cleanup</code> over <code>defer</code></strong> in helpers: it runs at the end of the test even when registered several frames down.</li>
+            <li><strong>Message order is <code>got, want</code></strong>. Every Go codebase reads it that way, and reversing it costs a reader real time.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What bites in production</h4>
+          <ul>
+            <li><strong><code>t.Fatal</code> from a non-test goroutine does nothing useful</strong> &mdash; it stops that goroutine, not the test. Inside an <code>httptest</code> handler, always <code>t.Errorf</code>.</li>
+            <li><strong>Run the suite with <code>-race</code> in CI.</strong> The detector only reports races it actually observes, so parallel subtests make it meaningfully more likely to see one.</li>
+            <li><strong>Interfaces belong to the consumer.</strong> Define the narrow one you need where you use it, not next to the implementation &mdash; that is what keeps fakes small.</li>
+            <li><strong><code>testing/synctest</code> (1.25) fakes time</strong> for concurrent code, so a test of a one-minute backoff no longer takes a minute.</li>
+            <li><strong>Golden files plus <code>-update</code></strong> for large outputs, and <code>testcontainers</code> or <code>dockertest</code> when only a real database will do &mdash; behind <code>testing.Short()</code> so the fast suite stays fast.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </div>
+</section>

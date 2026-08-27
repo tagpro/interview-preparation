@@ -1,0 +1,944 @@
+<section class="part" id="start">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>The machine you are installing</h2>
+      <p class="stage s1">L1 &middot; Beginner</p>
+      <p>Java is two artefacts: a compiler that turns source into bytecode once, and a virtual machine that turns bytecode into machine code every time you run. Everything people say about the platform &mdash; portable, verbose, slow to start, fast once warm &mdash; is a property of that split. Install the toolchain, run one file three different ways, and read the bytecode with your own eyes before part two adds the language on top.</p>
+    </div>
+
+    <section class="topic" id="install">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Install a JDK and meet the JVM</h3>
+        <p class="lede">Two commands install a full JDK. The interesting part is what you just installed: a compiler, a launcher, and a virtual machine that owns your program&rsquo;s memory, garbage collection and threads for its whole life.</p>
+      </div>
+
+      <p>Use <strong>sdkman</strong>, the same way the Python page used <code>uv</code> and the Go page used nothing: it installs JDKs side by side, switches between them per shell, and never touches your system packages. Install it, then install a JDK:</p>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Install sdkman, then a JDK. The <code>-tem</code> suffix picks Temurin &mdash; the Eclipse Adoptium build of OpenJDK, the boring-good default distribution: free, TCK-certified, and what most Dockerfiles pull. Success is <code>java --version</code> reporting an LTS build.</p>
+      </div>
+      <pre class="l1">$ curl -s "https://get.sdkman.io" | bash
+$ source "$HOME/.sdkman/bin/sdkman-init.sh"      <span class="c"># or just open a new terminal</span>
+$ sdk install java 21.0.5-tem
+<span class="c">Done installing!  Setting java 21.0.5-tem as default.</span>
+$ java --version
+<span class="c">openjdk 21.0.5 2024-10-15 LTS        &larr; the LTS suffix is what you want to see</span>
+$ sdk list java
+<span class="c">Temurin | 21.0.5 | tem | installed   &larr; one row per vendor and version; sdk use java ... switches</span></pre>
+
+      <p>Why 21 and not the newest? Java ships a release every six months and stamps one as <strong>LTS</strong> (long-term support) every two years. The LTS line runs <strong>8 &rarr; 11 &rarr; 17 &rarr; 21 &rarr; 25</strong>; the versions in between are real releases that stop getting updates six months later, which is why production skips them. <strong>Java 25 is the newest LTS</strong> (September 2025); <strong>21 is what most production runs</strong> and what every line on this page is written against. Nothing here breaks on 25.</p>
+
+      <div class="tablewrap"><table>
+        <thead><tr><th>LTS</th><th>Year</th><th>Why you will meet it</th></tr></thead>
+        <tbody>
+          <tr><td>8</td><td>2014</td><td>Legacy codebases; lambdas and streams arrived here</td></tr>
+          <tr><td>11</td><td>2018</td><td>First LTS of the six-month cadence; <code>java Hello.java</code> single-file launch</td></tr>
+          <tr><td>17</td><td>2021</td><td>Sealed classes; the minimum for Spring Boot 3</td></tr>
+          <tr><td>21</td><td>2023</td><td>Virtual threads, record patterns &mdash; this page&rsquo;s baseline</td></tr>
+          <tr><td>25</td><td>2025</td><td>Newest LTS; compact source files for beginners</td></tr>
+        </tbody>
+      </table></div>
+
+      <figure>
+        <svg viewBox="0 0 900 330" role="img" aria-label="Pipeline from Hello.java through javac to a bytecode class file, into the JVM where a classloader, interpreter and JIT compiler produce machine code, with the JVM owning the heap, garbage collector and threads.">
+          <defs>
+            <marker id="jaa-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT ACTUALLY RUNS WHEN YOU TYPE java Hello.java</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="52" width="110" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="73" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">Hello.java</text>
+            <text x="32" y="91" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">source text</text>
+            <path d="M130 77 L166 77" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jaa-1)"/>
+            <rect x="170" y="52" width="80" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="182" y="81" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">javac</text>
+            <path d="M250 77 L286 77" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jaa-1)"/>
+            <rect x="290" y="52" width="130" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="302" y="73" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">Hello.class</text>
+            <text x="302" y="91" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">bytecode</text>
+            <path d="M420 77 L456 77" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jaa-1)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="460" y="34" width="300" height="184" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="474" y="54" font-family="Bricolage Grotesque, sans-serif" font-size="13" font-weight="700" fill="currentColor">JVM</text>
+            <rect x="474" y="64" width="128" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="484" y="84" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">classloader</text>
+            <path d="M538 94 L538 106" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-1)"/>
+            <rect x="474" y="110" width="128" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="484" y="130" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">interpreter</text>
+            <path d="M538 140 L538 152" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-1)"/>
+            <rect x="474" y="156" width="128" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="484" y="176" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">JIT compiler</text>
+            <text x="620" y="84" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">owns the heap</text>
+            <text x="620" y="104" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">runs the GC</text>
+            <text x="620" y="124" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">schedules threads</text>
+            <text x="620" y="152" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">profiles your code,</text>
+            <text x="620" y="170" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">compiles the hot 5%</text>
+            <path d="M760 126 L796 126" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jaa-1)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="800" y="101" width="80" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="812" y="122" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">machine</text>
+            <text x="812" y="140" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">code</text>
+          </g>
+
+          <text x="20" y="134" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">The .class file is the portable</text>
+          <text x="20" y="150" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">artefact: the same bytes run on</text>
+          <text x="20" y="166" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">Linux, macOS, Windows, ARM, x86.</text>
+          <text x="20" y="188" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">The JVM is the thing that gets</text>
+          <text x="20" y="204" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">ported, not your program.</text>
+
+          <text x="20" y="240" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">java Hello.java runs the same pipeline with an in-memory compile first &mdash; convenient for one file, not a build system.</text>
+
+          <line x1="20" y1="254" x2="880" y2="254" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="278" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Why a Java service starts slower than a Go binary, then catches up</text>
+          <text x="20" y="300" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Go ships finished machine code; the JVM ships bytecode and compiles only the hot paths, while the program is already running.</text>
+          <text x="20" y="320" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Cold start pays for classloading and a cold interpreter; after warm-up the JIT holds profile data an AOT compiler never sees.</text>
+        </svg>
+        <figcaption><b>Bytecode is the deal Java makes.</b> Go pays compilation in full before shipping and Python interprets forever; the JVM pays a slow first minute, watches the program run, then compiles the paths that matter using live profile data. Your code never allocates a page or frees an object &mdash; the JVM owns memory, garbage collection and threads, which is precisely what makes the same <code>.class</code> file run anywhere a JVM exists.</figcaption>
+      </figure>
+
+      <p>Now run something. Since Java 11 the launcher compiles a single source file in memory, so a beginner never needs to see <code>javac</code> on day one:</p>
+
+      <pre class="l2">public class Hello {
+    public static void main(String[] args) {
+        String name = args.length &gt; 0 ? args[0] : "world";
+        System.out.println("Hello, " + name);
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Save as <code>Hello.java</code> and launch the file directly &mdash; no compile step, no project. Pass an argument to see <code>args</code> filled in.</p>
+      </div>
+      <pre class="l1">$ java Hello.java
+<span class="c">Hello, world</span>
+$ java Hello.java Ada
+<span class="c">Hello, Ada</span></pre>
+
+      <p>For anything smaller than a file there is <strong>JShell</strong>, the REPL that ships with every JDK &mdash; the same role the <code>python</code> prompt played on the Python page. Statements do not need a class, a semicolon is optional at the prompt, and every result is bound to <code>$1</code>, <code>$2</code>&hellip; for reuse.</p>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Open the REPL, evaluate two expressions, leave. Use it throughout this page whenever you want to poke at an API without creating a file.</p>
+      </div>
+      <pre class="l1">$ jshell
+jshell&gt; 21 * 2
+<span class="c">$1 ==&gt; 42</span>
+jshell&gt; "task".repeat(3)
+<span class="c">$2 ==&gt; "tasktasktask"</span>
+jshell&gt; /exit</pre>
+
+      <div class="note">
+        <h4>JDK, JRE, JVM &mdash; three words, one download</h4>
+        <p>The <strong>JVM</strong> is the virtual machine in the figure. The <strong>JRE</strong> is the JVM plus the standard library &mdash; enough to run. The <strong>JDK</strong> is the JRE plus the tools: <code>javac</code>, <code>jshell</code>, <code>javap</code>, <code>jar</code>. You installed the JDK; production containers often carry a trimmed runtime built with <code>jlink</code>.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="anatomy">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>A Java file, dissected down to the bytecode</h3>
+        <p class="lede">Every declaration in a Java file is load-bearing: the package is a directory, the public class is the file name, and <code>public static void main(String[] args)</code> is a signature the JVM looks up literally. Then <code>javap</code> shows you what the compiler actually wrote.</p>
+      </div>
+
+      <p>Here is the same program grown up: a package, an import, a constant. Read it top to bottom, because each line is a contract with either the compiler or the JVM:</p>
+
+      <pre class="l2"><span class="c">// src/dev/ladder/hello/Greeter.java -- path and package MUST agree</span>
+package dev.ladder.hello;
+
+import java.time.LocalTime;      <span class="c">// a compile-time name shorthand -- unlike Python's</span>
+                                 <span class="c">// import, it executes nothing at runtime</span>
+public class Greeter {
+
+    private static final String FALLBACK = "world";   <span class="c">// a class-level constant</span>
+
+    public static void main(String[] args) {
+        String name = args.length &gt; 0 ? args[0] : FALLBACK;
+        System.out.println("Hello, " + name + " at " + LocalTime.now());
+    }
+}</pre>
+
+      <figure>
+        <svg viewBox="0 0 900 300" role="img" aria-label="A Java source file on the left with arrows to three annotations: the package line is a folder address, the public class must be named like the file, and the main method is the exact signature the JVM looks for.">
+          <defs>
+            <marker id="jaa-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">EVERY LINE IS A CONTRACT</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="430" height="172" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="32" y="56" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">package dev.ladder.hello;</text>
+            <text x="32" y="78" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">import java.time.LocalTime;</text>
+            <text x="32" y="100" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">public class Greeter {</text>
+            <text x="32" y="122" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">  public static void main(String[] args) {</text>
+            <text x="32" y="144" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.8">    System.out.println(...);</text>
+            <text x="32" y="166" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.8">  }</text>
+            <text x="32" y="188" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.8">}</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="560" y="38" width="320" height="46" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="572" y="56" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the folder address on disk:</text>
+            <text x="572" y="74" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">src/dev/ladder/hello/Greeter.java</text>
+            <rect x="560" y="104" width="320" height="46" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="572" y="122" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">one public class per file,</text>
+            <text x="572" y="140" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">named exactly like the file</text>
+            <rect x="560" y="170" width="320" height="46" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="572" y="188" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the entry point: the JVM looks up</text>
+            <text x="572" y="206" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">exactly this signature, at runtime</text>
+            <path d="M450 52 L556 60" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-2)"/>
+            <path d="M450 96 L556 126" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-2)"/>
+            <path d="M450 118 L520 118 L520 193 L556 193" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-2)"/>
+          </g>
+
+          <line x1="20" y1="226" x2="880" y2="226" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="250" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">public static void main &mdash; four words, four contracts</text>
+          <text x="20" y="272" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">public: callable from outside the class &middot; static: no object exists yet &middot; void: nothing returned &middot; String[] args: the command line.</text>
+          <text x="20" y="292" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Bytecode has no free-standing functions. Every method lives in a class, which is why even Hello, world needs one.</text>
+        </svg>
+        <figcaption><b>Why everything lives in a class.</b> The JVM&rsquo;s unit of loading, verifying and compiling is the class file &mdash; there is nowhere else for a method to live. Go puts functions in packages and Python puts them in modules; Java&rsquo;s equivalent container happens to also be its type. The ceremony is the address system: package &rarr; directory, class &rarr; file, method &rarr; entry in that file.</figcaption>
+      </figure>
+
+      <p>Dissect the one line that does something. <code>System</code> is a class in <code>java.lang</code> (the only package imported automatically); <code>out</code> is a <code>static final</code> field on it, of type <code>PrintStream</code>; <code>println</code> is an overloaded method on that stream. So <code>System.out.println</code> is not an incantation &mdash; it is field access followed by a method call, and by the end of part two you can read it that way.</p>
+
+      <p>Now compile explicitly and look at the result. <code>javac -d out</code> mirrors the package into a directory tree; <code>java -cp out</code> tells the launcher where that tree starts; <code>javap -c</code> disassembles what the compiler wrote.</p>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Compile, run with an argument, then disassemble <code>main</code>. You are looking at the stack-machine instructions the interpreter executes and the JIT later compiles &mdash; every mystery on this page bottoms out here.</p>
+      </div>
+      <pre class="l1">$ mkdir -p src/dev/ladder/hello out
+$ javac -d out src/dev/ladder/hello/Greeter.java
+$ java -cp out dev.ladder.hello.Greeter Ada
+<span class="c">Hello, Ada at 09:14:02.113405</span>
+$ javap -c -cp out dev.ladder.hello.Greeter
+<span class="c">public static void main(java.lang.String[]);
+  Code:
+     0: aload_0
+     1: arraylength
+     2: ifle          11        // args.length &gt; 0 became a branch
+    ...
+    22: getstatic     #22       // Field java/lang/System.out
+    25: invokevirtual #28       // Method java/io/PrintStream.println</span></pre>
+
+      <div class="note">
+        <h4>Where the ceremony is going</h4>
+        <p>Java 25&rsquo;s compact source files let a beginner write <code>void main() { IO.println("hi"); }</code> &mdash; no class, no <code>static</code>, no <code>args</code> &mdash; but every production codebase still looks like the file above, so this page keeps the full form.</p>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="language">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>Objects, values, and the type system</h2>
+      <p class="stage s1">L1 &middot; Beginner</p>
+      <p>Java draws a line Python never drew: a handful of primitive types live directly in the variable, and everything else is a reference into the heap. Hold that line in your head and the classic surprises &mdash; <code>==</code> lying about equality, a key vanishing from a <code>HashMap</code>, a boxed 127 behaving differently from a boxed 128 &mdash; become predictable consequences instead of folklore.</p>
+    </div>
+
+    <section class="topic" id="types">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Primitives, references, and the two meanings of ==</h3>
+        <p class="lede">A primitive variable holds the value itself; a reference variable holds a pointer into the heap. <code>==</code> compares whatever is in the slot &mdash; which is the value for primitives and the address for objects. That one sentence is the most common beginner bug in the language.</p>
+      </div>
+
+      <p>Eight primitive types exist; four carry almost all production code. They are not objects: no methods, no <code>null</code>, no heap allocation &mdash; the value sits in the variable, the way a C or Go value would.</p>
+
+      <div class="tablewrap"><table>
+        <thead><tr><th>Type</th><th>Size</th><th>Literal</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><code>int</code></td><td>32-bit</td><td><code>42</code></td><td>The default for whole numbers; overflows silently at 2<sup>31</sup>&minus;1</td></tr>
+          <tr><td><code>long</code></td><td>64-bit</td><td><code>10_000_000_000L</code></td><td>IDs, timestamps, money-in-cents; note the <code>L</code></td></tr>
+          <tr><td><code>double</code></td><td>64-bit</td><td><code>0.1</code></td><td>IEEE-754 &mdash; fine for science, never for money</td></tr>
+          <tr><td><code>boolean</code></td><td>&mdash;</td><td><code>true</code></td><td>Only <code>true</code>/<code>false</code>; no truthy values, unlike Python</td></tr>
+        </tbody>
+      </table></div>
+
+      <p><code>byte</code>, <code>short</code>, <code>float</code> and <code>char</code> complete the set; you will meet them in I/O buffers and old APIs. Everything that is not one of the eight &mdash; <code>String</code>, arrays, every class you write &mdash; is a <strong>reference type</strong>: the variable holds a pointer, <code>null</code> means the pointer points at nothing, and copying the variable copies the arrow, never the object.</p>
+
+      <figure>
+        <svg viewBox="0 0 900 344" role="img" aria-label="A stack frame with three slots: an int slot holding the value 42 directly, and String and array slots holding references drawn as arrows into heap objects; a separate heap box shows the Integer cache for minus 128 to 127.">
+          <defs>
+            <marker id="jaa-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE STACK FRAME, TWO KINDS OF SLOT</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="270" height="180" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="32" y="54" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">stack frame: main()</text>
+            <rect x="36" y="66" width="238" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="46" y="86" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">int count = 42   (the value)</text>
+            <rect x="36" y="106" width="238" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="46" y="126" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">String s</text>
+            <circle cx="220" cy="121" r="3" fill="currentColor"/>
+            <rect x="36" y="146" width="238" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="46" y="166" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">int[] xs</text>
+            <circle cx="220" cy="161" r="3" fill="currentColor"/>
+            <path d="M223 121 L340 121 L340 86 L416 86" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jaa-3)"/>
+            <path d="M223 161 L340 161 L340 146 L416 146" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jaa-3)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="400" y="34" width="480" height="180" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="412" y="54" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">heap &mdash; the GC&rsquo;s territory</text>
+            <rect x="420" y="66" width="190" height="40" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="430" y="82" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">String "tasks"</text>
+            <text x="430" y="98" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">literal: in the string pool</text>
+            <rect x="420" y="126" width="190" height="40" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="430" y="150" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">int[] {1, 2, 3}</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="650" y="66" width="210" height="100" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="662" y="86" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">Integer cache</text>
+            <text x="662" y="106" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">-128..127: boxed once,</text>
+            <text x="662" y="122" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">shared by everyone</text>
+            <text x="662" y="142" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">128: a fresh box on</text>
+            <text x="662" y="158" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">every autoboxing</text>
+          </g>
+
+          <text x="20" y="240" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.88">A primitive slot is the value. A reference slot is a pointer &mdash; copying it copies the arrow, never the object it points at.</text>
+
+          <line x1="20" y1="254" x2="880" y2="254" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="278" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">The Python page boxed everything; Java splits the world in two</text>
+          <text x="20" y="300" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">== compares slot contents: values for primitives, addresses for references. .equals() is the value comparison for objects.</text>
+          <text x="20" y="320" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Autoboxing crosses the line silently: List&lt;Integer&gt; boxes every int you add, and the cache makes == lie helpfully below 128.</text>
+          <text x="20" y="340" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Strings are references that behave like values &mdash; exactly as long as you compare them with .equals, never ==.</text>
+        </svg>
+        <figcaption><b>This split is why Java is fast and why it bites.</b> An <code>int</code> in a loop costs nothing on the heap; in Python even <code>3</code> is a boxed object with a refcount. The price is a two-tier system where <code>Integer</code> exists purely so an <code>int</code> can enter a generic collection &mdash; and where the compiler converts between the tiers behind your back.</figcaption>
+      </figure>
+
+      <p>Collections cannot hold primitives, so <code>Integer</code>, <code>Long</code> and friends exist as boxed wrappers and the compiler <strong>autoboxes</strong> in both directions. The trap: the JVM caches boxes for &minus;128..127, so <code>==</code> on small boxed values compares two pointers to the <em>same</em> cached box and returns <code>true</code> &mdash; then your test data grows past 127 and it silently returns <code>false</code>. Strings have the same shape: literals are pooled and shared, so <code>==</code> works right up until a string arrives from a file, a request, or <code>new String(...)</code>. Prove all of it to yourself:</p>
+
+      <pre class="l3">public class Surprises {
+    public static void main(String[] args) {
+        Integer a = 127, b = 127;             <span class="c">// both autoboxed from the cache</span>
+        Integer c = 128, d = 128;             <span class="c">// two fresh boxes on the heap</span>
+        System.out.println(a == b);           <span class="c">// true  -- same cached object</span>
+        System.out.println(c == d);           <span class="c">// false -- different objects, equal values</span>
+        System.out.println(c.equals(d));      <span class="c">// true  -- what you nearly always meant</span>
+
+        String s1 = "task";
+        String s2 = "task";                   <span class="c">// same pooled literal as s1</span>
+        String s3 = new String("task");       <span class="c">// new forces a fresh object</span>
+        System.out.println(s1 == s2);         <span class="c">// true  -- pooling, an accident you cannot rely on</span>
+        System.out.println(s1 == s3);         <span class="c">// false -- different objects</span>
+        System.out.println(s1.equals(s3));    <span class="c">// true</span>
+
+        String t = s1.toUpperCase();          <span class="c">// Strings are immutable: this is a NEW string</span>
+        System.out.println(s1 + " " + t);     <span class="c">// task TASK -- s1 untouched</span>
+
+        int[] xs = {1, 2, 3};                 <span class="c">// arrays are fixed-size, forever</span>
+        System.out.println(xs.length);        <span class="c">// 3 -- a field, not a method</span>
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>One file, six lies and truths. If any line surprises you, re-read the figure: every result is &ldquo;<code>==</code> compared what was in the slot&rdquo;.</p>
+      </div>
+      <pre class="l1">$ java Surprises.java
+<span class="c">true
+false
+true
+true
+false
+true
+task TASK
+3</span></pre>
+
+      <div class="note warn">
+        <h4>The rule that survives this topic</h4>
+        <p>Compare primitives with <code>==</code>. Compare objects &mdash; every <code>String</code>, every <code>Integer</code>, everything you write &mdash; with <code>.equals()</code>, or with <code>Objects.equals(a, b)</code> when either side may be <code>null</code>. An <code>==</code> between two reference types is a code-review flag unless identity is genuinely the question.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="classes">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Classes the long way, then records</h3>
+        <p class="lede">Write one value class by hand &mdash; fields, constructor, accessors, <code>equals</code>, <code>hashCode</code>, <code>toString</code> &mdash; so you know exactly what a record generates when it replaces all thirty lines with one.</p>
+      </div>
+
+      <p>A <code>Money</code> type, the classical way. Note the shape: every field <code>private final</code> (set once, in the constructor, never again), accessors instead of public fields, and the three methods every value type owes the rest of the ecosystem:</p>
+
+      <pre class="l2">import java.util.Objects;
+
+public final class Money {                       <span class="c">// final class: cannot be subclassed</span>
+    private final long cents;                    <span class="c">// final field: assigned once, in the constructor</span>
+    private final String currency;
+
+    public Money(long cents, String currency) {
+        if (cents &lt; 0) throw new IllegalArgumentException("negative amount");
+        this.cents = cents;
+        this.currency = Objects.requireNonNull(currency);
+    }
+
+    public long cents()       { return cents; }
+    public String currency()  { return currency; }
+
+    public Money plus(Money other) {             <span class="c">// no mutation: arithmetic returns a NEW Money</span>
+        if (!currency.equals(other.currency))
+            throw new IllegalArgumentException("currency mismatch");
+        return new Money(cents + other.cents, currency);
+    }
+
+    @Override public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Money m)) return false;
+        return cents == m.cents &amp;&amp; currency.equals(m.currency);
+    }
+
+    @Override public int hashCode() { return Objects.hash(cents, currency); }
+
+    @Override public String toString() { return cents + " " + currency; }
+}</pre>
+
+      <p>Thirty lines, and every one of them mechanical. Since Java 16 the language writes them for you:</p>
+
+      <pre class="l2">public record Money(long cents, String currency) {}   <span class="c">// the same class, generated</span></pre>
+
+      <p>A <strong>record</strong> declares its state in the header, and the compiler generates the final fields, the canonical constructor, accessors named after the components (<code>cents()</code>, not <code>getCents()</code>), and value-based <code>equals</code>, <code>hashCode</code> and <code>toString</code>. You add back only what is genuinely yours &mdash; validation goes in a <em>compact constructor</em>, domain logic is an ordinary method:</p>
+
+      <figure>
+        <svg viewBox="0 0 900 348" role="img" aria-label="Left: the thirty-line handwritten Money class listing every member you typed. Right: the one-line record declaration with an arrow to a box listing the members the compiler generates from it.">
+          <defs>
+            <marker id="jaa-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE SAME VALUE TYPE, TWICE</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="400" height="224" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="32" y="56" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">class Money &mdash; you typed every line</text>
+            <text x="36" y="82" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">private final long cents;</text>
+            <text x="36" y="102" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">private final String currency;</text>
+            <text x="36" y="122" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">Money(long, String) constructor</text>
+            <text x="36" y="142" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">cents(), currency() accessors</text>
+            <text x="36" y="162" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">plus(Money) &mdash; domain logic</text>
+            <text x="36" y="182" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">equals(Object) &mdash; value equality</text>
+            <text x="36" y="202" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">hashCode() &mdash; must match equals</text>
+            <text x="36" y="222" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">toString() &mdash; readable output</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="470" y="34" width="410" height="44" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="486" y="61" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">record Money(long cents, String currency) {}</text>
+            <path d="M675 78 L675 96" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jaa-4)"/>
+            <rect x="470" y="100" width="410" height="158" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="486" y="122" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">the compiler writes, at compile time</text>
+            <text x="486" y="146" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">final fields + canonical constructor</text>
+            <text x="486" y="166" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">cents() and currency() accessors</text>
+            <text x="486" y="186" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">equals / hashCode by component value</text>
+            <text x="486" y="206" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">toString: Money[cents=.., currency=..]</text>
+            <text x="486" y="230" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.75">only plus() and validation stay yours</text>
+          </g>
+
+          <line x1="20" y1="274" x2="880" y2="274" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="298" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Records are for values; classes are for state</text>
+          <text x="20" y="320" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Write a class when the object must change in place, hide its representation, or satisfy a framework that</text>
+          <text x="20" y="338" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">demands a no-arg constructor and setters &mdash; the JPA entities of part seven.</text>
+        </svg>
+        <figcaption><b>A record is a value with a name, not a bag of setters.</b> It is still a class underneath &mdash; <code>Money.class</code> on disk, methods, the lot &mdash; but its components are final and its equality is by value, the same guarantees the handwritten version spent thirty lines promising. That is also exactly the equality contract <code>HashMap</code> will demand in the next topic.</figcaption>
+      </figure>
+
+      <pre class="l2">record Money(long cents, String currency) {
+    Money {                                      <span class="c">// compact constructor: validate, then fields assign</span>
+        if (cents &lt; 0) throw new IllegalArgumentException("negative amount");
+    }
+    Money plus(Money other) {
+        if (!currency.equals(other.currency))
+            throw new IllegalArgumentException("currency mismatch");
+        return new Money(cents + other.cents, currency);
+    }
+}
+
+public class MoneyDemo {
+    static final Money FREE = new Money(0, "GBP");    <span class="c">// static: one per class, shared</span>
+
+    public static void main(String[] args) {
+        Money a = new Money(12_50, "GBP");            <span class="c">// instance state: one per object</span>
+        Money b = new Money(4_99, "GBP");
+        System.out.println(a.plus(b));
+        System.out.println(a.equals(new Money(12_50, "GBP")));
+        System.out.println(new Money(-1, "GBP"));     <span class="c">// validation fires</span>
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Both classes sit in one file (only <code>MoneyDemo</code> is public), so the single-file launcher compiles them together. Value equality works with no <code>equals</code> written, and the compact constructor rejects the bad amount.</p>
+      </div>
+      <pre class="l1">$ java MoneyDemo.java
+<span class="c">Money[cents=1749, currency=GBP]
+true
+Exception in thread "main" java.lang.IllegalArgumentException: negative amount</span></pre>
+
+      <p><code>static</code> versus instance is the other axis worth fixing now: a <code>static</code> member belongs to the class (one <code>FREE</code>, shared; <code>Math.max</code>, <code>Instant.now()</code>), an instance member to each object (each <code>Money</code> has its own <code>cents</code>). <code>main</code> is static because when the JVM calls it, no object of your class exists yet. And <code>final</code> means &ldquo;assigned once&rdquo; for a field or variable, &ldquo;no subclassing&rdquo; for a class &mdash; it does <em>not</em> make the referenced object immutable.</p>
+
+      <div class="note warn">
+        <h4>Real money is BigDecimal or cents, never double</h4>
+        <p><code>0.1 + 0.2 == 0.30000000000000004</code> in Java exactly as on the Python page. Hold money as <code>long</code> cents (as <code>Money</code> does) or use <code>new BigDecimal("19.99")</code> &mdash; constructed from a <code>String</code>, because <code>new BigDecimal(0.1)</code> faithfully preserves the binary error you were escaping.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="collections">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Collections, generics, and the equals/hashCode contract</h3>
+        <p class="lede">Arrays are fixed; real code uses <code>List</code>, <code>Map</code> and <code>Set</code>, parameterised with the type they hold. The compiler enforces the element type; the collection enforces a contract on <em>you</em> &mdash; and <code>HashMap</code> quietly loses data when you break it.</p>
+      </div>
+
+      <p>Three interfaces carry the standard library: <code>List&lt;T&gt;</code> (ordered, indexed, duplicates allowed &mdash; usually <code>ArrayList</code>), <code>Map&lt;K,&nbsp;V&gt;</code> (key to value &mdash; usually <code>HashMap</code>), and <code>Set&lt;T&gt;</code> (no duplicates &mdash; usually <code>HashSet</code>). The angle brackets are <strong>generics</strong>: <code>List&lt;Task&gt;</code> is a list that only accepts and only returns <code>Task</code>, checked at compile time, where Python&rsquo;s <code>list[Task]</code> is a hint mypy checks and the runtime ignores. The diamond <code>&lt;&gt;</code> on the right-hand side asks the compiler to repeat the type parameter so you do not have to.</p>
+
+      <pre class="l2">import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+record Task(String title, int priority, boolean done) {}
+
+public class TaskListDemo {
+    public static void main(String[] args) {
+        List&lt;Task&gt; tasks = new ArrayList&lt;&gt;();          <span class="c">// diamond: compiler fills in &lt;Task&gt;</span>
+        tasks.add(new Task("write the Flyway migration", 1, false));
+        tasks.add(new Task("wire the /tasks endpoint", 2, false));
+        tasks.add(new Task("install a JDK", 1, true));
+
+        tasks.sort(Comparator.comparing(Task::priority)   <span class="c">// sort by priority,</span>
+                             .thenComparing(Task::title)); <span class="c">// ties broken by title</span>
+
+        for (Task t : tasks) {                             <span class="c">// for-each: no index bookkeeping</span>
+            System.out.println((t.done() ? "[x] " : "[ ] ") + t.title());
+        }
+
+        Map&lt;Integer, Long&gt; perPriority = new HashMap&lt;&gt;();
+        for (Task t : tasks) {
+            perPriority.merge(t.priority(), 1L, Long::sum); <span class="c">// count per key, no if-absent dance</span>
+        }
+        System.out.println(perPriority);
+
+        Set&lt;String&gt; owners = new HashSet&lt;&gt;(List.of("ana", "ben", "ana"));
+        System.out.println(owners.size());                 <span class="c">// deduplicated by equals/hashCode</span>
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Sorting mutates the list in place; the map counts tasks per priority; the set swallows the duplicate. All three behaviours lean on <code>Task</code>&rsquo;s record-generated <code>equals</code> and <code>hashCode</code>.</p>
+      </div>
+      <pre class="l1">$ java TaskListDemo.java
+<span class="c">[x] install a JDK
+[ ] write the Flyway migration
+[ ] wire the /tasks endpoint
+{1=2, 2=1}
+2</span></pre>
+
+      <p><code>List.of(...)</code>, <code>Map.of(...)</code> and <code>Set.of(...)</code> build compact <strong>immutable</strong> literals &mdash; ideal for constants and test data, with one trap: they reject mutation at <em>runtime</em>, not compile time. The type system cannot see the difference between an <code>ArrayList</code> and an immutable list behind the same <code>List</code> interface:</p>
+
+      <pre class="l3">List&lt;String&gt; tags = List.of("api", "db");   <span class="c">// immutable literal</span>
+tags.add("ui");                             <span class="c">// compiles fine...</span>
+<span class="c">// Exception in thread "main" java.lang.UnsupportedOperationException</span>
+
+List&lt;String&gt; mutable = new ArrayList&lt;&gt;(List.of("api", "db"));   <span class="c">// the copy that grows</span></pre>
+
+      <figure>
+        <svg viewBox="0 0 900 310" role="img" aria-label="Eight HashMap buckets in a row. A key with n equals 11 hashes into bucket 3 where its entry is stored; after the key mutates to n equals 14 the lookup hashes to bucket 6, finds it empty and returns null while the entry still sits in bucket 3.">
+          <defs>
+            <marker id="jaa-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">HashMap: hashCode PICKS THE BUCKET, equals FINDS THE ENTRY</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="40" width="170" height="40" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="57" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">put(key, v): n = 11</text>
+            <text x="32" y="73" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">hash 11 &rarr; bucket 3</text>
+            <path d="M105 80 L105 94 L336 94 L336 106" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jaa-5)"/>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="620" y="40" width="190" height="40" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="632" y="57" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">key.n = 14  (mutated)</text>
+            <text x="632" y="73" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.75">hash 14 &rarr; bucket 6</text>
+            <path d="M715 80 L715 94 L612 94 L612 106" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#jaa-5)"/>
+          </g>
+
+          <g class="svg-l2">
+            <text x="56" y="104" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">0</text>
+            <text x="148" y="104" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">1</text>
+            <text x="240" y="104" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">2</text>
+            <text x="332" y="104" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">3</text>
+            <text x="424" y="104" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">4</text>
+            <text x="516" y="104" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">5</text>
+            <text x="608" y="104" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">6</text>
+            <text x="700" y="104" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">7</text>
+            <rect x="20" y="110" width="80" height="44" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="112" y="110" width="80" height="44" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="204" y="110" width="80" height="44" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="296" y="110" width="80" height="44" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="388" y="110" width="80" height="44" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="480" y="110" width="80" height="44" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="572" y="110" width="80" height="44" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="664" y="110" width="80" height="44" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="302" y="118" width="68" height="28" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="316" y="136" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">entry</text>
+          </g>
+
+          <g class="svg-l3">
+            <text x="20" y="180" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" fill="currentColor">get(key) hashes to bucket 6, finds it empty, returns null &mdash; the entry still sits in bucket 3.</text>
+            <text x="20" y="198" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">size() is still 1 and iteration still shows the entry: reachable memory, unreachable data.</text>
+          </g>
+
+          <line x1="20" y1="216" x2="880" y2="216" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="240" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">equals and hashCode travel together, and a key must never move</text>
+          <text x="20" y="262" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Equal objects must return equal hash codes, and a key&rsquo;s hash must not change while it sits in a map or a set.</text>
+          <text x="20" y="282" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Records and final fields give you the contract for free &mdash; half the reason the previous topic pushed you towards them.</text>
+          <text x="20" y="302" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">The Python page had the same rule: __eq__ without __hash__ makes a type unhashable there. Java compiles anyway &mdash; and loses the entry.</text>
+        </svg>
+        <figcaption><b>A bad key does not break the map; it breaks your access to it.</b> <code>HashMap</code> stores the entry in the bucket its hash selected at <code>put</code> time and never rehashes on your behalf. Mutate the key &mdash; or override <code>equals</code> without <code>hashCode</code> so equal keys land in different buckets &mdash; and lookups miss while the data sits there. Python raises <code>TypeError</code> up front; Java trusts you and says <code>null</code>.</figcaption>
+      </figure>
+
+      <p>Watch it happen. This key overrides both methods <em>correctly</em> &mdash; the bug is purely that it mutates after insertion:</p>
+
+      <pre class="l3">import java.util.HashMap;
+import java.util.Map;
+
+class MutableKey {
+    int n;
+    MutableKey(int n) { this.n = n; }
+    @Override public boolean equals(Object o) {
+        return o instanceof MutableKey k &amp;&amp; k.n == n;
+    }
+    @Override public int hashCode() { return Integer.hashCode(n); }
+}
+
+public class LostEntry {
+    public static void main(String[] args) {
+        Map&lt;MutableKey, String&gt; m = new HashMap&lt;&gt;();
+        MutableKey k = new MutableKey(11);
+        m.put(k, "hello");
+        k.n = 14;                                       <span class="c">// the key moves AFTER insertion</span>
+        System.out.println(m.get(k));                   <span class="c">// null -- looked in the wrong bucket</span>
+        System.out.println(m.get(new MutableKey(11)));  <span class="c">// null -- right bucket, equals now fails</span>
+        System.out.println(m.size());                   <span class="c">// 1  -- the entry is still in there</span>
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Both lookups miss while <code>size()</code> insists the entry exists. Fix is not code &mdash; it is policy: keys are immutable, ideally records.</p>
+      </div>
+      <pre class="l1">$ java LostEntry.java
+<span class="c">null
+null
+1</span></pre>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="contracts">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>Contracts, hierarchy, and failure</h2>
+      <p class="stage s1">L1 &middot; Beginner</p>
+      <p>Interfaces are how Java code stays swappable, and sealed hierarchies are how modern Java makes the compiler check what Go delegates to a linter and Python to mypy. Then the part every service is judged on: what happens when things fail &mdash; which exceptions to catch, which to wrap, and which to let fly.</p>
+    </div>
+
+    <section class="topic" id="interfaces">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Interfaces, and sealed hierarchies the compiler checks</h3>
+        <p class="lede">An interface is a contract with no state: methods a type promises to provide. Program to it and implementations become swappable. Seal it, and the compiler knows the full set of implementations &mdash; and starts proving your <code>switch</code> handles every one.</p>
+      </div>
+
+      <p>The classic half first. An interface declares what, a class declares how, and <code>implements</code> connects them. Two habits are non-negotiable from day one: declare variables as the <em>interface</em> type, and write <code>@Override</code> on every implementing method so the compiler catches the typo&rsquo;d signature that would otherwise become a brand-new method:</p>
+
+      <pre class="l2">import java.util.ArrayList;
+import java.util.List;
+
+record Task(String title, int priority, boolean done) {}
+
+interface TaskStore {
+    void add(Task task);
+    List&lt;Task&gt; all();
+
+    default boolean isEmpty() {                <span class="c">// a default method: behaviour ON the contract,</span>
+        return all().isEmpty();                <span class="c">// inherited by every implementation for free</span>
+    }
+}
+
+class InMemoryTaskStore implements TaskStore {
+    private final List&lt;Task&gt; tasks = new ArrayList&lt;&gt;();   <span class="c">// composition: HAS a list,</span>
+                                                          <span class="c">// does not EXTEND ArrayList</span>
+    @Override public void add(Task task) { tasks.add(task); }
+    @Override public List&lt;Task&gt; all()    { return List.copyOf(tasks); }
+}
+
+public class StoreDemo {
+    public static void main(String[] args) {
+        TaskStore store = new InMemoryTaskStore();   <span class="c">// the variable is the interface;</span>
+        store.add(new Task("learn interfaces", 1, false));   <span class="c">// swap in a JdbcTaskStore later</span>
+        System.out.println(store.isEmpty());         <span class="c">// and this line does not change</span>
+        List&lt;String&gt; xs = new ArrayList&lt;&gt;();         <span class="c">// the same habit, stdlib edition</span>
+        xs.add("program to the interface");
+        System.out.println(xs);
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>The <code>main</code> never mentions <code>InMemoryTaskStore</code> after the <code>new</code>. In part seven the same idea lets a Postgres-backed repository replace the in-memory store, and the calling code does not move.</p>
+      </div>
+      <pre class="l1">$ java StoreDemo.java
+<span class="c">false
+[program to the interface]</span></pre>
+
+      <p><code>InMemoryTaskStore</code> <em>has</em> a list rather than <em>being</em> one &mdash; <strong>composition over inheritance</strong>. Java has single inheritance (<code>extends</code>, one superclass) and it is the most over-used feature in the language&rsquo;s history: a deep <code>extends</code> chain welds subclasses to a parent&rsquo;s implementation details, and any hierarchy more than two levels deep is a code-review flag. Interfaces impose no such coupling &mdash; a class can implement many &mdash; and default methods cover the &ldquo;shared behaviour&rdquo; excuse that used to justify base classes.</p>
+
+      <p>Now the modern half. By default an interface is open &mdash; anyone, anywhere, can implement it. A <code>sealed</code> interface names its complete set of implementations, and that closedness is what turns <code>switch</code> into a proof:</p>
+
+      <figure>
+        <svg viewBox="0 0 900 318" role="img" aria-label="A sealed Payment interface fans out to its three permitted records Card, Cash and Transfer, which fan back into a switch expression with three case arms and no default branch, because the compiler has proved the set of cases is complete.">
+          <defs>
+            <marker id="jaa-6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A CLOSED SET OF SHAPES, AND A SWITCH THE COMPILER PROVES COMPLETE</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="96" width="240" height="50" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="116" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">sealed interface Payment</text>
+            <text x="32" y="134" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">permits Card, Cash, Transfer</text>
+            <path d="M260 113 L278 113 L278 52 L296 52" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-6)"/>
+            <path d="M260 121 L296 118" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-6)"/>
+            <path d="M260 129 L278 129 L278 184 L296 184" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-6)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="300" y="30" width="230" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="312" y="47" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">record Card(last4, cents)</text>
+            <text x="312" y="63" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">implements Payment</text>
+            <rect x="300" y="96" width="230" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="312" y="113" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">record Cash(cents)</text>
+            <text x="312" y="129" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">implements Payment</text>
+            <rect x="300" y="162" width="230" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="312" y="179" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">record Transfer(iban, cents)</text>
+            <text x="312" y="195" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">implements Payment</text>
+            <path d="M530 52 L553 52 L553 72 L576 72" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-6)"/>
+            <path d="M530 118 L553 118 L553 96 L576 96" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-6)"/>
+            <path d="M530 184 L553 184 L553 120 L576 120" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-6)"/>
+            <rect x="580" y="30" width="300" height="160" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="596" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">String s = switch (p) {</text>
+            <text x="596" y="76" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">  case Card c     -&gt; ...;</text>
+            <text x="596" y="100" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">  case Cash c     -&gt; ...;</text>
+            <text x="596" y="124" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">  case Transfer t -&gt; ...;</text>
+            <text x="596" y="148" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">};  <tspan opacity="0.7">no default branch</tspan></text>
+            <text x="596" y="176" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">the compiler proved the set is closed</text>
+          </g>
+
+          <g class="svg-l3">
+            <text x="20" y="230" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" fill="currentColor">Add record Voucher implements Payment, and every such switch stops compiling until the new case is handled.</text>
+          </g>
+
+          <line x1="20" y1="246" x2="880" y2="246" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="270" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Go&rsquo;s exhaustiveness linter and mypy&rsquo;s assert_never, moved into the compiler</text>
+          <text x="20" y="292" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">sealed + records + switch patterns is Java&rsquo;s algebraic data type: the closed set of cases lives in the type system itself.</text>
+          <text x="20" y="312" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">No lint to configure, no discipline to remember &mdash; a missing case is a compile error, in every build, forever.</text>
+        </svg>
+        <figcaption><b>A default branch here would be a bug you paid to keep.</b> Write <code>default</code> and the compiler stops checking; leave it off and adding <code>Voucher</code> breaks the build at every site that must now decide what a voucher means. The Go page did this with a linter and the Python page with <code>assert_never</code> &mdash; Java 21 does it in <code>javac</code>, with no opt-in.</figcaption>
+      </figure>
+
+      <pre class="l2">import java.util.List;
+
+sealed interface Payment permits Card, Cash, Transfer {}
+record Card(String last4, long cents)    implements Payment {}
+record Cash(long cents)                  implements Payment {}
+record Transfer(String iban, long cents) implements Payment {}
+
+public class PaymentDemo {
+    static String describe(Payment p) {
+        return switch (p) {                       <span class="c">// switch as an EXPRESSION: it returns a value</span>
+            case Card c     -&gt; "card *" + c.last4() + ", " + c.cents() + " cents";
+            case Cash c     -&gt; "cash, " + c.cents() + " cents";
+            case Transfer t -&gt; "transfer to " + t.iban();
+        };                                        <span class="c">// no default: exhaustiveness is checked</span>
+    }
+
+    public static void main(String[] args) {
+        List&lt;Payment&gt; day = List.of(
+            new Card("4242", 19_99), new Cash(5_00), new Transfer("DE89 3704", 120_00));
+        for (Payment p : day) System.out.println(describe(p));
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Then do the experiment that matters: add <code>record Voucher(long cents) implements Payment {}</code> to the <code>permits</code> list and rerun &mdash; the compile error names the switch that is no longer complete.</p>
+      </div>
+      <pre class="l1">$ java PaymentDemo.java
+<span class="c">card *4242, 1999 cents
+cash, 500 cents
+transfer to DE89 3704</span>
+<span class="c"># after adding Voucher:
+PaymentDemo.java: error: the switch expression does not cover all possible input values</span></pre>
+    </section>
+
+    <section class="topic" id="exceptions">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Exceptions: the hierarchy, the resources, and Optional</h3>
+        <p class="lede">Java splits failure into three families and treats one of them &mdash; checked exceptions &mdash; as part of a method&rsquo;s type. Knowing which family you are holding tells you the correct reaction: fix, handle, wrap, or stand clear.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 352" role="img" aria-label="The Throwable hierarchy: Error on one branch, meaning the JVM is failing and should not be caught; Exception on the other, checked by the compiler, with RuntimeException beneath it unchecked and signalling a bug; a code snippet shows the compiler rejecting an unhandled checked exception.">
+          <defs>
+            <marker id="jaa-7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE THROWABLE FAMILY, AND THE CORRECT REACTION TO EACH</text>
+
+          <g class="svg-l2">
+            <rect x="370" y="30" width="160" height="34" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="420" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">Throwable</text>
+            <path d="M450 64 L450 80 L220 80 L220 96" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-7)"/>
+            <path d="M450 64 L450 80 L635 80 L635 96" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-7)"/>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="120" y="100" width="200" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="132" y="120" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">Error</text>
+            <text x="132" y="138" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">OutOfMemoryError, StackOverflow</text>
+            <text x="120" y="172" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">do not catch: the JVM is dying</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="520" y="100" width="230" height="52" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="532" y="120" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">Exception &mdash; checked</text>
+            <text x="532" y="138" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">IOException, SQLException</text>
+            <text x="520" y="172" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">declare it or handle it: compiler checks</text>
+            <path d="M740 152 L740 186" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#jaa-7)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="520" y="190" width="230" height="52" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="532" y="210" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">RuntimeException &mdash; unchecked</text>
+            <text x="532" y="228" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">NPE, IllegalArgumentException</text>
+            <text x="520" y="262" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">a bug in the code: fix it, do not catch it</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="20" y="196" width="280" height="70" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="216" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">Files.readString(path);</text>
+            <text x="32" y="234" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.7">// error: unreported IOException</text>
+            <text x="32" y="252" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.7">// must catch, or declare throws</text>
+          </g>
+
+          <line x1="20" y1="280" x2="880" y2="280" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="304" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Catch what you can handle, wrap what you cannot, let the rest fly</text>
+          <text x="20" y="326" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Wrapping keeps the evidence: throw new TaskStoreException("could not read tasks.csv", e) logs a Caused by chain, not amnesia.</text>
+          <text x="20" y="346" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Modern style keeps most exceptions unchecked, reserving checked ones for boundaries you genuinely recover at: I/O, remote calls.</text>
+        </svg>
+        <figcaption><b>Checked exceptions are the compiler asking &ldquo;and what is your plan?&rdquo;</b> That is what they buy: no I/O failure is silently ignorable, the way an unread Go <code>err</code> or a bare Python <code>except: pass</code> can be. What they cost is signature contagion &mdash; every caller must catch or re-declare &mdash; which is why modern style wraps them into unchecked exceptions at the boundary and lets everything above stay clean.</figcaption>
+      </figure>
+
+      <p>The reactions, family by family. <code>Error</code> means the JVM itself is in trouble &mdash; there is no catch block that un-runs-out memory. <code>RuntimeException</code> means <em>your code</em> is wrong: a <code>NullPointerException</code> is fixed by the null check you forgot, not by a <code>catch</code>. Checked exceptions &mdash; everything else under <code>Exception</code> &mdash; mark environmental failure that a correct program still meets: the file missing, the socket closed. The compiler makes you acknowledge those, and the idiomatic acknowledgement at a boundary is: handle it if you genuinely can, otherwise wrap it in your own unchecked exception <strong>with the cause attached</strong> and let it fly.</p>
+
+      <p>Resource cleanup has one modern answer. Anything <code>AutoCloseable</code> goes in the parentheses of <code>try</code>, and the JVM closes it &mdash; on success, on exception, in reverse order for multiple resources. The old <code>try/finally</code> dance, with its own bug where <code>close()</code> throws and eats the real exception, is legacy code you will read but should not write:</p>
+
+      <pre class="l2">import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
+
+class TaskStoreException extends RuntimeException {      <span class="c">// unchecked: extends RuntimeException</span>
+    TaskStoreException(String message, Throwable cause) { super(message, cause); }
+}
+
+public class ExceptionsDemo {
+
+    static List&lt;String&gt; loadLines(Path file) {
+        try (var reader = Files.newBufferedReader(file)) {   <span class="c">// try-with-resources: closed always,</span>
+            return reader.lines().toList();                  <span class="c">// even when an exception flies</span>
+        } catch (IOException e) {                            <span class="c">// the checked boundary...</span>
+            throw new TaskStoreException("could not read " + file, e);   <span class="c">// ...wrapped WITH cause</span>
+        }
+    }
+
+    static Optional&lt;String&gt; firstMatching(List&lt;String&gt; lines, String needle) {
+        return lines.stream()                                <span class="c">// Optional: "maybe absent", in the</span>
+                    .filter(l -&gt; l.contains(needle))         <span class="c">// return type where callers see it</span>
+                    .findFirst();
+    }
+
+    public static void main(String[] args) {
+        List&lt;String&gt; lines = List.of("install jdk", "learn records");
+        System.out.println(firstMatching(lines, "rec").orElse("no match"));
+        System.out.println(firstMatching(lines, "zzz").orElse("no match"));
+        loadLines(Path.of("missing.csv"));                   <span class="c">// watch the Caused by chain</span>
+    }
+}</pre>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Two clean Optional results, then the wrapped failure. The stack trace is the payoff: your exception on top, the original <code>NoSuchFileException</code> preserved underneath as <code>Caused by</code> &mdash; both stacks, nothing lost.</p>
+      </div>
+      <pre class="l1">$ java ExceptionsDemo.java
+<span class="c">learn records
+no match
+Exception in thread "main" TaskStoreException: could not read missing.csv
+        at ExceptionsDemo.loadLines(ExceptionsDemo.java:16)
+        at ExceptionsDemo.main(ExceptionsDemo.java:30)
+Caused by: java.nio.file.NoSuchFileException: missing.csv
+        ...</span></pre>
+
+      <p><code>Optional&lt;T&gt;</code> deserves its own rules, because it is routinely misused. It exists to make &ldquo;this might be absent&rdquo; visible in a <strong>return type</strong>, so the caller is forced to decide &mdash; <code>orElse</code>, <code>orElseThrow</code>, <code>map</code>, <code>ifPresent</code>. That is the whole job. Never make it a field (serialisation and JPA both choke, and it solves nothing there), never a parameter (callers end up writing <code>Optional.of(x)</code> noise &mdash; overload instead), and never call bare <code>.get()</code> &mdash; that is the old <code>NullPointerException</code> wearing a fancier name.</p>
+
+      <div class="pair">
+        <div class="note">
+          <h4>Do</h4>
+          <p><code>store.findByTitle("ship it").map(Task::title).orElse("&mdash;")</code> &mdash; absence handled in one chain, at the call site, visibly.</p>
+        </div>
+        <div class="note warn">
+          <h4>Do not</h4>
+          <p><code>opt.get()</code> without <code>isPresent()</code>, <code>Optional</code> fields, <code>Optional</code> parameters, or <code>catch (Exception e) {}</code> &mdash; the empty catch block is the same bug as Python&rsquo;s bare <code>except: pass</code>, and it will cost someone a weekend.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>

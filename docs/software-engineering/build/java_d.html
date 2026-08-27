@@ -1,0 +1,204 @@
+<section class="part" id="review">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part ten</span>
+      <h2>The review lens</h2>
+      <p class="stage s3">L3 &middot; Advanced</p>
+      <p>Everything before this was building. This part is what an experienced Java reviewer scans for in a diff &mdash; the idioms that signal care, the traps that recur in every codebase, and the tools that check half of it so humans can argue about the other half.</p>
+    </div>
+
+    <section class="topic" id="idioms">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>What &ldquo;idiomatic&rdquo; means in a Java review</h3>
+        <p class="lede">Idiom in Java is mostly about narrowing what code is allowed to do: make it immutable, make it final, make the type say it. Each rewrite below deletes a state the wrong version could reach &mdash; the same argument the Python and Go pages made, wearing a suit.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 344" role="img" aria-label="Five pairs of Java code: on the left the version a reviewer flags, on the right the idiomatic rewrite, with the name of each transformation between them.">
+          <defs>
+            <marker id="jad-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT GETS FLAGGED</text>
+          <text x="548" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT IS WANTED</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="34" width="336" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="61" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">@Autowired private TaskService svc;</text>
+            <rect x="20" y="90" width="336" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="117" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">public List&lt;Task&gt; tasks; // mutable, shared</text>
+            <rect x="20" y="146" width="336" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="173" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">catch (Exception e) { }</text>
+            <rect x="20" y="202" width="336" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="229" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">if (opt.isPresent()) { opt.get()&hellip; }</text>
+            <rect x="20" y="258" width="336" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="285" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">return taskEntity;  // JPA entity to JSON</text>
+          </g>
+
+          <g class="svg-l2">
+            <text x="450" y="50" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.9">constructor injection</text>
+            <line x1="362" y1="66" x2="538" y2="66" stroke="currentColor" stroke-width="1.2" marker-end="url(#jad-1)"/>
+            <text x="450" y="106" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.9">immutability by default</text>
+            <line x1="362" y1="122" x2="538" y2="122" stroke="currentColor" stroke-width="1.2" marker-end="url(#jad-1)"/>
+            <text x="450" y="162" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.9">catch what you handle</text>
+            <line x1="362" y1="178" x2="538" y2="178" stroke="currentColor" stroke-width="1.2" marker-end="url(#jad-1)"/>
+            <text x="450" y="218" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.9">Optional has methods</text>
+            <line x1="362" y1="234" x2="538" y2="234" stroke="currentColor" stroke-width="1.2" marker-end="url(#jad-1)"/>
+            <text x="450" y="274" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.9">DTO at the boundary</text>
+            <line x1="362" y1="290" x2="538" y2="290" stroke="currentColor" stroke-width="1.2" marker-end="url(#jad-1)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="548" y="34" width="332" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="61" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">private final TaskService svc;  // via ctor</text>
+            <rect x="548" y="90" width="332" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="117" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">private final List&lt;Task&gt; tasks = List.of(&hellip;);</text>
+            <rect x="548" y="146" width="332" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="173" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">catch (TaskStoreException e) { &hellip;log, map&hellip; }</text>
+            <rect x="548" y="202" width="332" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="229" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">opt.map(Task::title).orElseThrow(&hellip;)</text>
+            <rect x="548" y="258" width="332" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="560" y="285" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">return TaskResponse.from(entity);</text>
+          </g>
+
+          <text x="20" y="330" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity="0.9">None of these are style. Each right-hand version has fewer reachable states: nothing can reassign the field, mutate the list, swallow the error, or leak the column.</text>
+        </svg>
+        <figcaption><b>Idiom as state reduction.</b> The compiler is Java&rsquo;s best reviewer &mdash; <code>final</code>, sealed types, records and checked visibility all move bugs from run time to compile time, which is the whole personality of the language.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Review flag</th><th>Why it bites</th><th>The idiomatic form</th></tr></thead>
+          <tbody>
+            <tr><td>Field injection (<code>@Autowired</code> on a field)</td><td>Untestable without the container; hides the dependency count</td><td>One constructor, <code>final</code> fields &mdash; Spring wires it with no annotation</td></tr>
+            <tr><td><code>equals</code> without <code>hashCode</code></td><td>The object silently misbehaves as a map key &mdash; part two&rsquo;s buckets diagram</td><td>Generate both together, or use a record and get them for free</td></tr>
+            <tr><td>Returning <code>null</code> for &ldquo;not found&rdquo;</td><td>The caller&rsquo;s NPE fires far from the cause</td><td><code>Optional&lt;T&gt;</code> as the return type; <code>orElseThrow</code> at the edge</td></tr>
+            <tr><td>String concatenation in a loop</td><td>Quadratic &mdash; each <code>+</code> copies the whole accumulated string</td><td><code>StringBuilder</code>, or a stream with <code>Collectors.joining</code></td></tr>
+            <tr><td>Mutable <code>static</code> state</td><td>A hidden global shared by every thread and every test</td><td>Instance state owned by a bean; constants <code>static final</code> and immutable</td></tr>
+            <tr><td>Catching <code>Exception</code> broadly mid-stack</td><td>Swallows bugs and cancellation alike</td><td>Catch the specific type you can handle; let the advice map the rest</td></tr>
+            <tr><td>Raw types (<code>List tasks</code>)</td><td>Silently disables the type checker for that variable</td><td>Always parameterise: <code>List&lt;Task&gt;</code>; the diamond does the rest</td></tr>
+            <tr><td>Business logic in the controller</td><td>Untestable without HTTP; unusable from a queue consumer</td><td>Controllers translate; services decide &mdash; the same split as every sibling page</td></tr>
+            <tr><td><code>@Transactional</code> on a private or self-called method</td><td>The proxy never sees the call &mdash; part seven&rsquo;s diagram</td><td>Public method, called from another bean</td></tr>
+            <tr><td>New <code>ObjectMapper</code>/<code>RestClient</code> per request</td><td>Throws away pooling and warmed caches</td><td>One bean, injected &mdash; the same rule as Go&rsquo;s <code>http.Client</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pair">
+        <div class="note">
+          <h4>The toolchain that argues for you</h4>
+          <p><strong>Spotless</strong> with <code>google-java-format</code> ends formatting debate the way black did for Python. <strong>Error Prone</strong> runs inside javac and catches real bug patterns (a missing <code>@Override</code>, a self-assignment, an ignored return). <strong>SpotBugs</strong> reads the bytecode for null-flow and resource leaks. <strong>JaCoCo</strong> measures coverage in <code>mvn verify</code>. Wire all four into the build and a class of review comments disappears.</p>
+        </div>
+        <div class="note warn">
+          <h4>Idioms that have quietly expired</h4>
+          <p><code>new Date()</code> &rarr; <code>java.time.Instant</code>. Getters/setters on a data holder &rarr; a record. <code>synchronized</code> collections &rarr; <code>ConcurrentHashMap</code> or immutability. XML config and <code>web.xml</code> &rarr; annotations and <code>application.yml</code>. <code>RestTemplate</code> &rarr; <code>RestClient</code>. Application servers &rarr; the embedded server in the jar. If a tutorial shows any of the left column, check its date.</p>
+        </div>
+      </div>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>Add Spotless to the tasks project&rsquo;s <code>pom.xml</code> plugins block, then let it rewrite your formatting and fail the build when someone skips it.</p>
+      </div>
+      <pre class="l1">$ ./mvnw spotless:check
+<span class="c">[ERROR] The following files had format violations: TaskService.java   &larr; caught</span>
+$ ./mvnw spotless:apply &amp;&amp; ./mvnw spotless:check
+<span class="c">[INFO] Spotless check succeeded.</span></pre>
+
+      <pre class="l2"><span class="c">&lt;!-- pom.xml, inside &lt;build&gt;&lt;plugins&gt; --&gt;</span>
+&lt;plugin&gt;
+  &lt;groupId&gt;com.diffplug.spotless&lt;/groupId&gt;
+  &lt;artifactId&gt;spotless-maven-plugin&lt;/artifactId&gt;
+  &lt;version&gt;2.44.0&lt;/version&gt;
+  &lt;configuration&gt;
+    &lt;java&gt;&lt;googleJavaFormat/&gt;&lt;/java&gt;
+  &lt;/configuration&gt;
+  &lt;executions&gt;
+    &lt;execution&gt;&lt;goals&gt;&lt;goal&gt;check&lt;/goal&gt;&lt;/goals&gt;&lt;/execution&gt;  <span class="c">&lt;!-- fails mvn verify --&gt;</span>
+  &lt;/executions&gt;
+&lt;/plugin&gt;</pre>
+    </section>
+
+    <section class="topic" id="checklist">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>The checklist, and where to go next</h3>
+        <p class="lede">Twelve things worth a second look in any Java diff, the sixty seconds of commands before a pull request, and the map of what this page deliberately left for your second month.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 332" role="img" aria-label="A twelve-item review checklist arranged in three columns: correctness, Spring wiring, and resources and boundaries, with a closing line noting the automatable half.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">CORRECTNESS</text>
+          <text x="322" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">SPRING WIRING</text>
+          <text x="624" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">RESOURCES &amp; BOUNDARIES</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="30" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="42" y="40" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">equals and hashCode together, or a record</text>
+            <rect x="20" y="76" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="42" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">== only for primitives; .equals for objects</text>
+            <rect x="20" y="122" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="42" y="132" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">no raw types; generics everywhere</text>
+            <rect x="20" y="168" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="42" y="178" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">BigDecimal or long cents for money</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="322" y="30" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="344" y="40" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">constructor injection, final fields</text>
+            <rect x="322" y="76" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="344" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">@Transactional public, no self-invocation</text>
+            <rect x="322" y="122" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="344" y="132" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">entities stop at the service; DTOs cross</text>
+            <rect x="322" y="168" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="344" y="178" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">config bound and validated at start-up</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="624" y="30" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="646" y="40" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">try-with-resources on every Closeable</text>
+            <rect x="624" y="76" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="646" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">every client call has a timeout</text>
+            <rect x="624" y="122" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="646" y="132" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">executors bounded, named, shut down</text>
+            <rect x="624" y="168" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="646" y="178" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">no secrets in yml; env or vault only</text>
+          </g>
+
+          <line x1="20" y1="212" x2="880" y2="212" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+          <text x="20" y="238" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">About half of this list is Spotless, Error Prone and SpotBugs&rsquo; job. Put them in <tspan font-family="IBM Plex Mono, monospace" font-size="11">mvn verify</tspan> and spend the review on the half no tool can check:</text>
+          <text x="20" y="258" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">does the transaction boundary match the business operation, does the error contract tell the caller what to do, and would this class survive two concurrent requests.</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="278" width="860" height="38" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="34" y="302" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">The three questions, one per rung: is it correct alone &middot; is it wired so the container helps you &middot; does it fail well in company</text>
+          </g>
+        </svg>
+        <figcaption><b>Read it as three questions, not twelve rules.</b> Correctness is the language&rsquo;s half, wiring is Spring&rsquo;s half, and the resource column is the same discipline every page in this series ends on: timeouts, bounds, and owned lifecycles.</figcaption>
+      </figure>
+
+      <div class="note run">
+        <h4>Run it</h4>
+        <p>The sixty seconds before you open the pull request &mdash; from the tasks project root, with Docker running for the Testcontainers rung.</p>
+      </div>
+      <pre class="l1">$ ./mvnw spotless:apply                  <span class="c"># format — never argue about it again</span>
+$ ./mvnw verify                          <span class="c"># compiles, unit + slice + container tests, coverage</span>
+$ ./mvnw versions:display-dependency-updates | grep -A2 spring-boot
+<span class="c"># then read your own diff — these catch what the tools do not:</span>
+$ git diff --cached | grep -nE '@Autowired|System\.out|printStackTrace'
+$ git diff --cached | grep -nE 'catch \(Exception|\.get\(\)|new Thread\('
+$ git diff --cached | grep -nE 'password|secret|apikey' <span class="c"># nothing hard-coded, ever</span></pre>
+
+      <div class="pair">
+        <div class="note">
+          <h4>What this page deliberately left out</h4>
+          <p>Spring Security (authentication filters, JWT resource servers) deserves its own page rather than a cameo. So do messaging (Kafka via <code>spring-kafka</code>, the listener/acknowledgement model), caching (<code>@Cacheable</code> and its invalidation problem &mdash; the foundations page&rsquo;s caching section applies verbatim), GraalVM native images, and the module system. Learn them in that order; each builds on parts you now have.</p>
+        </div>
+        <div class="note">
+          <h4>Where to go next</h4>
+          <p><em>Effective Java</em> (Bloch) is the review lens of this part, expanded to ninety items &mdash; read it after a month of writing, not before. <em>Java Concurrency in Practice</em> is part eight&rsquo;s missing depth; still correct, virtual threads notwithstanding. For Spring, the reference documentation is genuinely good &mdash; read the chapter for each starter you add, and read the auto-configuration classes when behaviour surprises you: they are short, and they are the truth.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>

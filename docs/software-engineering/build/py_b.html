@@ -1,0 +1,1148 @@
+<section class="part" id="typing">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part three</span>
+      <h2>Types and structure</h2>
+      <p>Python will run almost anything you write. The tools in this part are how a team stops it running the wrong thing: annotations a checker reads, record types that say what a value is, and an import system whose rules decide what your process actually loaded.</p>
+    </div>
+
+    <section class="topic" id="hints">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Type hints: what they do and what they do not</h3>
+        <p class="lede">An annotation is data attached to a function object. The interpreter stores it and moves on. Everything useful about hints happens in a second program &mdash; mypy or pyright &mdash; that you have to run yourself.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 354" role="img" aria-label="Two panels: at run time an annotated function accepts a wrongly typed argument and returns nonsense, while at check time mypy reads the same file, reports an incompatible argument type and fails the build.">
+          <defs>
+            <marker id="pb-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A &middot; RUN TIME &mdash; THE ANNOTATION IS ONLY STORED</text>
+          <g class="svg-l2">
+            <rect x="20" y="30" width="410" height="92" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">def scale(xs: list[int], k: int) -&gt; list[int]:</text>
+            <text x="32" y="66" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">    return [x * k for x in xs]</text>
+            <text x="32" y="92" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">scale(["a", "b"], 3)</text>
+            <text x="32" y="108" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.75"># nothing checks this line</text>
+          </g>
+          <path d="M225 122 L225 146" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#pb-1)" opacity="0.7"/>
+          <g class="svg-l3">
+            <rect x="20" y="150" width="410" height="56" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="172" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">&rarr; ['aaa', 'bbb']</text>
+            <text x="32" y="190" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">a wrong answer, produced cheerfully</text>
+          </g>
+          <text x="20" y="228" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">The hints live in scale.__annotations__ and are</text>
+          <text x="20" y="244" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">read by nothing else. Delete them and the</text>
+          <text x="20" y="260" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">program behaves identically.</text>
+
+          <line x1="460" y1="14" x2="460" y2="270" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="486" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">B &middot; CHECK TIME &mdash; A SECOND PROGRAM READS IT</text>
+          <g class="svg-l1">
+            <rect x="486" y="30" width="394" height="92" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="498" y="50" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">$ mypy app.py</text>
+            <text x="498" y="72" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">app.py:4: error: Argument 1 to "scale"</text>
+            <text x="498" y="88" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">has incompatible type "list[str]";</text>
+            <text x="498" y="104" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">expected "list[int]"</text>
+          </g>
+          <path d="M683 122 L683 146" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#pb-1)" opacity="0.7"/>
+          <g class="svg-l3">
+            <rect x="486" y="150" width="394" height="56" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="498" y="172" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">exit status 1 &mdash; the build stops</text>
+            <text x="498" y="190" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">same file, same line, before anyone ran it</text>
+          </g>
+          <text x="486" y="228" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">The checker is a build step, not a language</text>
+          <text x="486" y="244" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">feature. Hints you never check are comments</text>
+          <text x="486" y="260" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">that go stale in a fortnight.</text>
+
+          <line x1="20" y1="286" x2="880" y2="286" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="308" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Two separate jobs, often confused</text>
+          <text x="20" y="328" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9"><tspan font-weight="600">Static checking</tspan> proves things about the code you wrote &mdash; that every caller passes what the function claims to need.</text>
+          <text x="20" y="346" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9"><tspan font-weight="600">Runtime validation</tspan> &mdash; pydantic, a schema, a hand-written check &mdash; is for data you did not write, arriving from outside.</text>
+        </svg>
+        <figcaption><b>Hints are a contract with your tools, not with the interpreter.</b> That is not a weakness: it is what lets you add them to a million-line codebase one module at a time. But it does mean an unchecked repository full of annotations has all of the cost and none of the guarantee.</figcaption>
+      </figure>
+
+      <pre class="l2">from typing import Literal, Protocol, TypedDict
+
+class Row(TypedDict):          <span class="c"># the shape of JSON you do not own</span>
+    id: int
+    status: Literal["open", "closed"]
+
+class Store(Protocol):         <span class="c"># structural: no base class, no registration</span>
+    def get(self, key: str) -&gt; Row | None: ...
+
+def load(store: Store, key: str) -&gt; Row | None:
+    return store.get(key)      <span class="c"># any object with a matching get() type-checks</span>
+</pre>
+      <pre class="l3"><span class="c"># PEP 695 (3.12+): generic syntax with no import, T scoped to the function</span>
+def first[T](xs: list[T]) -&gt; T:
+    return xs[0]
+
+<span class="c"># the older spelling, still what most of the ecosystem reads and writes</span>
+from typing import TypeVar, cast
+U = TypeVar("U")
+
+def last(xs: list[U]) -&gt; U:
+    return xs[-1]
+
+from __future__ import annotations   <span class="c"># hints stop being evaluated eagerly; the default on 3.14+ (PEP 649)</span>
+
+def handler(req: Request) -&gt; Response: ...  <span class="c"># forward reference, unquoted -- lazy annotations resolve it</span>
+
+n = cast(int, config.get("timeout"))  <span class="c"># zero run-time effect -- a lie you are asserting is true</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Annotate the boundaries first</h4>
+          <ul>
+            <li><strong>Parameters and returns</strong> &mdash; <code>def get(uid: int) -&gt; User:</code> is where hints pay for themselves.</li>
+            <li><strong>Containers</strong> &mdash; <code>list[int]</code>, <code>dict[str, int]</code>, <code>tuple[str, ...]</code>. Built-in generics since 3.9; no <code>typing.List</code> needed.</li>
+            <li><strong>Maybe-missing</strong> &mdash; <code>str | None</code> is the honest type for anything that can be absent.</li>
+            <li><strong>No enforcement</strong> &mdash; passing a <code>str</code> where <code>int</code> is annotated runs exactly as before. Nothing raises.</li>
+            <li><strong>Your editor already uses them</strong> &mdash; completion and go-to-definition get better the moment you add them.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Say more than &ldquo;object&rdquo;</h4>
+          <ul>
+            <li><strong><code>Optional[X]</code> is <code>X | None</code></strong> &mdash; and a default of <code>None</code> does not make a parameter optional in the type sense; annotate it.</li>
+            <li><strong><code>Any</code> is an escape hatch</strong> &mdash; it silently switches checking off for everything it touches. <code>object</code> is the safe &ldquo;I do not know&rdquo;.</li>
+            <li><strong><code>TypedDict</code></strong> &mdash; types a dict you receive from JSON without turning it into a class.</li>
+            <li><strong><code>Literal["asc", "desc"]</code></strong> &mdash; catches the typo in the string argument that would otherwise reach production.</li>
+            <li><strong><code>Protocol</code></strong> &mdash; structural typing: anything with the right methods fits, no inheritance. Duck typing the checker can see.</li>
+            <li><strong>Ramp the strictness</strong> &mdash; start with <code>--ignore-missing-imports</code>, add <code>disallow_untyped_defs</code> per package as each one is cleaned up.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Generics, laziness and lies</h4>
+          <ul>
+            <li><strong>PEP 695</strong> &mdash; <code>def first[T](xs: list[T]) -&gt; T:</code> in 3.12+; the older <code>TypeVar</code> spelling still fills every codebase you will read.</li>
+            <li><strong>Variance in one sentence</strong> &mdash; a <code>list[Dog]</code> is not a <code>list[Animal]</code>, because you could append a cat to it; immutable <code>Sequence[Dog]</code> is.</li>
+            <li><strong><code>from __future__ import annotations</code></strong> &mdash; annotations become strings, so forward references work and import cost drops. On 3.14+ you rarely need it: PEP 649 defers annotation evaluation by default, and forward references simply work. Anything reading annotations at run time should go through <code>annotationlib</code> / <code>get_type_hints</code>.</li>
+            <li><strong><code>typing.cast</code></strong> &mdash; zero run-time effect, pure assertion to the checker. A lie you own, so leave a comment saying why it is true.</li>
+            <li><strong>Different job, different tool</strong> &mdash; a checker cannot know what came off a socket. Validate that with pydantic; check the rest statically.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="records">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Dataclasses, NamedTuple, TypedDict, Pydantic</h3>
+        <p class="lede">Four ways to say &ldquo;this is a user record&rdquo;. They differ on exactly four things: whether it can be mutated, whether anything is checked at run time, what it costs per instance, and whether you had to install it.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 336" role="img" aria-label="A comparison grid of dataclass, NamedTuple, TypedDict and pydantic BaseModel across mutability, run-time validation, memory, tuple behaviour and dependency, followed by a flow showing pydantic used at the untrusted boundary and a dataclass used inside.">
+          <defs>
+            <marker id="pb-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE RECORD &mdash; id, name, tags &mdash; MODELLED FOUR WAYS</text>
+
+          <g class="svg-l2">
+            <rect x="180" y="34" width="168" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="356" y="34" width="168" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="532" y="34" width="168" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="708" y="34" width="168" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="192" y="52" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">@dataclass</text>
+            <text x="368" y="52" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">NamedTuple</text>
+            <text x="544" y="52" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">TypedDict</text>
+            <text x="720" y="52" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">BaseModel</text>
+            <text x="192" y="69" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">class User:</text>
+            <text x="368" y="69" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">class User(NamedTuple):</text>
+            <text x="544" y="69" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">class User(TypedDict):</text>
+            <text x="720" y="69" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">class User(BaseModel):</text>
+          </g>
+
+          <line x1="20" y1="88" x2="876" y2="88" stroke="currentColor" stroke-width="1" opacity="0.15"/>
+          <line x1="20" y1="116" x2="876" y2="116" stroke="currentColor" stroke-width="1" opacity="0.15"/>
+          <line x1="20" y1="144" x2="876" y2="144" stroke="currentColor" stroke-width="1" opacity="0.15"/>
+          <line x1="20" y1="172" x2="876" y2="172" stroke="currentColor" stroke-width="1" opacity="0.15"/>
+          <line x1="20" y1="200" x2="876" y2="200" stroke="currentColor" stroke-width="1" opacity="0.15"/>
+          <line x1="20" y1="228" x2="876" y2="228" stroke="currentColor" stroke-width="1" opacity="0.15"/>
+
+          <text x="20" y="106" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.8">Mutable</text>
+          <text x="20" y="134" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.8">Checked at run time</text>
+          <text x="20" y="162" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.8">Per-instance cost</text>
+          <text x="20" y="190" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.8">Behaves as a tuple</text>
+          <text x="20" y="218" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.8">Dependency</text>
+
+          <g class="svg-l1">
+            <text x="368" y="106" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">no, never</text>
+            <text x="720" y="134" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">yes, and it coerces</text>
+            <text x="368" y="162" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">smallest: it is a tuple</text>
+            <text x="368" y="190" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">yes: index and unpack</text>
+            <text x="192" y="218" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">stdlib</text>
+            <text x="368" y="218" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">stdlib</text>
+            <text x="544" y="218" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">stdlib</text>
+          </g>
+          <g class="svg-l2">
+            <text x="192" y="106" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">yes, or frozen=True</text>
+            <text x="720" y="106" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">yes, or frozen</text>
+            <text x="192" y="162" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">a dict, or slots=True</text>
+            <text x="544" y="162" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">a plain dict</text>
+            <text x="192" y="190" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">no</text>
+            <text x="544" y="190" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">no, it is a mapping</text>
+            <text x="720" y="190" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">no</text>
+          </g>
+          <g class="svg-l3">
+            <text x="544" y="106" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">yes: any key, any time</text>
+            <text x="192" y="134" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">no</text>
+            <text x="368" y="134" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">no</text>
+            <text x="544" y="134" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">no, and not even a class</text>
+            <text x="720" y="162" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">largest, plus parse time</text>
+            <text x="720" y="218" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">pip install pydantic</text>
+          </g>
+
+          <line x1="20" y1="248" x2="880" y2="248" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="270" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Where each one belongs</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="282" width="210" height="40" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="300" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">JSON off the network</text>
+            <text x="32" y="315" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">untrusted, any shape</text>
+          </g>
+          <path d="M234 302 L258 302" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-2)" opacity="0.7"/>
+          <g class="svg-l2">
+            <rect x="262" y="282" width="250" height="40" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="274" y="300" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">User.model_validate(raw)</text>
+            <text x="274" y="315" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">parses, coerces, raises here</text>
+          </g>
+          <path d="M516 302 L540 302" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-2)" opacity="0.7"/>
+          <g class="svg-l1">
+            <rect x="544" y="282" width="210" height="40" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="556" y="300" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">@dataclass User</text>
+            <text x="556" y="315" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">trusted, nothing to check</text>
+          </g>
+          <text x="770" y="300" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.85">validate once,</text>
+          <text x="770" y="316" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.85">then trust it.</text>
+        </svg>
+        <figcaption><b>Read the grid as a cost sheet.</b> Every column is fine somewhere: a <code>NamedTuple</code> for a hot inner loop that unpacks, a <code>TypedDict</code> for a payload you never own, a dataclass for the domain object you pass through twenty functions, pydantic exactly where the data arrives from outside.</figcaption>
+      </figure>
+
+      <pre class="l2">from dataclasses import dataclass, field
+
+@dataclass(frozen=True, slots=True)
+class User:
+    id: int
+    name: str
+    tags: list[str] = field(default_factory=list)   <span class="c"># not tags: list = []</span>
+
+    def __post_init__(self) -&gt; None:
+        if self.id &lt;= 0:                            <span class="c"># frozen: use object.__setattr__</span>
+            raise ValueError("id must be positive") <span class="c"># to normalise fields here</span>
+
+u = User(1, "ada")
+u.name = "grace"        <span class="c"># FrozenInstanceError -- hashable, safe as a dict key</span>
+</pre>
+
+      <pre class="l1"><span class="c"># NamedTuple — when tuple-ness IS the point: unpack it, hash it, index it</span>
+from typing import NamedTuple
+
+class Point(NamedTuple):
+    x: float
+    y: float
+
+p = Point(1.0, 2.0)
+x, y = p                       <span class="c"># unpacks like any tuple</span>
+p[0]                           <span class="c"># 1.0 — still indexable</span>
+p._replace(x=9.0)              <span class="c"># returns a NEW Point; p itself never changes</span>
+{p: "origin-ish"}              <span class="c"># hashable out of the box, no frozen= needed</span></pre>
+
+      <pre class="l2"><span class="c"># TypedDict — for a JSON shape you do not own; a plain dict at run time</span>
+from typing import TypedDict
+
+class UserPayload(TypedDict):
+    id: int
+    name: str
+    tags: list[str]
+
+def greet(u: UserPayload) -&gt; str:
+    return f"hello {u['name']}"    <span class="c"># dict access, not attribute access</span>
+
+raw: UserPayload = {"id": 1, "name": "ada", "tags": []}
+raw["naem"] = "typo"               <span class="c"># mypy/pyright catch this; nothing does at run time</span>
+greet({"id": 1})                   <span class="c"># also only a type-checker error — TypedDict never runs</span></pre>
+
+      <pre class="l3"><span class="c"># BaseModel — the same record, but arriving from outside and needing to be believed</span>
+from pydantic import BaseModel, Field, ValidationError
+
+class User(BaseModel):
+    id: int = Field(gt=0)
+    name: str
+    tags: list[str] = []           <span class="c"># pydantic copies the default per instance — safe here</span>
+
+try:
+    u = User.model_validate({"id": "1", "name": "ada"})  <span class="c"># "1" coerced to 1</span>
+except ValidationError as e:
+    log.warning("bad user payload: %s", e.errors())
+
+u.model_dump()                     <span class="c"># -&gt; plain dict, JSON-safe with mode="json"</span></pre>
+
+      <p>Records make tagged unions, and <code>match</code> (3.10+) is how you consume one &mdash; the checker narrows each arm, and <code>assert_never</code> turns &ldquo;forgot a variant&rdquo; into a type error instead of a production bug:</p>
+
+      <pre class="l2"><span class="c"># dispatch on a tagged union: match narrows, assert_never proves exhaustiveness</span>
+from dataclasses import dataclass
+from typing import assert_never
+
+@dataclass
+class Created:
+    id: int
+
+@dataclass
+class Deleted:
+    id: int
+    reason: str
+
+def apply(ev: Created | Deleted) -&gt; str:
+    match ev:
+        case Created(id=i):            return f"created {i}"
+        case Deleted(id=i, reason=r):  return f"deleted {i}: {r}"
+        case _:                        assert_never(ev)  <span class="c"># unreachable -- or the union grew</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Stop passing dicts around</h4>
+          <ul>
+            <li><strong>A dict has no shape</strong> &mdash; <code>user["nmae"]</code> is a <code>KeyError</code> at 2am; <code>user.nmae</code> is caught by the checker and your editor.</li>
+            <li><strong><code>@dataclass</code></strong> &mdash; write the fields with their types and you get <code>__init__</code>, <code>__repr__</code> and <code>__eq__</code> for free.</li>
+            <li><strong>Defaults work as expected</strong> &mdash; <code>retries: int = 3</code>, and required fields must come before defaulted ones.</li>
+            <li><strong>The repr matters</strong> &mdash; a dataclass prints as <code>User(id=1, name='ada')</code>, which is most of a debugging session.</li>
+            <li><strong>It is still a normal class</strong> &mdash; add methods, inherit, use it anywhere.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>The four arguments that matter</h4>
+          <ul>
+            <li><strong><code>field(default_factory=list)</code></strong> &mdash; the mutable-default trap again; a bare <code>[]</code> as a class-level default is a <code>ValueError</code> from dataclasses, and a shared list everywhere else.</li>
+            <li><strong><code>frozen=True</code></strong> &mdash; assignment raises, and the instance becomes hashable. Good default for anything you pass between threads.</li>
+            <li><strong><code>slots=True</code></strong> &mdash; no per-instance <code>__dict__</code>: less memory, faster attribute access, no typo-attributes.</li>
+            <li><strong><code>__post_init__</code></strong> &mdash; derived fields and cheap invariants, run after <code>__init__</code> assigns.</li>
+            <li><strong><code>NamedTuple</code></strong> &mdash; when tuple-ness is the point: unpacking, use as a dict key, returning from a function that used to return a plain tuple.</li>
+            <li><strong><code>TypedDict</code></strong> &mdash; for a JSON shape you do not own. It is a dict at run time; the types exist only for the checker.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Validate at the edge, trust inside</h4>
+          <ul>
+            <li><strong>Pydantic belongs at the boundary</strong> &mdash; HTTP body, queue message, config file, third-party response. Parse once, into a typed object.</li>
+            <li><strong>Do not validate in a loop</strong> &mdash; re-validating an already-parsed model on every internal hop buys nothing and shows up in profiles.</li>
+            <li><strong>v2 does the work in Rust</strong> &mdash; much faster than v1, but still far more expensive than a dataclass constructor, which does almost nothing.</li>
+            <li><strong><code>attrs</code></strong> &mdash; the library dataclasses came from; still ahead on validators, converters and <code>__slots__</code> ergonomics.</li>
+            <li><strong>The rule</strong> &mdash; untrusted data crosses exactly one line in your codebase. After that line it is a typed record, and no function downstream defends itself.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="packaging">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Modules, packages, imports and environments</h3>
+        <p class="lede"><code>import orders</code> is a search, an execution and a cache, in that order. Knowing those three steps explains import side effects, why the second import is free, and why a circular import fails with an attribute error rather than a clear message.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 368" role="img" aria-label="Top: the five steps of an import, from name to sys.modules cache, with a return path showing later imports served from the cache. Bottom left: two modules importing each other, with the second failing on a half-initialised module. Bottom right: a project layout with pyproject.toml, a lockfile and a virtual environment.">
+          <defs>
+            <marker id="pb-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A &middot; WHAT import orders ACTUALLY DOES</text>
+
+          <text x="300" y="28" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">every later import: cache hit, the file does not run again</text>
+          <g class="svg-l2">
+            <path d="M785 60 L785 38 L255 38 L255 56" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-3)" opacity="0.8"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="20" y="60" width="140" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="80" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">import orders</text>
+            <text x="32" y="96" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor" opacity="0.8">a name to bind</text>
+            <rect x="180" y="60" width="150" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="192" y="80" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">sys.modules</text>
+            <text x="192" y="96" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor" opacity="0.8">already loaded?</text>
+            <rect x="350" y="60" width="150" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="362" y="80" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">search sys.path</text>
+            <text x="362" y="96" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor" opacity="0.8">cwd, venv, stdlib</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="520" y="60" width="150" height="44" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="532" y="80" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">execute the file</text>
+            <text x="532" y="96" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor">top to bottom, once</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="690" y="60" width="190" height="44" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="702" y="80" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">cache in sys.modules</text>
+            <text x="702" y="96" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor" opacity="0.8">then bind the name</text>
+          </g>
+          <path d="M162 82 L176 82" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-3)" opacity="0.7"/>
+          <path d="M332 82 L346 82" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-3)" opacity="0.7"/>
+          <path d="M502 82 L516 82" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-3)" opacity="0.7"/>
+          <path d="M672 82 L686 82" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-3)" opacity="0.7"/>
+
+          <text x="20" y="126" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">Executing the file runs every top-level statement. That is what an import side effect is: a connection opened,</text>
+          <text x="20" y="144" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" opacity="0.9">a registry populated, a model loaded &mdash; all of it at start-up, all of it before your first line of work.</text>
+
+          <line x1="20" y1="164" x2="880" y2="164" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+
+          <text x="20" y="188" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">B &middot; A CIRCULAR IMPORT, HALFWAY THROUGH</text>
+          <g class="svg-l2">
+            <rect x="20" y="200" width="190" height="68" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="220" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75"># a.py</text>
+            <text x="32" y="238" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">import b</text>
+            <text x="32" y="256" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.55">X = 1   (not reached yet)</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="250" y="200" width="190" height="68" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="262" y="220" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75"># b.py</text>
+            <text x="262" y="238" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">import a</text>
+            <text x="262" y="256" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Y = a.X</text>
+          </g>
+          <path d="M214 222 L246 222" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-3)" opacity="0.7"/>
+          <g class="svg-l3">
+            <path d="M340 268 L340 288 L115 288 L115 272" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#pb-3)"/>
+          </g>
+          <text x="352" y="292" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.85">a is loaded but empty</text>
+          <g class="svg-l3">
+            <text x="20" y="318" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">AttributeError: partially initialized module</text>
+            <text x="20" y="332" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">'a' has no attribute 'X'</text>
+          </g>
+          <text x="20" y="354" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">Move the shared type out, or import inside the function.</text>
+
+          <line x1="470" y1="180" x2="470" y2="356" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="496" y="188" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">C &middot; ONE PROJECT, ONE ENVIRONMENT</text>
+          <g class="svg-l1">
+            <text x="496" y="208" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">myproj/</text>
+            <text x="496" y="224" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">  pyproject.toml    deps, tools, build</text>
+            <text x="496" y="240" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">  uv.lock           exact resolved versions</text>
+            <text x="496" y="256" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">  .venv/            this project only</text>
+            <text x="496" y="272" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">  src/myproj/</text>
+            <text x="496" y="288" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">    __init__.py     makes it a package</text>
+            <text x="496" y="304" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">    __main__.py     python -m myproj</text>
+            <text x="496" y="320" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">  tests/</text>
+          </g>
+          <text x="496" y="342" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">The venv is this project&rsquo;s interpreter; the lockfile</text>
+          <text x="496" y="358" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.85">is the reason tomorrow resolves to the same versions.</text>
+        </svg>
+        <figcaption><b>Two practical consequences.</b> Because a module runs exactly once per interpreter, module-level state is a singleton &mdash; convenient, and the reason import order can change behaviour. And because import <em>executes</em>, a heavy top-level import is start-up latency you pay on every cold start, every worker, every test run.</figcaption>
+      </figure>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>One environment per project</h4>
+          <ul>
+            <li><strong>Module vs package</strong> &mdash; a module is a <code>.py</code> file; a package is a directory of them, importable as a unit.</li>
+            <li><strong>Import forms</strong> &mdash; <code>import orders</code>, <code>from orders import Order</code>, <code>import orders as o</code>. Avoid <code>from x import *</code>: the reader cannot tell where a name came from.</li>
+            <li><strong><code>if __name__ == "__main__":</code></strong> &mdash; the guard that makes a file both importable and runnable, and stops <code>multiprocessing</code> re-running your script.</li>
+            <li><strong>A virtual environment per project</strong> &mdash; <code>python -m venv .venv</code>, or let <code>uv</code> manage it. It is a directory with its own interpreter and its own packages.</li>
+            <li><strong>Never install globally</strong> &mdash; two projects will eventually want two versions of the same library, and system Python belongs to the system.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Make the environment reproducible</h4>
+          <ul>
+            <li><strong>Absolute imports</strong> &mdash; <code>from myproj.orders import Order</code> reads the same from anywhere. Keep relative imports (<code>from .orders import Order</code>) shallow if you use them at all.</li>
+            <li><strong><code>sys.modules</code> is the cache</strong> &mdash; re-importing gives you the same object. Monkeypatching in tests and reload tricks both hang off this.</li>
+            <li><strong>Import side effects</strong> &mdash; anything at module level runs on import. Keep it to constants and definitions; put work in functions.</li>
+            <li><strong><code>pyproject.toml</code></strong> &mdash; one file for dependencies, build backend, and tool config (ruff, mypy, pytest).</li>
+            <li><strong>Pin and lock</strong> &mdash; loose ranges for a library you publish, an exact lockfile for an application you deploy.</li>
+            <li><strong><code>pip</code> vs <code>uv</code></strong> &mdash; same package format; <code>uv</code> resolves and installs an order of magnitude faster and manages the venv and lockfile itself.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Break the cycle, watch the clock</h4>
+          <ul>
+            <li><strong>Three fixes for a circular import</strong> &mdash; move the shared type to its own module, import inside the function that needs it, or accept the dependency is backwards and invert it.</li>
+            <li><strong><code>if TYPE_CHECKING:</code></strong> &mdash; imports needed only for annotations, skipped at run time. Pairs with <code>from __future__ import annotations</code>.</li>
+            <li><strong>The src layout</strong> &mdash; putting the package under <code>src/</code> means tests import the installed package, not the working copy that happens to be on <code>sys.path</code>.</li>
+            <li><strong>Editable installs</strong> &mdash; <code>pip install -e .</code> puts a link on the path, so edits take effect without reinstalling.</li>
+            <li><strong>Namespace packages</strong> &mdash; a directory without <code>__init__.py</code> can still be a package split across distributions. Usually a surprise rather than a plan.</li>
+            <li><strong>Import time is start-up cost</strong> &mdash; <code>python -X importtime -c "import myproj"</code> prints the tree with microseconds per module. A lazily imported heavy dependency is often the whole fix.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="errors">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part four</span>
+      <h2>Errors and resources</h2>
+      <p>Python asks forgiveness rather than permission: you attempt the operation and handle the exception. That is idiomatic and it is race-free, but it only works if the handler catches what it can actually deal with &mdash; and if the file, socket or transaction is released whichever way control leaves the block.</p>
+    </div>
+
+    <section class="topic" id="exceptions">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Exceptions, EAFP, and chaining</h3>
+        <p class="lede">Four clauses, four different jobs. <code>else</code> is the part of the body that must not be inside the <code>try</code>; <code>finally</code> is the part that runs whatever happens, including on the way out of a <code>return</code>.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 340" role="img" aria-label="Left: a flow through try, then either else on success or except on failure, both leading into finally and out of the function. Right: three ways of re-raising, keeping the cause with from err, keeping implicit context, or erasing it with from None.">
+          <defs>
+            <marker id="pb-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A &middot; WHICH CLAUSE RUNS, AND WHEN</text>
+
+          <g class="svg-l2">
+            <rect x="110" y="34" width="180" height="32" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="122" y="55" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">try: row = fetch(id)</text>
+          </g>
+          <path d="M170 66 L112 98" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-4)" opacity="0.75"/>
+          <path d="M240 66 L300 98" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-4)" opacity="0.75"/>
+          <text x="20" y="94" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.8">no exception</text>
+          <text x="352" y="94" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.8">a matching exception</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="104" width="180" height="38" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="120" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">else:</text>
+            <text x="32" y="134" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor">the success-only work</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="250" y="104" width="200" height="38" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="262" y="120" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">except NotFound as e:</text>
+            <text x="262" y="134" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor">handle, or re-raise</text>
+          </g>
+          <path d="M110 142 L182 168" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-4)" opacity="0.75"/>
+          <path d="M350 142 L292 168" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-4)" opacity="0.75"/>
+
+          <g class="svg-l2">
+            <rect x="130" y="172" width="230" height="38" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="142" y="188" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">finally:</text>
+            <text x="142" y="202" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor">success, exception, return, break</text>
+          </g>
+          <path d="M245 210 L245 236" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-4)" opacity="0.75"/>
+          <g class="svg-l2">
+            <rect x="130" y="240" width="230" height="36" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="142" y="256" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">the value is returned, or the</text>
+            <text x="142" y="270" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">exception carries on upwards</text>
+          </g>
+          <text x="20" y="300" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">A return inside try does not skip finally: the value is</text>
+          <text x="20" y="316" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">computed, finally runs, then the function returns. A return</text>
+          <text x="20" y="332" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">inside finally replaces it &mdash; and eats a live exception.</text>
+
+          <line x1="478" y1="14" x2="478" y2="326" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="500" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">B &middot; RE-RAISING: KEEP THE CAUSE</text>
+          <g class="svg-l1">
+            <rect x="500" y="34" width="380" height="58" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="512" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">raise ConfigError(msg) from err</text>
+            <text x="512" y="70" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">sets __cause__ &mdash; you meant this</text>
+            <text x="512" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">traceback: &ldquo;the direct cause of the above&rdquo;</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="500" y="100" width="380" height="58" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="512" y="120" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">raise ConfigError(msg)</text>
+            <text x="512" y="136" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">sets __context__ &mdash; Python noticed for you</text>
+            <text x="512" y="152" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">traceback: &ldquo;during handling of the above&rdquo;</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="500" y="166" width="380" height="58" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="512" y="186" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">raise ConfigError(msg) from None</text>
+            <text x="512" y="202" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">erases both &mdash; the original never prints</text>
+            <text x="512" y="218" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">the line number you needed is gone</text>
+          </g>
+          <text x="500" y="252" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">Translate errors at layer boundaries: a driver error</text>
+          <text x="500" y="268" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">becomes a domain error, with from err so the driver</text>
+          <text x="500" y="284" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">detail survives. Use from None only when the inner</text>
+          <text x="500" y="300" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">error is pure noise and you are certain of it.</text>
+        </svg>
+        <figcaption><b>The clause people skip is <code>else</code>.</b> Code that belongs after a successful attempt should not sit inside the <code>try</code>, where it can raise the same exception type and be caught by a handler that was never meant for it. That is how a <code>KeyError</code> from your own logic gets reported as &ldquo;record not found&rdquo;.</figcaption>
+      </figure>
+
+      <pre class="l2">import contextlib
+
+class Transient(Exception): ...    <span class="c"># worth a retry: timeout, 503, connection reset</span>
+class Terminal(Exception): ...     <span class="c"># never retry: 400, 403, bad payload</span>
+
+def fetch(url: str) -&gt; bytes:
+    try:
+        return http.get(url)
+    except TimeoutError as err:
+        raise Transient(f"timeout: {url}") from err
+    except PermissionError as err:
+        raise Terminal(f"forbidden: {url}") from err
+
+with contextlib.suppress(FileNotFoundError):
+    os.remove(tmp)                 <span class="c"># "already gone is fine" -- not a bare except</span>
+</pre>
+      <pre class="l1"><span class="c"># all four clauses, each with a job try/except alone cannot do</span>
+def load_batch(path: str) -&gt; list[Row]:
+    try:
+        fh = open(path)
+    except FileNotFoundError:
+        return []                  <span class="c"># handled: an empty batch is a valid outcome</span>
+    else:
+        with fh:                   <span class="c"># only runs if open() did NOT raise; the with</span>
+            return parse(fh)       <span class="c"># closes fh even if parse() raises -- next topic</span>
+    finally:
+        log.info("load_batch done: %s", path)    <span class="c"># always -- even on the return above</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Catch what you can handle</h4>
+          <ul>
+            <li><strong>The hierarchy</strong> &mdash; everything derives from <code>BaseException</code>; the errors you mean are under <code>Exception</code>. <code>ValueError</code>, <code>KeyError</code>, <code>OSError</code> are the ones you meet daily.</li>
+            <li><strong>Be specific</strong> &mdash; <code>except ValueError:</code>, not <code>except Exception:</code>. A handler that catches everything hides the bug you have not found yet.</li>
+            <li><strong>Never a bare <code>except:</code></strong> &mdash; it catches <code>KeyboardInterrupt</code> and <code>SystemExit</code> too, so Ctrl-C stops working.</li>
+            <li><strong><code>else</code></strong> &mdash; runs only when the <code>try</code> raised nothing; keeps the success path out of the guarded block.</li>
+            <li><strong><code>finally</code></strong> &mdash; runs on every exit path. Cleanup goes here, or better, in a <code>with</code>.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>EAFP, and errors with meaning</h4>
+          <ul>
+            <li><strong>EAFP beats LBYL</strong> &mdash; <code>try: open(p)</code> against <code>if os.path.exists(p)</code>: the check-then-act version has a race, and does the work twice.</li>
+            <li><strong>Custom exception types</strong> &mdash; one base class per package, so callers can catch your errors without catching everything.</li>
+            <li><strong><code>raise NewError(...) from err</code></strong> &mdash; translation with the cause attached. The default implicit chaining is fine too; the anti-pattern is <code>from None</code>.</li>
+            <li><strong><code>contextlib.suppress(FileNotFoundError)</code></strong> &mdash; says &ldquo;I expect this and it is fine&rdquo; in one line, and cannot accidentally swallow more.</li>
+            <li><strong>Exceptions as control flow</strong> &mdash; <code>StopIteration</code> ends every <code>for</code> loop, <code>KeyError</code> drives <code>defaultdict</code>. Idiomatic here, unlike most languages.</li>
+            <li><strong>Log with the traceback</strong> &mdash; <code>logging.exception(...)</code> inside the handler; a logged message without a traceback is half an incident report.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Groups, cost, and taxonomy</h4>
+          <ul>
+            <li><strong><code>ExceptionGroup</code> and <code>except*</code></strong> &mdash; 3.11+. A <code>TaskGroup</code> where three tasks fail raises all three; <code>except*</code> handles each type and re-raises the rest.</li>
+            <li><strong>Cost on hot paths</strong> &mdash; setting up a <code>try</code> is nearly free; <em>raising</em> is not. Building a traceback in a per-row loop is measurable, so a sentinel return can win there.</li>
+            <li><strong>Taxonomy drives retries</strong> &mdash; transient (timeout, 503, deadlock) retries with backoff and jitter; terminal (400, 403, schema error) must not, or you have built a retry storm. The same split as the Go and foundations pages.</li>
+            <li><strong>Do not catch <code>BaseException</code></strong> &mdash; that is where <code>KeyboardInterrupt</code>, <code>SystemExit</code> and <code>asyncio.CancelledError</code> live. Catching them breaks shutdown and cancellation.</li>
+            <li><strong>Retries need idempotency</strong> &mdash; a timeout does not tell you whether the write landed. Retry only what carries an idempotency key.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="context">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Context managers and deterministic cleanup</h3>
+        <p class="lede"><code>with</code> is syntax for a <code>try</code>/<code>finally</code> that someone else wrote and tested. The release runs on the exception path as well as the happy one, which is the entire reason the statement exists.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 340" role="img" aria-label="Left: a with statement expanded into enter, a guarded body, and exit called on both the exception and the success path. Right: a transaction beginning on enter and either committing or rolling back in exit.">
+          <defs>
+            <marker id="pb-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A &middot; with, EXPANDED</text>
+          <g class="svg-l2">
+            <rect x="20" y="34" width="190" height="48" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">with open(p) as f:</text>
+            <text x="32" y="70" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">    body(f)</text>
+          </g>
+          <path d="M214 58 L246 58" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-5)" opacity="0.75"/>
+          <text x="212" y="78" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="currentColor" opacity="0.75">is exactly</text>
+          <g class="svg-l1">
+            <rect x="258" y="30" width="242" height="160" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="270" y="50" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">cm = open(p)</text>
+            <text x="270" y="65" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">f = cm.__enter__()</text>
+            <text x="270" y="80" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">try:</text>
+            <text x="270" y="95" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">    body(f)</text>
+            <text x="270" y="110" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">except BaseException:</text>
+            <text x="270" y="125" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">    if not cm.__exit__(*sys.exc_info()):</text>
+            <text x="270" y="140" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">        raise</text>
+            <text x="270" y="155" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">else:</text>
+            <text x="270" y="170" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">    cm.__exit__(None, None, None)</text>
+          </g>
+          <text x="20" y="214" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">Both paths call __exit__. Cleanup does not depend on the body</text>
+          <text x="20" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">finishing, on the caller remembering, or on the collector.</text>
+          <text x="20" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">Several managers in one with: opened left to right, closed right to left.</text>
+
+          <line x1="520" y1="14" x2="520" y2="256" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="540" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">B &middot; A TRANSACTION, EITHER WAY</text>
+          <g class="svg-l1">
+            <rect x="540" y="34" width="340" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="552" y="53" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">__enter__  &rarr;  BEGIN</text>
+          </g>
+          <path d="M710 64 L710 84" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-5)" opacity="0.75"/>
+          <g class="svg-l2">
+            <rect x="540" y="88" width="340" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="552" y="107" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">body      &rarr;  INSERT, UPDATE</text>
+          </g>
+          <path d="M660 118 L616 142" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-5)" opacity="0.75"/>
+          <path d="M760 118 L804 142" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-5)" opacity="0.75"/>
+          <g class="svg-l1">
+            <rect x="540" y="146" width="160" height="44" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="552" y="165" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">__exit__(None)</text>
+            <text x="552" y="181" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">COMMIT</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="720" y="146" width="160" height="44" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="732" y="165" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">__exit__(exc)</text>
+            <text x="732" y="181" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">ROLLBACK, then re-raise</text>
+          </g>
+          <text x="540" y="214" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">Return True from __exit__ and the exception stops</text>
+          <text x="540" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">here: the caller sees a clean return from a failed</text>
+          <text x="540" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">transaction. Almost always a bug.</text>
+
+          <line x1="20" y1="272" x2="880" y2="272" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="294" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Why open() without with seems to work</text>
+          <text x="20" y="316" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">CPython refcounts, so a file object with no references left is closed immediately. That is an implementation detail, not a promise.</text>
+          <text x="20" y="334" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Hold one reference in a traceback, a closure or a cycle &mdash; or run on PyPy &mdash; and the descriptor stays open until the collector feels like it.</text>
+        </svg>
+        <figcaption><b>The failure mode is not a crash, it is a slow leak.</b> Descriptors accumulate under load until an <code>OSError: Too many open files</code> arrives during an incident that has nothing to do with files, and a lock or transaction held the same way blocks everyone behind it in the meantime.</figcaption>
+      </figure>
+
+      <pre class="l2">import contextlib, logging, time
+
+@contextlib.contextmanager
+def timed(label: str):
+    start = time.perf_counter()
+    try:
+        yield                       <span class="c"># the body of the with block runs here</span>
+    finally:                        <span class="c"># runs on the exception path too</span>
+        ms = (time.perf_counter() - start) * 1000
+        logging.info("%s took %.1f ms", label, ms)
+
+with timed("query"), conn.transaction():    <span class="c"># left to right in, right to left out</span>
+    rows = conn.fetch_all(sql)
+</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Use <code>with</code> for anything you open</h4>
+          <ul>
+            <li><strong><code>with open(path) as f:</code></strong> &mdash; the file closes when the block ends, however it ends.</li>
+            <li><strong>Why it matters</strong> &mdash; if <code>json.load(f)</code> raises halfway, the file still closes; a plain <code>f.close()</code> at the end of the function never runs.</li>
+            <li><strong>Not just files</strong> &mdash; sockets, locks, database connections and transactions, <code>tempfile</code>, <code>subprocess.Popen</code>.</li>
+            <li><strong>Several at once</strong> &mdash; <code>with open(a) as src, open(b, "w") as dst:</code> in one statement, entered left to right.</li>
+            <li><strong>The <code>as</code> target</strong> &mdash; is whatever <code>__enter__</code> returns, which is not always the manager itself.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Write your own</h4>
+          <ul>
+            <li><strong>The protocol</strong> &mdash; <code>__enter__(self)</code> returns the resource; <code>__exit__(self, exc_type, exc, tb)</code> releases it and returns falsy to let any exception through.</li>
+            <li><strong><code>@contextlib.contextmanager</code></strong> &mdash; one function, one <code>yield</code>. Everything before is setup, everything after is teardown.</li>
+            <li><strong>Wrap the yield in try/finally</strong> &mdash; without it, an exception in the body skips your teardown entirely. This is the bug in most hand-written generators.</li>
+            <li><strong><code>ExitStack</code></strong> &mdash; for a number of resources known only at run time: <code>stack.enter_context(open(p))</code> in a loop, all unwound together.</li>
+            <li><strong><code>closing</code>, <code>suppress</code>, <code>redirect_stdout</code></strong> &mdash; <code>contextlib</code> already has the adapters you were about to write.</li>
+            <li><strong>Also a decorator</strong> &mdash; a <code>ContextDecorator</code> can be applied to a whole function with <code>@timed("x")</code>.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Reentrancy, async, and suppression</h4>
+          <ul>
+            <li><strong>Generator-based managers are single-use</strong> &mdash; re-entering one raises. If you need reuse, write the class, or use <code>contextlib.nullcontext</code> for the optional case.</li>
+            <li><strong><code>async with</code></strong> &mdash; <code>__aenter__</code> and <code>__aexit__</code>, built with <code>@asynccontextmanager</code>. A connection pool acquire that awaits needs this; a sync manager holding an await is how you block the loop.</li>
+            <li><strong><code>AsyncExitStack</code></strong> &mdash; the same dynamic unwinding for coroutine resources.</li>
+            <li><strong>Returning True suppresses</strong> &mdash; legitimate for <code>suppress</code>, wrong almost everywhere else: it silently converts a failure into a success.</li>
+            <li><strong>Cleanup can raise</strong> &mdash; an exception in <code>__exit__</code> replaces the one in flight, with the original as its context. Keep teardown boring.</li>
+            <li><strong>Refcounting is not a resource policy</strong> &mdash; deterministic close is a CPython accident that PyPy does not share, and one stray reference removes it on CPython too.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="concurrency">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part five</span>
+      <h2>Concurrency, and where Python is different</h2>
+      <p>Every other page in this series treats threads as the default unit of parallelism. Python does not, because one lock inside the interpreter decides who executes bytecode. Understand that lock and the rest &mdash; threads, processes, asyncio &mdash; stops being folklore and becomes a straightforward choice.</p>
+    </div>
+
+    <section class="topic" id="gil">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>The GIL: what actually runs in parallel</h3>
+        <p class="lede">One lock per interpreter, held by whichever thread is executing bytecode. Threads still interleave, and they still overlap perfectly while waiting on I/O &mdash; but four CPU-bound threads on four cores finish no sooner than one.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 360" role="img" aria-label="Left: four threads sharing one interpreter lock, their run segments never overlapping on a common time axis. Right: four processes each with their own interpreter, all executing at the same time, at the cost of pickling and start-up.">
+          <defs>
+            <marker id="pb-6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A &middot; FOUR THREADS, ONE INTERPRETER LOCK</text>
+          <text x="20" y="38" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.75">shaded = holding the GIL and running bytecode</text>
+
+          <text x="20" y="64" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">T1</text>
+          <text x="20" y="96" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">T2</text>
+          <text x="20" y="128" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">T3</text>
+          <text x="20" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">T4</text>
+          <rect x="56" y="48" width="390" height="22" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+          <rect x="56" y="80" width="390" height="22" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+          <rect x="56" y="112" width="390" height="22" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+          <rect x="56" y="144" width="390" height="22" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+          <g class="svg-l1">
+            <rect x="56" y="48" width="90" height="22" fill="currentColor" opacity="0.55"/>
+            <rect x="146" y="80" width="70" height="22" fill="currentColor" opacity="0.55"/>
+            <rect x="216" y="112" width="110" height="22" fill="currentColor" opacity="0.55"/>
+            <rect x="326" y="144" width="120" height="22" fill="currentColor" opacity="0.55"/>
+          </g>
+          <line x1="56" y1="178" x2="446" y2="178" stroke="currentColor" stroke-width="1" opacity="0.35"/>
+          <text x="56" y="194" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.75">wall clock &rarr;</text>
+          <text x="20" y="220" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">Four cores, and the shaded blocks never overlap. Adding</text>
+          <text x="20" y="236" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">threads to CPU-bound work makes it slightly slower, not faster.</text>
+          <text x="20" y="252" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">A thread that blocks on a socket drops the lock immediately, so</text>
+          <text x="20" y="268" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">I/O-bound threads do overlap, and overlap well.</text>
+
+          <line x1="474" y1="14" x2="474" y2="280" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="496" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">B &middot; FOUR PROCESSES, FOUR INTERPRETERS</text>
+          <text x="496" y="38" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.75">each with its own GIL, its own heap, no sharing</text>
+          <g class="svg-l1">
+            <rect x="496" y="48" width="384" height="22" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="496" y="80" width="384" height="22" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="496" y="112" width="384" height="22" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <rect x="496" y="144" width="384" height="22" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="506" y="64" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">worker 1</text>
+            <text x="506" y="96" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">worker 2</text>
+            <text x="506" y="128" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">worker 3</text>
+            <text x="506" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">worker 4</text>
+            <rect x="580" y="52" width="292" height="14" fill="currentColor" opacity="0.55"/>
+            <rect x="580" y="84" width="292" height="14" fill="currentColor" opacity="0.55"/>
+            <rect x="580" y="116" width="292" height="14" fill="currentColor" opacity="0.55"/>
+            <rect x="580" y="148" width="292" height="14" fill="currentColor" opacity="0.55"/>
+          </g>
+          <line x1="496" y1="178" x2="880" y2="178" stroke="currentColor" stroke-width="1" opacity="0.35"/>
+          <text x="496" y="194" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.75">all four at once &mdash; real parallelism</text>
+          <g class="svg-l3">
+            <text x="496" y="220" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The price: every argument and every result is</text>
+            <text x="496" y="236" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">pickled across the boundary, start-up costs tens of</text>
+            <text x="496" y="252" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">milliseconds per worker, and nothing is shared</text>
+            <text x="496" y="268" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">unless you deliberately share it.</text>
+          </g>
+
+          <line x1="20" y1="292" x2="880" y2="292" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="314" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">The lock is dropped more often than people think</text>
+          <text x="20" y="334" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Every socket read, every disk write and <tspan font-family="IBM Plex Mono, monospace" font-size="11">time.sleep</tspan> release the lock, and so do the heavy loops inside NumPy,</text>
+          <text x="20" y="352" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">zlib and most database drivers &mdash; so threads spent inside those libraries really do run in parallel.</text>
+        </svg>
+        <figcaption><b>&ldquo;Python is bad at concurrency&rdquo; is imprecise.</b> The GIL serialises <em>bytecode</em>, not waiting. A service that spends 95% of its time waiting on a database scales fine on threads; a service that spends its time in pure-Python loops needs processes, a C extension that releases the lock, or a different language for that one function.</figcaption>
+      </figure>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>One lock, one runner</h4>
+          <ul>
+            <li><strong>What it is</strong> &mdash; a mutex inside CPython that a thread must hold to execute bytecode.</li>
+            <li><strong>Threads do not speed up CPU work</strong> &mdash; four threads summing numbers take as long as one, plus switching overhead.</li>
+            <li><strong>Threads do help I/O</strong> &mdash; waiting on a socket or a disk releases the lock, so twenty requests can be in flight at once.</li>
+            <li><strong>They are still real OS threads</strong> &mdash; pre-emptive, so shared state still needs a lock of your own.</li>
+            <li><strong>Measure before choosing</strong> &mdash; if the profile is dominated by waiting, you have an I/O problem and the GIL is irrelevant.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Pick the executor by the profile</h4>
+          <ul>
+            <li><strong><code>ThreadPoolExecutor</code></strong> &mdash; the answer for I/O: HTTP fan-out, S3 uploads, a few dozen database calls.</li>
+            <li><strong><code>ProcessPoolExecutor</code></strong> &mdash; the answer for CPU: image work, parsing, compression, anything numeric without NumPy.</li>
+            <li><strong>Pickling is the process tax</strong> &mdash; arguments and results are serialised. Sending a 200MB dataframe to each worker can cost more than the work.</li>
+            <li><strong><code>concurrent.futures</code></strong> &mdash; one API for both, so switching is a one-word change. <code>as_completed</code> for results in finishing order.</li>
+            <li><strong>Chunk the work</strong> &mdash; per-item tasks in a process pool are dominated by round-trip overhead; hand each worker a batch.</li>
+            <li><strong>Never an unbounded pool</strong> &mdash; the same rule as everywhere else in this series: fix the worker count, and let the queue absorb the burst.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Escaping the lock</h4>
+          <ul>
+            <li><strong>C extensions release it</strong> &mdash; NumPy, Pillow, zlib, <code>hashlib</code>, and most database drivers drop the GIL around their heavy call, so threads over those really are parallel.</li>
+            <li><strong>Free-threaded CPython (PEP 703)</strong> &mdash; builds with no GIL: experimental in 3.13, officially supported since 3.14 (PEP 779). Real thread parallelism, a single-thread cost that has shrunk to a few percent, and an ecosystem of C extensions still being rebuilt and re-audited for thread safety. Watch it seriously; default production stays on the GIL build for now.</li>
+            <li><strong>Subinterpreters (PEP 734)</strong> &mdash; a per-interpreter GIL in one process: isolation like processes, without the fork cost. In the stdlib as <code>concurrent.interpreters</code> since 3.14; still young in library support.</li>
+            <li><strong>Shared memory</strong> &mdash; <code>multiprocessing.shared_memory</code> or memory-mapped arrays move large buffers between processes without pickling them.</li>
+            <li><strong>The honest summary</strong> &mdash; the GIL serialises bytecode, not I/O. Say which of those your workload is made of before you argue about it.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="asyncio">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>asyncio: one thread, many waits</h3>
+        <p class="lede">The event loop runs one task until it awaits something, then runs another. Thousands of sockets on one thread, with no locks &mdash; and one synchronous call in the wrong place freezes every task at once.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 356" role="img" aria-label="Left: an event loop with one task running and three parked on awaits, ready to be resumed. Right: the same loop with a blocking synchronous call in one task, freezing the other three. Below: to_thread moving the blocking call off the loop.">
+          <defs>
+            <marker id="pb-7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A &middot; HEALTHY LOOP</text>
+          <g class="svg-l2">
+            <rect x="20" y="56" width="110" height="96" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="96" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" fill="currentColor">event loop</text>
+            <text x="32" y="114" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">one thread</text>
+          </g>
+          <path d="M134 78 L166 78" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-7)" opacity="0.75"/>
+          <g class="svg-l1">
+            <rect x="170" y="62" width="284" height="32" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="182" y="82" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">T1 running &mdash; no await yet</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="170" y="100" width="284" height="26" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="182" y="118" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">T2 parked: await sock.recv()</text>
+            <rect x="170" y="130" width="284" height="26" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="182" y="148" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">T3 parked: await sleep(0.5)</text>
+            <rect x="170" y="160" width="284" height="26" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="182" y="178" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">T4 parked: await db.fetch()</text>
+            <path d="M168 173 L148 173 L148 120 L134 120" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-7)" opacity="0.8"/>
+          </g>
+          <text x="20" y="212" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">Three tasks are waiting on the kernel; one holds the thread.</text>
+          <text x="20" y="228" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">Every await is an opportunity to hand it over. That is all</text>
+          <text x="20" y="244" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">concurrency means here &mdash; nothing runs in parallel.</text>
+
+          <line x1="476" y1="14" x2="476" y2="256" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+
+          <text x="496" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">B &middot; ONE BLOCKING CALL</text>
+          <g class="svg-l3">
+            <rect x="496" y="56" width="110" height="96" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="508" y="96" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" fill="currentColor">event loop</text>
+            <text x="508" y="114" font-family="IBM Plex Sans, sans-serif" font-size="9.5" font-weight="600" fill="currentColor">BLOCKED</text>
+            <path d="M610 78 L642 78" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-7)"/>
+            <rect x="646" y="62" width="234" height="32" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="658" y="82" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">T1: requests.get(url)</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="646" y="100" width="234" height="26" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.6"/>
+            <text x="658" y="118" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.6">T2 frozen &mdash; ready, not run</text>
+            <rect x="646" y="130" width="234" height="26" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.6"/>
+            <text x="658" y="148" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.6">T3 frozen &mdash; timer overdue</text>
+            <rect x="646" y="160" width="234" height="26" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.6"/>
+            <text x="658" y="178" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.6">T4 frozen &mdash; health check</text>
+          </g>
+          <text x="496" y="212" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">Nothing is awaiting: the thread is inside C code, so the</text>
+          <text x="496" y="228" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">loop cannot switch. Latency for every other task rises by</text>
+          <text x="496" y="244" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.88">the full duration of that one call.</text>
+
+          <line x1="20" y1="268" x2="880" y2="268" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="290" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">The escape hatch</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="300" width="300" height="38" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="318" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">await asyncio.to_thread(get, url)</text>
+            <text x="32" y="332" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">the sync call moves off the loop</text>
+          </g>
+          <path d="M324 319 L352 319" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-7)" opacity="0.7"/>
+          <g class="svg-l2">
+            <rect x="356" y="300" width="220" height="38" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="368" y="318" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">a worker thread blocks</text>
+            <text x="368" y="332" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">instead of the loop thread</text>
+          </g>
+          <path d="M580 319 L608 319" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-7)" opacity="0.7"/>
+          <g class="svg-l1">
+            <rect x="612" y="300" width="268" height="38" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="624" y="318" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">every other task keeps running</text>
+            <text x="624" y="332" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">bound that pool, as always</text>
+          </g>
+        </svg>
+        <figcaption><b>This is the asyncio bug you will actually hit.</b> Not a subtle race &mdash; a library that looked async, or a quick <code>time.sleep</code>, or a CPU-heavy JSON parse sitting in a coroutine. The symptom is uniform: every latency percentile rises together, and the health check times out along with the traffic.</figcaption>
+      </figure>
+
+      <pre class="l2">import asyncio, httpx
+
+async def fetch_all(urls: list[str]) -&gt; list[bytes]:
+    sem = asyncio.Semaphore(20)                  <span class="c"># bound the fan-out</span>
+
+    async with httpx.AsyncClient() as client:
+        async def one(u: str) -&gt; bytes:
+            async with sem:                      <span class="c"># at most 20 in flight</span>
+                r = await client.get(u)
+                return r.content
+
+        async with asyncio.timeout(30):          <span class="c"># the whole batch, not each call</span>
+            return await asyncio.gather(*(one(u) for u in urls))
+
+asyncio.run(fetch_all(urls))
+</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>A coroutine is a plan, not a thread</h4>
+          <ul>
+            <li><strong><code>async def</code> returns a coroutine</strong> &mdash; calling it runs nothing. Forgetting the <code>await</code> is a warning and a function that never happened.</li>
+            <li><strong><code>await</code> yields control</strong> &mdash; it says &ldquo;I am waiting; run someone else&rdquo;, and resumes when the result is ready.</li>
+            <li><strong><code>asyncio.run(main())</code></strong> &mdash; one entry point per program: it creates the loop, runs the coroutine, and shuts the loop down.</li>
+            <li><strong>Concurrency, not parallelism</strong> &mdash; one thread the whole time. It wins by never waiting idly, not by using more cores.</li>
+            <li><strong>Async is contagious</strong> &mdash; only a coroutine can await, so an async call at the bottom pulls <code>async</code> all the way up the stack.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Run many, bound them, cancel them</h4>
+          <ul>
+            <li><strong><code>gather</code> vs <code>TaskGroup</code></strong> &mdash; <code>gather</code> collects results; <code>TaskGroup</code> (3.11+) also guarantees that when one task fails the rest are cancelled and awaited. Prefer it for new code.</li>
+            <li><strong><code>asyncio.timeout(s)</code></strong> &mdash; a context manager that cancels whatever is inside. Cleaner than threading a deadline through every call.</li>
+            <li><strong>Cancellation is an exception</strong> &mdash; <code>CancelledError</code> is raised at the await point, so cleanup belongs in <code>finally</code>, and you must not swallow it.</li>
+            <li><strong>Never block the loop</strong> &mdash; no <code>time.sleep</code>, no <code>requests</code>, no big <code>json.loads</code>, no synchronous database driver.</li>
+            <li><strong><code>asyncio.to_thread(fn, *args)</code></strong> &mdash; the one-line adapter for a sync library you cannot replace.</li>
+            <li><strong><code>Semaphore(n)</code></strong> &mdash; launching 10,000 coroutines at a service that handles 50 is not concurrency, it is a denial-of-service test. Bound the fan-out, every time.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>The sharp edges</h4>
+          <ul>
+            <li><strong>Coloured functions</strong> &mdash; sync and async are two ecosystems: <code>requests</code> and <code>httpx</code>, <code>psycopg</code> sync and async. Choosing async is choosing a dependency stack.</li>
+            <li><strong>Keep a reference to your tasks</strong> &mdash; the loop holds only a weak one, so a bare <code>asyncio.create_task(...)</code> can be garbage collected mid-flight. Store it in a set and discard on completion, or use a <code>TaskGroup</code>.</li>
+            <li><strong><code>loop.run_in_executor</code></strong> &mdash; what <code>to_thread</code> wraps; use it directly to target a process pool for CPU-bound work.</li>
+            <li><strong>Structured concurrency</strong> &mdash; a <code>TaskGroup</code> block cannot exit with children still running. The same discipline as an errgroup in Go, enforced by the language.</li>
+            <li><strong>Back-pressure</strong> &mdash; a bounded <code>asyncio.Queue</code> makes the producer wait when consumers fall behind. An unbounded one turns a slow consumer into a memory leak.</li>
+            <li><strong>Debugging</strong> &mdash; <code>asyncio.run(main(), debug=True)</code> logs coroutines that hold the loop too long. It finds the blocking call in minutes.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="choosing">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Threads, processes, or async: choosing</h3>
+        <p class="lede">The decision has one input that matters &mdash; what the work is waiting on &mdash; and one honest caveat: most services never reach the scale at which the exciting answer beats a pool of ordinary synchronous workers.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 356" role="img" aria-label="A decision path from the nature of the work, CPU-bound, I O bound at ordinary scale, I O bound at high fan-out, or mixed, to processes, threads, asyncio or an executor, each with a note on its main cost.">
+          <defs>
+            <marker id="pb-8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <g class="svg-l2">
+            <rect x="20" y="120" width="170" height="60" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="32" y="146" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" fill="currentColor">What is the work</text>
+            <text x="32" y="164" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" fill="currentColor">waiting on?</text>
+          </g>
+          <path d="M194 144 L246 52" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pb-8)" opacity="0.6"/>
+          <path d="M194 148 L246 124" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pb-8)" opacity="0.6"/>
+          <path d="M194 152 L246 194" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pb-8)" opacity="0.6"/>
+          <path d="M194 156 L246 264" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#pb-8)" opacity="0.6"/>
+
+          <g class="svg-l3">
+            <rect x="250" y="24" width="210" height="52" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="262" y="46" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor">CPU: nothing waits</text>
+            <text x="262" y="64" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">parsing, maths, compression</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="250" y="96" width="210" height="52" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="262" y="118" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor">I/O at ordinary scale</text>
+            <text x="262" y="136" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">tens to hundreds in flight</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="250" y="168" width="210" height="52" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="262" y="190" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor">I/O at high fan-out</text>
+            <text x="262" y="208" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">thousands of live sockets</text>
+            <rect x="250" y="240" width="210" height="52" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="262" y="262" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor">Mixed</text>
+            <text x="262" y="280" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">async service, sync library</text>
+          </g>
+
+          <path d="M464 50 L496 50" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-8)" opacity="0.7"/>
+          <path d="M464 122 L496 122" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-8)" opacity="0.7"/>
+          <path d="M464 194 L496 194" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-8)" opacity="0.7"/>
+          <path d="M464 266 L496 266" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#pb-8)" opacity="0.7"/>
+
+          <g class="svg-l3">
+            <rect x="500" y="24" width="200" height="52" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="512" y="46" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">ProcessPoolExecutor</text>
+            <text x="512" y="64" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">or NumPy, which drops the GIL</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="500" y="96" width="200" height="52" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <text x="512" y="118" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">ThreadPoolExecutor</text>
+            <text x="512" y="136" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">or sync workers behind an LB</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="500" y="168" width="200" height="52" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="512" y="190" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">asyncio</text>
+            <text x="512" y="208" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">if the whole stack is async</text>
+            <rect x="500" y="240" width="200" height="52" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="512" y="262" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">to_thread, executor</text>
+            <text x="512" y="280" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">keep the loop itself free</text>
+          </g>
+
+          <text x="716" y="44" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.8">chunk the work:</text>
+          <text x="716" y="58" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.8">pickling is the tax</text>
+          <text x="716" y="116" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.8">the boring answer,</text>
+          <text x="716" y="130" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.8">usually the right one</text>
+          <text x="716" y="188" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.8">no locks, one thread:</text>
+          <text x="716" y="202" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.8">one blocking call ruins it</text>
+          <text x="716" y="260" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.8">bound every pool</text>
+          <text x="716" y="274" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.8">you create</text>
+
+          <line x1="20" y1="308" x2="880" y2="308" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="330" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">Most web services are I/O-bound and never come close to saturating a core: a fixed pool of synchronous workers behind a load</text>
+          <text x="20" y="348" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" opacity="0.9">balancer is a complete answer, and it is the one you can profile, debug and reason about at three in the morning.</text>
+        </svg>
+        <figcaption><b>Answer the input question honestly and the rest follows.</b> The expensive mistake is rewriting a service into asyncio for throughput it never needed, and discovering the concurrency limit was the database connection pool all along.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>&nbsp;</th><th>Threads</th><th>Processes</th><th>asyncio</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Parallel on several cores</td><td>No, for Python bytecode</td><td>Yes</td><td>No &mdash; one thread</td></tr>
+            <tr><td>Overlaps I/O waits</td><td>Yes</td><td>Yes</td><td>Yes, at the lowest cost</td></tr>
+            <tr><td>Cost per unit</td><td>An OS thread, roughly 8MB of reserved stack</td><td>A whole interpreter, tens of milliseconds to start</td><td>A coroutine object, a few hundred bytes</td></tr>
+            <tr><td>Practical fan-out</td><td>Hundreds</td><td>About one per core</td><td>Tens of thousands</td></tr>
+            <tr><td>Sharing data</td><td>Same memory &mdash; so you need locks</td><td>Pickled, or explicit shared memory</td><td>Same memory, no pre-emption inside a step</td></tr>
+            <tr><td>How it goes wrong</td><td>Races on shared state; no CPU speed-up</td><td>Serialisation cost; worker start-up; no shared cache</td><td>One blocking call stalls everything</td></tr>
+            <tr><td>Existing sync libraries</td><td>Work unchanged</td><td>Work unchanged</td><td>Need an async equivalent, or <code>to_thread</code></td></tr>
+            <tr><td>Reach for it when</td><td>I/O-bound and the code is already synchronous</td><td>CPU-bound and the payload is small</td><td>I/O-bound, very high fan-out, async stack</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <h4>Two limits that decide this before you do</h4>
+        <p>Your database connection pool and your downstream rate limits cap real concurrency long before the interpreter does. Twenty thousand coroutines contending for thirty connections is thirty connections' worth of throughput plus a queue you cannot see. Size the pool first, bound the fan-out to match, and only then argue about threads against async &mdash; the same lesson as the queue-depth section on the foundations page, in a different costume.</p>
+      </div>
+    </section>
+  </div>
+</section>

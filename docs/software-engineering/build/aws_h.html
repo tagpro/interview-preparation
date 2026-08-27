@@ -1,0 +1,489 @@
+<section class="part" id="together">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part eight</span>
+      <h2>Putting it together</h2>
+      <p>One service, built from the pieces above, with the awkward parts written out rather than waved at: idempotency across a retry, a database write and an event that must not disagree, and a checklist you can hold a design review against.</p>
+    </div>
+
+    <section class="topic" id="order-service">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>One order service, end to end</h3>
+        <p class="lede">A <code>POST /orders</code> that survives a client retry, a failover mid-transaction and a consumer that was down for an hour. Every hop below is a service from an earlier section, wired in the order that makes those three things true.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 400" role="img" aria-label="The full request path for placing an order: client through CloudFront and an Application Load Balancer to an ECS service, which checks an idempotency record in DynamoDB, writes to Aurora with an outbox row in the same transaction, and a relay publishes to EventBridge which fans out to SQS queues and Lambda consumers.">
+          <defs>
+            <marker id="aw-21" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">POST /orders &mdash; THE WHOLE PATH</text>
+
+          <rect x="20" y="34" width="106" height="44" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="30" y="52" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">client</text>
+          <text x="30" y="68" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">Idempotency-Key</text>
+
+          <g class="svg-l2">
+            <rect x="156" y="34" width="106" height="44" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="166" y="52" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">CloudFront</text>
+            <text x="166" y="68" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">TLS, WAF, edge</text>
+            <line x1="130" y1="56" x2="152" y2="56" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-21)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="292" y="34" width="106" height="44" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="302" y="52" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">ALB</text>
+            <text x="302" y="68" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">idle 60s, LOR</text>
+            <line x1="266" y1="56" x2="288" y2="56" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-21)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="428" y="26" width="150" height="60" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="438" y="46" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">ECS FARGATE</text>
+            <text x="438" y="62" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">task role, awsvpc</text>
+            <text x="438" y="76" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity="0.8">private subnet</text>
+            <line x1="402" y1="56" x2="424" y2="56" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-21)"/>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="640" y="26" width="240" height="60" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="652" y="46" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">1 &middot; DYNAMODB IDEMPOTENCY</text>
+            <text x="652" y="62" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">conditional put on the key, TTL 24h</text>
+            <text x="652" y="78" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">already there &rarr; return the stored reply</text>
+            <line x1="582" y1="56" x2="636" y2="56" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-21)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="428" y="118" width="452" height="70" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="440" y="138" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">2 &middot; AURORA &mdash; ONE TRANSACTION, TWO ROWS</text>
+            <text x="440" y="156" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">INSERT INTO orders &hellip; and INSERT INTO outbox &hellip; commit together.</text>
+            <text x="440" y="172" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The event cannot exist without the order, or the order without the event.</text>
+            <line x1="503" y1="90" x2="503" y2="114" stroke="currentColor" stroke-width="1.4" marker-end="url(#aw-21)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="428" y="212" width="200" height="56" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="440" y="232" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">3 &middot; OUTBOX RELAY</text>
+            <text x="440" y="250" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">polls, publishes, marks sent</text>
+            <text x="440" y="264" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">at-least-once, on purpose</text>
+            <line x1="503" y1="192" x2="503" y2="208" stroke="currentColor" stroke-width="1.4" marker-end="url(#aw-21)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="672" y="212" width="208" height="56" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="684" y="232" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">4 &middot; EVENTBRIDGE</text>
+            <text x="684" y="250" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">rules route on content</text>
+            <text x="684" y="264" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">archive keeps a replay</text>
+            <line x1="632" y1="240" x2="668" y2="240" stroke="currentColor" stroke-width="1.3" marker-end="url(#aw-21)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="428" y="296" width="200" height="42" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="440" y="322" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">SQS &rarr; billing worker</text>
+            <rect x="672" y="296" width="208" height="42" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="684" y="322" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">SQS &rarr; email Lambda</text>
+            <line x1="740" y1="272" x2="600" y2="292" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-21)"/>
+            <line x1="778" y1="272" x2="778" y2="292" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-21)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="20" y="118" width="380" height="220" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4"/>
+            <text x="32" y="138" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">WHY THE OUTBOX, AND NOT JUST A PUBLISH</text>
+            <text x="32" y="160" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Committing to Aurora and then calling PutEvents</text>
+            <text x="32" y="176" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">is two writes with no shared fate. Crash in</text>
+            <text x="32" y="192" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">between and the order exists but nobody hears</text>
+            <text x="32" y="208" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">about it. Publish first and you can announce an</text>
+            <text x="32" y="224" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">order that was never committed.</text>
+            <text x="32" y="250" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The outbox row rides the same transaction, so</text>
+            <text x="32" y="266" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the two facts cannot disagree. The relay may</text>
+            <text x="32" y="282" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">publish twice &mdash; which is why every consumer</text>
+            <text x="32" y="298" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">in this diagram is idempotent too.</text>
+            <text x="32" y="324" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor">Exactly-once delivery does not exist. Exactly-</text>
+            <text x="32" y="336" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" fill="currentColor">once <tspan font-style="italic">effect</tspan> is what you build instead.</text>
+          </g>
+
+          <text x="20" y="368" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">Every arrow can be retried. Every box can be restarted. Nothing in the picture assumes a message arrives once, or in order.</text>
+          <text x="20" y="388" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">That is the whole design; the services are just the parts it is assembled from.</text>
+        </svg>
+        <figcaption><b>Read the picture as a set of claims about failure.</b> The idempotency record makes a client retry free. The outbox makes the database and the bus agree. The queues make a slow consumer someone else&rsquo;s problem rather than the API&rsquo;s. Remove any one of them and there is a specific, nameable way the system lies to a customer.</figcaption>
+      </figure>
+
+<pre class="l2" data-lang="go"><span class="c">// POST /orders — the handler, with every failure mode from this page in it.</span>
+func (a *App) PlaceOrder(w http.ResponseWriter, r *http.Request) {
+    ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+    defer cancel()
+
+    key := r.Header.Get("Idempotency-Key")
+    if key == "" {
+        writeErr(w, 400, "idempotency_key_required")
+        return
+    }
+
+    var req PlaceOrderRequest
+    if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1&lt;&lt;20)).Decode(&amp;req); err != nil {
+        writeErr(w, 400, "bad_json")
+        return
+    }
+
+    <span class="c">// 1. Claim the key. Conditional put: whoever wins does the work, and the</span>
+    <span class="c">//    TTL means abandoned claims clean themselves up.</span>
+    claimed, prior, err := a.claim(ctx, key, 24*time.Hour)
+    switch {
+    case err != nil:
+        writeErr(w, 503, "try_again")
+        return
+    case !claimed &amp;&amp; prior != nil:
+        w.Header().Set("Idempotent-Replay", "true")
+        _, _ = w.Write(prior)                    <span class="c">// byte-identical to the first reply</span>
+        return
+    case !claimed:
+        writeErr(w, 409, "in_progress")          <span class="c">// claimed, not finished: retry later</span>
+        return
+    }
+
+    <span class="c">// 2. Order and outbox row commit together, or neither exists.</span>
+    tx, err := a.pool.Begin(ctx)
+    if err != nil {
+        writeErr(w, 503, "try_again")
+        return
+    }
+    defer tx.Rollback(ctx)                        <span class="c">// no-op after a successful commit</span>
+
+    order, err := insertOrder(ctx, tx, req)
+    if err != nil {
+        writeErr(w, 500, "internal")
+        return
+    }
+    event, _ := json.Marshal(OrderPlaced{Version: "1", OrderID: order.ID})
+    if err := insertOutbox(ctx, tx, order.ID, "OrderPlaced", event); err != nil {
+        writeErr(w, 500, "internal")
+        return
+    }
+    if err := tx.Commit(ctx); err != nil {
+        <span class="c">// A commit that fails after a failover may still have applied. The</span>
+        <span class="c">// idempotency key is what makes the client&rsquo;s retry safe here.</span>
+        writeErr(w, 503, "try_again")
+        return
+    }
+
+    <span class="c">// 3. Store the reply against the key, so the retry gets THIS body.</span>
+    body, _ := json.Marshal(order)
+    _ = a.completeClaim(ctx, key, body)
+    w.WriteHeader(201)
+    _, _ = w.Write(body)
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># POST /orders — the handler, with every failure mode from this page in it.</span>
+
+
+@app.post("/orders", status_code=201)
+async def place_order(req: PlaceOrderRequest, response: Response,
+                      idempotency_key: str = Header(alias="Idempotency-Key")):
+
+    <span class="c"># 1. Claim the key. Conditional put: whoever wins does the work, and the</span>
+    <span class="c">#    TTL means abandoned claims clean themselves up.</span>
+    claimed, prior = await claim(idempotency_key, ttl=timedelta(hours=24))
+    if not claimed and prior is not None:
+        response.headers["Idempotent-Replay"] = "true"
+        return Response(content=prior, media_type="application/json")
+    if not claimed:
+        raise HTTPException(409, "in_progress")   <span class="c"># claimed, not finished</span>
+
+    <span class="c"># 2. Order and outbox row commit together, or neither exists.</span>
+    try:
+        async with engine.begin() as conn:        <span class="c"># commits on exit, rolls back on raise</span>
+            order = await insert_order(conn, req)
+            await conn.execute(
+                text("""INSERT INTO outbox (aggregate_id, type, payload)
+                        VALUES (:id, :type, CAST(:payload AS jsonb))"""),
+                {"id": order.id, "type": "OrderPlaced",
+                 "payload": json.dumps({"version": "1", "orderId": order.id})},
+            )
+    except OperationalError:
+        <span class="c"># A commit that fails after a failover may still have applied. The</span>
+        <span class="c"># idempotency key is what makes the client&rsquo;s retry safe here.</span>
+        raise HTTPException(503, "try_again")
+
+    <span class="c"># 3. Store the reply against the key, so the retry gets THIS body.</span>
+    body = order.model_dump_json()
+    await complete_claim(idempotency_key, body)
+    return Response(content=body, status_code=201, media_type="application/json")</pre>
+
+      <h4>The claim, in DynamoDB</h4>
+      <p>One conditional write does all of it: reserve the key if nobody has it, return the stored response if the work is finished, and allow a re-attempt if a previous holder died before completing.</p>
+
+<pre class="l1" data-lang="go"><span class="c">// claim reserves the idempotency key, or hands back the finished response.</span>
+func (a *App) claim(ctx context.Context, key string, ttl time.Duration) (bool, []byte, error) {
+    now := time.Now()
+    _, err := a.ddb.PutItem(ctx, &amp;dynamodb.PutItemInput{
+        TableName: aws.String("idempotency"),
+        Item: map[string]types.AttributeValue{
+            "pk":       &amp;types.AttributeValueMemberS{Value: key},
+            "state":    &amp;types.AttributeValueMemberS{Value: "in_progress"},
+            "expires":  &amp;types.AttributeValueMemberN{Value: fmt.Sprint(now.Add(ttl).Unix())},
+            "lockedAt": &amp;types.AttributeValueMemberN{Value: fmt.Sprint(now.Unix())},
+        },
+        <span class="c">// Win if the key is unknown, OR if a previous holder crashed mid-flight</span>
+        <span class="c">// and its lock is stale. A FINISHED claim is never retaken — without the</span>
+        <span class="c">// state check, a retry 30s later re-runs the order instead of replaying it.</span>
+        <span class="c">// ("state" is a DynamoDB reserved word, hence the #st alias.)</span>
+        ConditionExpression: aws.String(
+            "attribute_not_exists(pk) OR (#st = :inprog AND lockedAt &lt; :stale)"),
+        ExpressionAttributeNames: map[string]string{"#st": "state"},
+        ExpressionAttributeValues: map[string]types.AttributeValue{
+            ":inprog": &amp;types.AttributeValueMemberS{Value: "in_progress"},
+            ":stale": &amp;types.AttributeValueMemberN{
+                Value: fmt.Sprint(now.Add(-30 * time.Second).Unix())},
+        },
+        ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailureAllOld,
+    })
+    if err == nil {
+        return true, nil, nil
+    }
+
+    var failed *types.ConditionalCheckFailedException
+    if !errors.As(err, &amp;failed) {
+        return false, nil, err
+    }
+    <span class="c">// We lost. The existing item comes back with the failure, so a completed</span>
+    <span class="c">// request needs no second read.</span>
+    if resp, ok := failed.Item["response"].(*types.AttributeValueMemberB); ok {
+        return false, resp.Value, nil
+    }
+    return false, nil, nil                 <span class="c">// still in progress elsewhere</span>
+}</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># claim() reserves the idempotency key, or hands back the finished response.</span>
+async def claim(key: str, ttl: timedelta) -&gt; tuple[bool, bytes | None]:
+    now = int(time.time())
+    try:
+        DDB.put_item(
+            TableName="idempotency",
+            Item={
+                "pk": {"S": key},
+                "state": {"S": "in_progress"},
+                "expires": {"N": str(now + int(ttl.total_seconds()))},
+                "lockedAt": {"N": str(now)},
+            },
+            <span class="c"># Win if the key is unknown, OR if a previous holder crashed mid-flight</span>
+            <span class="c"># and its lock is stale. A FINISHED claim is never retaken — without the</span>
+            <span class="c"># state check, a retry 30s later re-runs the order instead of replaying it.</span>
+            <span class="c"># ("state" is a DynamoDB reserved word, hence the #st alias.)</span>
+            ConditionExpression=(
+                "attribute_not_exists(pk) OR (#st = :inprog AND lockedAt &lt; :stale)"
+            ),
+            ExpressionAttributeNames={"#st": "state"},
+            ExpressionAttributeValues={":inprog": {"S": "in_progress"},
+                                       ":stale": {"N": str(now - 30)}},
+            ReturnValuesOnConditionCheckFailure="ALL_OLD",
+        )
+        return True, None
+    except DDB.exceptions.ConditionalCheckFailedException as e:
+        <span class="c"># We lost. The existing item comes back with the failure, so a completed</span>
+        <span class="c"># request needs no second read.</span>
+        item = e.response.get("Item") or {}
+        stored = item.get("response", {}).get("B")
+        return False, stored          <span class="c"># stored is None while still in progress</span></pre>
+
+      <h4>The infrastructure, in about forty lines</h4>
+      <p>Written once, reviewed like code, and identical in both languages because it is neither. The parts worth pointing at are the circuit breaker, the DLQ, and the two timers that must be ordered correctly.</p>
+
+<pre class="l3"><span class="c"># The pieces that this page argued for, expressed as configuration.</span>
+
+resource "aws_ecs_service" "orders" {
+  name            = "orders-api"
+  desired_count   = 4
+  launch_type     = "FARGATE"
+
+  deployment_circuit_breaker {
+    enable   = true          <span class="c"># stop a bad rollout</span>
+    rollback = true          <span class="c"># and put the last good revision back</span>
+  }
+  deployment_minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200      <span class="c"># doubles connections for 90s</span>
+  health_check_grace_period_seconds  = 60       <span class="c"># let the app warm up first</span>
+}
+
+resource "aws_lb_target_group" "orders" {
+  deregistration_delay = 30                     <span class="c"># &gt; longest request, &lt; stopTimeout</span>
+  health_check {
+    path                = "/readyz"             <span class="c"># NOT a check that touches the DB</span>
+    interval            = 10
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+}
+
+resource "aws_sqs_queue" "billing" {
+  visibility_timeout_seconds = 180              <span class="c"># 6x the consumer&rsquo;s 30s timeout</span>
+  receive_wait_time_seconds  = 20               <span class="c"># long polling, always</span>
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.billing_dlq.arn
+    maxReceiveCount     = 5
+  })
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "archive" {
+  rule {
+    id     = "abort-incomplete-multipart"       <span class="c"># the free money rule</span>
+    status = "Enabled"
+    abort_incomplete_multipart_upload { days_after_initiation = 7 }
+  }
+}
+
+resource "aws_cloudwatch_log_group" "orders" {
+  retention_in_days = 30                        <span class="c"># the default is FOREVER</span>
+}</pre>
+    </section>
+
+    <section class="topic" id="checklist">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>The checklist, and one script that proves it</h3>
+        <p class="lede">Everything above, compressed into questions you can ask at a design review &mdash; and a start-up self-test that turns half of them from a promise into an assertion.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 340" role="img" aria-label="A grid of readiness questions grouped by area — identity and network, data, compute, messaging, and operations — each phrased as a check with a yes or no answer.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">BEFORE IT CARRIES REAL TRAFFIC</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="32" width="278" height="132" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">IDENTITY AND NETWORK</text>
+            <text x="32" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">No long-lived access keys anywhere</text>
+            <text x="32" y="90" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Roles scoped by ARN, not by star</text>
+            <text x="32" y="108" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Nothing of yours in a public subnet</text>
+            <text x="32" y="126" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Gateway endpoints for S3, DynamoDB</text>
+            <text x="32" y="144" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Security groups reference groups</text>
+            <text x="32" y="158" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Private subnets sized with headroom</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="311" y="32" width="278" height="132" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="323" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">DATA</text>
+            <text x="323" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">statement_timeout set, and tested</text>
+            <text x="323" y="90" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">tasks &times; pool_max below the limit</text>
+            <text x="323" y="108" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">A failover has been rehearsed</text>
+            <text x="323" y="126" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">A restore has been rehearsed</text>
+            <text x="323" y="144" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Partition keys spread, not clump</text>
+            <text x="323" y="158" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Buckets abort incomplete uploads</text>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="602" y="32" width="278" height="132" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="614" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">COMPUTE</text>
+            <text x="614" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">SIGTERM drains before it exits</text>
+            <text x="614" y="90" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">stopTimeout exceeds the drain</text>
+            <text x="614" y="108" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Circuit breaker on, rollback on</text>
+            <text x="614" y="126" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Backend keep-alive above ALB idle</text>
+            <text x="614" y="144" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Health check touches no dependency</text>
+            <text x="614" y="158" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Reserved concurrency on DB writers</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="20" y="180" width="424" height="146" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="200" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">MESSAGING</text>
+            <text x="32" y="220" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Every queue has a dead letter queue</text>
+            <text x="32" y="238" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Visibility timeout exceeds the handler</text>
+            <text x="32" y="256" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Long polling is on</text>
+            <text x="32" y="274" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Batch failures reported per message</text>
+            <text x="32" y="292" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Every consumer is idempotent</text>
+            <text x="32" y="310" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Batch APIs check their failure lists</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="456" y="180" width="424" height="146" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="468" y="200" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">OPERATIONS</text>
+            <text x="468" y="220" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Log retention set on every group</text>
+            <text x="468" y="238" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Alarms on symptoms, not on causes</text>
+            <text x="468" y="256" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Missing-data behaviour chosen</text>
+            <text x="468" y="274" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Secrets cached, and refreshed on 401</text>
+            <text x="468" y="292" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Cost anomaly detection is on</text>
+            <text x="468" y="310" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Everything carries an owner tag</text>
+          </g>
+        </svg>
+        <figcaption><b>Half of these can be asserted rather than asked.</b> The script below runs at start-up and refuses to become healthy if the environment is not what the deployment claimed &mdash; wrong region, missing table, unreachable endpoint, queue without a dead letter queue. A failed deploy is cheaper than a silent misconfiguration.</figcaption>
+      </figure>
+
+<pre class="l1" data-lang="go"><span class="c">// preflight runs before the readiness probe goes green. Everything it checks</span>
+<span class="c">// is something that has silently broken a production deploy at least once.</span>
+func preflight(ctx context.Context, a *App) error {
+    ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+    defer cancel()
+
+    <span class="c">// 1. Am I who the deployment thinks I am?</span>
+    who, err := a.sts.GetCallerIdentity(ctx, nil)
+    if err != nil {
+        return fmt.Errorf("no usable credentials: %w", err)
+    }
+    if !strings.Contains(aws.ToString(who.Arn), expectedRole) {
+        return fmt.Errorf("wrong role: %s", aws.ToString(who.Arn))
+    }
+
+    <span class="c">// 2. Does the table exist, in this region, with a TTL as designed?</span>
+    tt, err := a.ddb.DescribeTimeToLive(ctx, &amp;dynamodb.DescribeTimeToLiveInput{
+        TableName: aws.String("idempotency"),
+    })
+    if err != nil {
+        return fmt.Errorf("idempotency table: %w", err)
+    }
+    if tt.TimeToLiveDescription.TimeToLiveStatus != types.TimeToLiveStatusEnabled {
+        return errors.New("idempotency table has no TTL: it will grow for ever")
+    }
+
+    <span class="c">// 3. Does every queue we consume have somewhere for poison to go?</span>
+    for _, q := range a.queues {
+        at, err := a.sqs.GetQueueAttributes(ctx, &amp;sqs.GetQueueAttributesInput{
+            QueueUrl:       aws.String(q),
+            AttributeNames: []sqstypes.QueueAttributeName{"RedrivePolicy"},
+        })
+        if err != nil {
+            return err
+        }
+        if at.Attributes["RedrivePolicy"] == "" {
+            return fmt.Errorf("queue %s has no dead letter queue", q)
+        }
+    }
+
+    <span class="c">// 4. Can we actually write, with the timeout we promised?</span>
+    return a.pool.QueryRow(ctx, "SELECT 1").Scan(new(int))
+}</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># preflight() runs before the readiness probe goes green. Everything it checks</span>
+<span class="c"># is something that has silently broken a production deploy at least once.</span>
+def preflight() -&gt; None:
+    <span class="c"># 1. Am I who the deployment thinks I am?</span>
+    arn = boto3.client("sts", config=CFG).get_caller_identity()["Arn"]
+    if EXPECTED_ROLE not in arn:
+        raise Misconfigured(f"wrong role: {arn}")
+
+    <span class="c"># 2. Does the table exist, in this region, with a TTL as designed?</span>
+    ttl = DDB.describe_time_to_live(TableName="idempotency")
+    if ttl["TimeToLiveDescription"]["TimeToLiveStatus"] != "ENABLED":
+        raise Misconfigured("idempotency table has no TTL: it will grow for ever")
+
+    <span class="c"># 3. Does every queue we consume have somewhere for poison to go?</span>
+    for url in QUEUES:
+        attrs = SQS.get_queue_attributes(
+            QueueUrl=url, AttributeNames=["RedrivePolicy"]
+        )["Attributes"]
+        if "RedrivePolicy" not in attrs:
+            raise Misconfigured(f"queue {url} has no dead letter queue")
+
+    <span class="c"># 4. Can we actually write, with the timeout we promised?</span>
+    with engine.connect() as conn:
+        conn.exec_driver_sql("SELECT 1")
+
+
+<span class="c"># Called from the lifespan handler, before READY flips to True. A crash loop</span>
+<span class="c"># here is a failed deploy — which is exactly what it should be.</span></pre>
+
+      <div class="callout">
+        <h4>The four sentences worth remembering</h4>
+        <p><b>Every call can be retried, so every effect must be idempotent.</b> <b>Every managed service has a limit that is per-partition, per-shard or per-connection, not per-account &mdash; find yours before it finds you.</b> <b>The default configuration is optimised for getting started, not for running.</b> And <b>the bill is mostly data movement</b>: bytes crossing a boundary you did not think about cost more than the compute that produced them.</p>
+      </div>
+    </section>
+  </div>
+</section>

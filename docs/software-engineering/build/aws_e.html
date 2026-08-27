@@ -1,0 +1,642 @@
+<section class="part" id="events">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part five</span>
+      <h2>Queues, buses and streams</h2>
+      <p>Three services that all &ldquo;move messages&rdquo; and are not interchangeable. A queue buffers work for one consumer. A bus routes one event to many. A stream keeps an ordered log you can rewind. Picking the wrong one is recoverable; pretending one is another is not.</p>
+    </div>
+
+    <section class="topic" id="sqs">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>SQS: visibility timeout is the whole contract</h3>
+        <p class="lede">SQS does not deliver messages &mdash; it lends them. A receive hides the message for a while; a delete ends the loan. Every SQS bug is a disagreement between how long you borrowed it for and how long you actually needed it.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 384" role="img" aria-label="The life of one SQS message: sent, received and hidden for the visibility timeout, then either deleted or returned to the queue, with a receive count that eventually sends it to a dead letter queue; below, the arithmetic relating handler duration, visibility timeout and heartbeat extension.">
+          <defs>
+            <marker id="aw-13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE MESSAGE, ONE LOAN AT A TIME</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="36" width="150" height="52" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="30" y="56" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">SendMessage</text>
+            <text x="30" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">up to 1 MiB since 2025</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="210" y="36" width="164" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="220" y="56" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">IN QUEUE</text>
+            <text x="220" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">4 days by default</text>
+            <line x1="174" y1="62" x2="206" y2="62" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-13)"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="414" y="36" width="200" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="424" y="56" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">IN FLIGHT &mdash; INVISIBLE</text>
+            <text x="424" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">for VisibilityTimeout seconds</text>
+            <line x1="378" y1="62" x2="410" y2="62" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-13)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="700" y="36" width="180" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="710" y="56" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">DeleteMessage</text>
+            <text x="710" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">the only way it leaves</text>
+            <line x1="618" y1="62" x2="696" y2="62" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-13)"/>
+          </g>
+
+          <g class="svg-l3">
+            <path d="M462 92 L462 120 L292 120 L292 94" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#aw-13)"/>
+            <text x="140" y="140" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">timeout expires &rarr; visible again, ReceiveCount + 1</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="414" y="146" width="200" height="48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="5 4"/>
+            <text x="424" y="166" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">DEAD LETTER QUEUE</text>
+            <text x="424" y="182" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">after maxReceiveCount tries</text>
+            <line x1="514" y1="92" x2="514" y2="142" stroke="currentColor" stroke-width="1.4" marker-end="url(#aw-13)"/>
+          </g>
+
+          <text x="640" y="166" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">A queue with no DLQ retries a poison</text>
+          <text x="640" y="182" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">message until retention expires.</text>
+
+          <line x1="20" y1="216" x2="880" y2="216" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="238" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">The arithmetic that prevents duplicate work</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="254" width="424" height="112" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="274" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">WRONG: HANDLER 45s, VISIBILITY 30s</text>
+            <line x1="32" y1="298" x2="300" y2="298" stroke="currentColor" stroke-width="5"/>
+            <text x="306" y="302" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">handler</text>
+            <line x1="32" y1="314" x2="212" y2="314" stroke="currentColor" stroke-width="2"/>
+            <text x="218" y="318" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">visibility ends here</text>
+            <text x="32" y="340" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">A second consumer picks the message up while</text>
+            <text x="32" y="356" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the first is still working. Both finish. Both bill.</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="460" y="254" width="420" height="112" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="472" y="274" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">RIGHT: HEARTBEAT WHILE WORKING</text>
+            <line x1="472" y1="298" x2="740" y2="298" stroke="currentColor" stroke-width="5"/>
+            <text x="746" y="302" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">handler</text>
+            <line x1="472" y1="314" x2="800" y2="314" stroke="currentColor" stroke-width="2"/>
+            <text x="472" y="340" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">ChangeMessageVisibility every few seconds keeps</text>
+            <text x="472" y="356" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the loan alive, and a crashed worker still releases it.</text>
+          </g>
+        </svg>
+        <figcaption><b>With Lambda, the rule of thumb is a visibility timeout at least six times the function timeout</b> &mdash; the event source mapping needs room to retry the batch. With your own consumer, either extend the visibility while you work or keep handlers comfortably shorter than the timeout. Either way, every handler must still be idempotent: SQS is at-least-once by design, not by accident.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Setting</th><th>Default</th><th>Set it to</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><code>VisibilityTimeout</code></td><td>30s</td><td>Longest realistic handler, or heartbeat</td><td>Too short duplicates work; too long delays retry after a crash.</td></tr>
+            <tr><td><code>ReceiveMessageWaitTimeSeconds</code></td><td>0 &mdash; short polling</td><td>20</td><td>Long polling. Cuts empty receives, cuts the bill, and lowers latency because the call returns the instant a message lands.</td></tr>
+            <tr><td><code>maxReceiveCount</code> + DLQ</td><td>none</td><td>3&ndash;5, with a DLQ</td><td>Without it, a message that always fails is retried until retention expires &mdash; burning your consumers for days.</td></tr>
+            <tr><td><code>MessageRetentionPeriod</code></td><td>4 days</td><td>14 days on the DLQ</td><td>The DLQ is your evidence. Give yourself a fortnight to look at it.</td></tr>
+            <tr><td>Batch size</td><td>1 in the API, 10 in Lambda</td><td>10, with partial batch failures</td><td>Ten messages per request is a tenfold cut in request cost. Without partial failure reporting it is also a tenfold blast radius.</td></tr>
+            <tr><td>FIFO <code>MessageGroupId</code></td><td>&mdash;</td><td>Your entity id</td><td>Ordering is per group, and so is parallelism: one group means one consumer at a time, however many you run.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+<pre class="l2" data-lang="go"><span class="c">// A consumer loop that does the three things people leave out: long polling,</span>
+<span class="c">// a visibility heartbeat, and a batch delete of exactly what succeeded.</span>
+for {
+    out, err := app.sqs.ReceiveMessage(ctx, &amp;sqs.ReceiveMessageInput{
+        QueueUrl:              aws.String(queueURL),
+        MaxNumberOfMessages:   10,
+        WaitTimeSeconds:       20,          <span class="c">// long poll: cheaper AND lower latency</span>
+        VisibilityTimeout:     60,
+        MessageAttributeNames: []string{"All"},
+        <span class="c">// ApproximateReceiveCount tells you this is a retry — log it, and treat</span>
+        <span class="c">// a high count as a signal rather than a surprise.</span>
+        MessageSystemAttributeNames: []types.MessageSystemAttributeName{"ApproximateReceiveCount"},
+    })
+    if err != nil {
+        if errors.Is(err, context.Canceled) {
+            return nil                       <span class="c">// shutting down</span>
+        }
+        log.Error("receive", "err", err)
+        time.Sleep(time.Second)
+        continue
+    }
+
+    var done []types.DeleteMessageBatchRequestEntry
+    for _, m := range out.Messages {
+        hb, stop := context.WithCancel(ctx)
+        go heartbeat(hb, app.sqs, queueURL, *m.ReceiptHandle, 60)   <span class="c">// extend while busy</span>
+
+        err := handle(ctx, m)
+        stop()
+        if err != nil {
+            log.Error("handler", "id", aws.ToString(m.MessageId), "err", err)
+            continue                          <span class="c">// leave it: it becomes visible again</span>
+        }
+        done = append(done, types.DeleteMessageBatchRequestEntry{
+            Id: m.MessageId, ReceiptHandle: m.ReceiptHandle,
+        })
+    }
+
+    if len(done) &gt; 0 {
+        <span class="c">// A batch delete can partially fail. Anything in .Failed stays in the</span>
+        <span class="c">// queue and WILL be delivered again — which is why handlers are idempotent.</span>
+        res, err := app.sqs.DeleteMessageBatch(ctx, &amp;sqs.DeleteMessageBatchInput{
+            QueueUrl: aws.String(queueURL), Entries: done,
+        })
+        if err == nil &amp;&amp; len(res.Failed) &gt; 0 {
+            log.Warn("delete partially failed", "count", len(res.Failed))
+        }
+    }
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># A consumer loop that does the three things people leave out: long polling,</span>
+<span class="c"># a visibility heartbeat, and a batch delete of exactly what succeeded.</span>
+import threading
+
+QUEUE = "https://sqs.eu-west-1.amazonaws.com/1234/orders"
+
+
+def heartbeat(receipt: str, every: float, timeout: int, stop: threading.Event):
+    <span class="c"># Extend the loan while we are still working on it.</span>
+    while not stop.wait(every):
+        SQS.change_message_visibility(
+            QueueUrl=QUEUE, ReceiptHandle=receipt, VisibilityTimeout=timeout
+        )
+
+
+while running:
+    res = SQS.receive_message(
+        QueueUrl=QUEUE,
+        MaxNumberOfMessages=10,
+        WaitTimeSeconds=20,              <span class="c"># long poll: cheaper AND lower latency</span>
+        VisibilityTimeout=60,
+        MessageAttributeNames=["All"],
+        <span class="c"># ApproximateReceiveCount tells you this is a retry — log it, and treat</span>
+        <span class="c"># a high count as a signal rather than a surprise.</span>
+        MessageSystemAttributeNames=["ApproximateReceiveCount"],
+    )
+
+    done = []
+    for msg in res.get("Messages", []):
+        stop = threading.Event()
+        t = threading.Thread(
+            target=heartbeat, args=(msg["ReceiptHandle"], 20.0, 60, stop), daemon=True
+        )
+        t.start()
+        try:
+            handle(msg)
+            done.append({"Id": msg["MessageId"], "ReceiptHandle": msg["ReceiptHandle"]})
+        except Exception:
+            log.exception("handler failed", extra={"id": msg["MessageId"]})
+            <span class="c"># leave it: visibility expires and it comes back</span>
+        finally:
+            stop.set()
+
+    if done:
+        <span class="c"># A batch delete can partially fail. Anything in Failed stays in the</span>
+        <span class="c"># queue and WILL be delivered again — hence idempotent handlers.</span>
+        out = SQS.delete_message_batch(QueueUrl=QUEUE, Entries=done)
+        if out.get("Failed"):
+            log.warning("delete partially failed", extra={"n": len(out["Failed"])})</pre>
+
+      <div class="pair">
+        <div class="note">
+          <h4>The DLQ is not a graveyard</h4>
+          <p>Alarm on <code>ApproximateNumberOfMessagesVisible</code> on the dead letter queue &mdash; any non-zero value is a bug report with the payload attached. When you have fixed the cause, the redrive API moves messages back to the source queue without a custom script.</p>
+        </div>
+        <div class="note warn">
+          <h4>FIFO ordering costs you parallelism</h4>
+          <p>Messages in one group are delivered strictly in order, which means strictly one at a time. If your throughput target divided by your per-message time exceeds one, you need many groups &mdash; usually one per customer or entity, never one per queue.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="topic" id="bus">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>SNS and EventBridge: publish once, route many</h3>
+        <p class="lede">Both take one message and give it to several places. SNS is a fast, cheap fan-out pipe with attribute filtering. EventBridge is a router that reads the message body, keeps a schema registry, and can replay last Tuesday.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 380" role="img" aria-label="A producer publishing one event, fanned out by SNS to subscribers with filter policies and by EventBridge to rule targets with content-based patterns, an archive enabling replay, and a comparison of latency, filtering power and replay between the two services.">
+          <defs>
+            <marker id="aw-14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE PUBLISH, MANY DESTINATIONS &mdash; WHO DECIDES?</text>
+
+          <rect x="20" y="90" width="130" height="52" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <text x="30" y="110" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">producer</text>
+          <text x="30" y="126" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">OrderPlaced</text>
+
+          <g class="svg-l2">
+            <rect x="200" y="36" width="160" height="56" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="210" y="56" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">SNS TOPIC</text>
+            <text x="210" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">filters on message</text>
+            <text x="210" y="86" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">attributes or body</text>
+            <line x1="154" y1="106" x2="196" y2="76" stroke="currentColor" stroke-width="1.3" marker-end="url(#aw-14)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="200" y="140" width="160" height="56" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="210" y="160" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">EVENTBRIDGE BUS</text>
+            <text x="210" y="176" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">rules match the whole</text>
+            <text x="210" y="190" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">event, structurally</text>
+            <line x1="154" y1="126" x2="196" y2="158" stroke="currentColor" stroke-width="1.3" marker-end="url(#aw-14)"/>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="418" y="26" width="180" height="34" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="428" y="47" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">SQS &middot; billing worker</text>
+            <rect x="418" y="66" width="180" height="34" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="428" y="87" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">Lambda &middot; email</text>
+            <line x1="364" y1="60" x2="414" y2="44" stroke="currentColor" stroke-width="1.1" marker-end="url(#aw-14)"/>
+            <line x1="364" y1="70" x2="414" y2="82" stroke="currentColor" stroke-width="1.1" marker-end="url(#aw-14)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="418" y="130" width="180" height="34" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="428" y="151" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">Step Functions</text>
+            <rect x="418" y="170" width="180" height="34" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="428" y="191" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">another account&rsquo;s bus</text>
+            <line x1="364" y1="160" x2="414" y2="148" stroke="currentColor" stroke-width="1.1" marker-end="url(#aw-14)"/>
+            <line x1="364" y1="176" x2="414" y2="186" stroke="currentColor" stroke-width="1.1" marker-end="url(#aw-14)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="646" y="130" width="234" height="74" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="5 4"/>
+            <text x="658" y="150" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">ARCHIVE &rarr; REPLAY</text>
+            <text x="658" y="170" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Keep every event, then re-emit a</text>
+            <text x="658" y="186" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">time range to one rule after you</text>
+            <text x="658" y="200" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">fix the consumer. SNS cannot.</text>
+            <line x1="602" y1="167" x2="642" y2="167" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-14)"/>
+          </g>
+
+          <text x="646" y="50" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Fan-out means each subscriber gets</text>
+          <text x="646" y="66" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">its own copy and its own retries.</text>
+          <text x="646" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">A slow subscriber cannot slow the</text>
+          <text x="646" y="104" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">others &mdash; which is the point.</text>
+
+          <line x1="20" y1="230" x2="880" y2="230" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="252" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Reach for which one</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="268" width="278" height="98" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="288" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">SNS</text>
+            <text x="32" y="306" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Tens of milliseconds, enormous</text>
+            <text x="32" y="322" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">throughput, cheapest per message.</text>
+            <text x="32" y="344" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Fan-out inside one system, mobile</text>
+            <text x="32" y="360" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">push, and SMS or email delivery.</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="311" y="268" width="278" height="98" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="323" y="288" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">EVENTBRIDGE</text>
+            <text x="323" y="306" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Sub-second, content routing, 20+</text>
+            <text x="323" y="322" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">target types, archive and replay.</text>
+            <text x="323" y="344" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Cross-team and cross-account</text>
+            <text x="323" y="360" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">events, SaaS integrations, audit.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="602" y="268" width="278" height="98" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="614" y="288" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">NEITHER, ALONE</text>
+            <text x="614" y="306" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Put SQS between the bus and every</text>
+            <text x="614" y="322" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">consumer that can fall behind.</text>
+            <text x="614" y="344" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The queue is the buffer, the retry</text>
+            <text x="614" y="360" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">budget and the DLQ, all at once.</text>
+          </g>
+        </svg>
+        <figcaption><b>The default production shape is bus &rarr; queue &rarr; consumer, not bus &rarr; consumer.</b> A Lambda subscribed straight to a topic has two retries and then the event is gone; the same Lambda behind a queue has a visibility timeout, a receive count, a dead letter queue and a backlog metric you can alarm on. The queue costs $0.40 per million requests &mdash; roughly three per delivered message &mdash; and buys you all of that.</figcaption>
+      </figure>
+
+<pre class="l2" data-lang="go"><span class="c">// EventBridge: the envelope matters more than the payload. Source, DetailType</span>
+<span class="c">// and the fields inside Detail are what every consumer&rsquo;s rule will match on,</span>
+<span class="c">// so they are a public interface — version them.</span>
+type OrderPlaced struct {
+    Version    string `json:"version"`      <span class="c">// "1" — additive changes only</span>
+    OrderID    string `json:"orderId"`
+    TenantID   string `json:"tenantId"`
+    TotalCents int64  `json:"totalCents"`
+    Currency   string `json:"currency"`
+    PlacedAt   string `json:"placedAt"`
+}
+
+detail, _ := json.Marshal(OrderPlaced{Version: "1", OrderID: id, TenantID: tenant,
+    TotalCents: cents, Currency: "GBP", PlacedAt: now.Format(time.RFC3339)})
+
+out, err := app.eb.PutEvents(ctx, &amp;eventbridge.PutEventsInput{
+    Entries: []types.PutEventsRequestEntry{{
+        EventBusName: aws.String("orders"),
+        Source:       aws.String("com.example.orders"),   <span class="c">// reverse-DNS, stable</span>
+        DetailType:   aws.String("OrderPlaced"),          <span class="c">// the event name</span>
+        Detail:       aws.String(string(detail)),
+        Resources:    []string{"arn:aws:acme:orders::" + id},
+        TraceHeader:  aws.String(traceHeader),            <span class="c">// keeps X-Ray joined up</span>
+    }},
+})
+<span class="c">// PutEvents returns 200 even when individual entries fail. This is the single</span>
+<span class="c">// most-missed error path in EventBridge code.</span>
+if err != nil {
+    return err
+}
+if out.FailedEntryCount &gt; 0 {                   <span class="c">// a plain int32 here, not a pointer</span>
+    for _, e := range out.Entries {
+        if e.ErrorCode != nil {
+            return fmt.Errorf("putevents: %s %s",
+                aws.ToString(e.ErrorCode), aws.ToString(e.ErrorMessage))
+        }
+    }
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># EventBridge: the envelope matters more than the payload. Source, DetailType</span>
+<span class="c"># and the fields inside Detail are what every consumer&rsquo;s rule will match on,</span>
+<span class="c"># so they are a public interface — version them.</span>
+EB = boto3.client("events", config=CFG)
+
+detail = {
+    "version": "1",                 <span class="c"># additive changes only</span>
+    "orderId": order_id,
+    "tenantId": tenant_id,
+    "totalCents": cents,
+    "currency": "GBP",
+    "placedAt": now.isoformat(),
+}
+
+res = EB.put_events(
+    Entries=[{
+        "EventBusName": "orders",
+        "Source": "com.example.orders",      <span class="c"># reverse-DNS, stable</span>
+        "DetailType": "OrderPlaced",         <span class="c"># the event name</span>
+        "Detail": json.dumps(detail),
+        "Resources": [f"arn:aws:acme:orders::{order_id}"],
+        "TraceHeader": trace_header,         <span class="c"># keeps X-Ray joined up</span>
+    }]
+)
+
+<span class="c"># put_events returns HTTP 200 even when individual entries fail. This is the</span>
+<span class="c"># single most-missed error path in EventBridge code.</span>
+if res["FailedEntryCount"]:
+    bad = [e for e in res["Entries"] if "ErrorCode" in e]
+    raise PublishFailed(bad[0]["ErrorCode"], bad[0]["ErrorMessage"])</pre>
+
+      <h4>The rule that receives it &mdash; and the filter that saves you money</h4>
+      <p>An EventBridge pattern matches the structure of the event, not a string. Anything you omit matches everything; anything you include must match exactly, unless you use one of the comparison operators. Filtering at the bus is free; filtering inside a Lambda costs an invocation.</p>
+
+<pre class="l3" data-lang="go"><span class="c">// A rule pattern is JSON that mirrors the event. Values are always ARRAYS —</span>
+<span class="c">// "any of these" — which is the syntax people get wrong first.</span>
+pattern := `{
+  "source": ["com.example.orders"],
+  "detail-type": ["OrderPlaced"],
+  "detail": {
+    "currency": ["GBP", "EUR"],
+    "totalCents": [{"numeric": ["&gt;=", 50000]}],
+    "tenantId": [{"anything-but": ["internal-test"]}]
+  }
+}`
+
+_, err := app.eb.PutRule(ctx, &amp;eventbridge.PutRuleInput{
+    Name:         aws.String("large-orders-to-review"),
+    EventBusName: aws.String("orders"),
+    EventPattern: aws.String(pattern),
+    State:        types.RuleStateEnabled,
+})
+
+<span class="c">// Every target needs its own retry policy and dead letter queue: a target</span>
+<span class="c">// that fails without one loses the event after 24 hours of attempts.</span>
+_, err = app.eb.PutTargets(ctx, &amp;eventbridge.PutTargetsInput{
+    Rule:         aws.String("large-orders-to-review"),
+    EventBusName: aws.String("orders"),
+    Targets: []types.Target{{
+        Id:  aws.String("review-queue"),
+        Arn: aws.String(reviewQueueARN),
+        RetryPolicy: &amp;types.RetryPolicy{
+            MaximumRetryAttempts:     aws.Int32(4),
+            MaximumEventAgeInSeconds: aws.Int32(3600),
+        },
+        DeadLetterConfig: &amp;types.DeadLetterConfig{Arn: aws.String(dlqARN)},
+    }},
+})</pre>
+
+<pre class="l3" data-lang="py"><span class="c"># A rule pattern is JSON that mirrors the event. Values are always LISTS —</span>
+<span class="c"># "any of these" — which is the syntax people get wrong first.</span>
+PATTERN = {
+    "source": ["com.example.orders"],
+    "detail-type": ["OrderPlaced"],
+    "detail": {
+        "currency": ["GBP", "EUR"],
+        "totalCents": [{"numeric": ["&gt;=", 50000]}],
+        "tenantId": [{"anything-but": ["internal-test"]}],
+    },
+}
+
+EB.put_rule(
+    Name="large-orders-to-review",
+    EventBusName="orders",
+    EventPattern=json.dumps(PATTERN),
+    State="ENABLED",
+)
+
+<span class="c"># Every target needs its own retry policy and dead letter queue: a target</span>
+<span class="c"># that fails without one loses the event after 24 hours of attempts.</span>
+EB.put_targets(
+    Rule="large-orders-to-review",
+    EventBusName="orders",
+    Targets=[{
+        "Id": "review-queue",
+        "Arn": REVIEW_QUEUE_ARN,
+        "RetryPolicy": {"MaximumRetryAttempts": 4,
+                        "MaximumEventAgeInSeconds": 3600},
+        "DeadLetterConfig": {"Arn": DLQ_ARN},
+    }],
+)
+
+<span class="c"># The SNS equivalent of the same idea — a subscription filter policy, which</span>
+<span class="c"># can read message attributes or, with FilterPolicyScope, the body itself.</span>
+SNS.set_subscription_attributes(
+    SubscriptionArn=sub_arn,
+    AttributeName="FilterPolicy",
+    AttributeValue=json.dumps({"currency": ["GBP", "EUR"]}),
+)</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Question</th><th>SNS</th><th>EventBridge</th></tr></thead>
+          <tbody>
+            <tr><td>Latency</td><td>Tens of milliseconds</td><td>Sub-second, but measurably slower</td></tr>
+            <tr><td>Filtering</td><td>Message attributes, or the body with a policy scope</td><td>Full structural patterns: prefix, suffix, numeric ranges, <code>anything-but</code>, <code>exists</code></td></tr>
+            <tr><td>Replay</td><td>No</td><td>Archive plus replay over a time range</td></tr>
+            <tr><td>Targets</td><td>SQS, Lambda, HTTPS, email, SMS, Firehose</td><td>Twenty-plus AWS services, API destinations, other accounts&rsquo; buses</td></tr>
+            <tr><td>Ordering</td><td>FIFO topics to FIFO queues only</td><td>None &mdash; assume reordering</td></tr>
+            <tr><td>Schema</td><td>Yours to enforce</td><td>Schema registry with generated bindings, if you want them</td></tr>
+            <tr><td>Cost shape</td><td>Cheapest per message at volume</td><td>Per million events published; ingestion is what you pay for, not fan-out</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="topic" id="kinesis">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>Kinesis Data Streams: an ordered log with a cursor</h3>
+        <p class="lede">A stream is not a queue. Records are not deleted when read &mdash; each consumer keeps its own position, records stay for as long as retention says, and ordering holds within a shard. That buys replay and multiple readers, and costs you the ability to skip a bad record for free.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 368" role="img" aria-label="A Kinesis stream: records hashed by partition key into shards, each shard with an ordered sequence and its own throughput limits, consumers tracking independent positions, iterator age growing when a consumer falls behind, and a poison record blocking an entire shard.">
+          <defs>
+            <marker id="aw-15" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">PARTITION KEY &rarr; SHARD &rarr; ORDER</text>
+
+          <rect x="20" y="34" width="126" height="46" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="30" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">PutRecords</text>
+          <text x="30" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">key = orderId</text>
+
+          <g class="svg-l1">
+            <rect x="196" y="30" width="380" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="206" y="47" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">shard-0 &nbsp;&nbsp;| r1 | r2 | r3 | r4 | &hellip; &nbsp; 1 MB/s in, 2 MB/s out</text>
+            <rect x="196" y="62" width="380" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="206" y="79" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">shard-1 &nbsp;&nbsp;| r1 | r2 | r3 | &hellip; &nbsp;&nbsp;&nbsp;&nbsp; 1,000 records/s in</text>
+            <line x1="150" y1="57" x2="192" y2="44" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-15)"/>
+            <line x1="150" y1="60" x2="192" y2="74" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-15)"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="196" y="94" width="380" height="26" fill="none" stroke="currentColor" stroke-width="2"/>
+            <text x="206" y="111" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">shard-2 &nbsp;&nbsp;| r1 | POISON | r3 | r4 | &hellip; &nbsp; blocked</text>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="610" y="94" width="270" height="52" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="622" y="114" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">ONE BAD RECORD STOPS THE SHARD</text>
+            <text x="622" y="132" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Ordering means no skipping. Nothing after</text>
+            <text x="622" y="144" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">it is processed until you give up on it.</text>
+            <line x1="580" y1="107" x2="606" y2="112" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-15)"/>
+          </g>
+
+          <text x="610" y="46" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Two consumers share the 2 MB/s read</text>
+          <text x="610" y="62" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">budget &mdash; unless each registers for</text>
+          <text x="610" y="78" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">enhanced fan-out and gets its own.</text>
+
+          <line x1="20" y1="168" x2="880" y2="168" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="190" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Iterator age is the only metric that matters</text>
+
+          <line x1="70" y1="290" x2="560" y2="290" stroke="currentColor" stroke-width="1.2"/>
+          <line x1="70" y1="206" x2="70" y2="290" stroke="currentColor" stroke-width="1.2"/>
+          <text x="16" y="212" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">age</text>
+          <text x="486" y="308" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">time</text>
+          <g class="svg-l1">
+            <path d="M70 284 L200 282 L260 280" fill="none" stroke="currentColor" stroke-width="2"/>
+          </g>
+          <g class="svg-l3">
+            <path d="M260 280 L340 250 L420 200 L560 208" fill="none" stroke="currentColor" stroke-width="2.4"/>
+            <text x="330" y="238" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">consumer slower than producer</text>
+            <text x="330" y="252" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor">the gap never closes on its own</text>
+          </g>
+
+          <g class="svg-l2">
+            <rect x="602" y="196" width="278" height="152" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="614" y="216" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">WHAT TO DO ABOUT IT</text>
+            <text x="614" y="238" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">More shards, if the key spread allows.</text>
+            <text x="614" y="260" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">ParallelizationFactor on the Lambda</text>
+            <text x="614" y="276" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">mapping: up to 10 batches per shard,</text>
+            <text x="614" y="292" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">still ordered per partition key.</text>
+            <text x="614" y="314" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Bigger batches, or a faster handler.</text>
+            <text x="614" y="336" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Never: silently dropping records.</text>
+          </g>
+        </svg>
+        <figcaption><b>Retention turns a lag incident into a deadline.</b> At the default 24 hours, a consumer that is eight hours behind has sixteen hours before data is lost for good. Alarm on <code>GetRecords.IteratorAgeMilliseconds</code> long before that &mdash; a steadily rising age is the earliest possible warning, and the only one you get.</figcaption>
+      </figure>
+
+<pre class="l2" data-lang="go"><span class="c">// PutRecords is a batch of up to 500 records — and it returns 200 with</span>
+<span class="c">// individual failures inside. Resending the WHOLE batch duplicates the</span>
+<span class="c">// records that succeeded, so resend only the failed indexes.</span>
+func putAll(ctx context.Context, k *kinesis.Client, stream string,
+    recs []types.PutRecordsRequestEntry) error {
+
+    for attempt := 0; attempt &lt; 5 &amp;&amp; len(recs) &gt; 0; attempt++ {
+        out, err := k.PutRecords(ctx, &amp;kinesis.PutRecordsInput{
+            StreamName: aws.String(stream),
+            Records:    recs,
+        })
+        if err != nil {
+            return err
+        }
+        if aws.ToInt32(out.FailedRecordCount) == 0 {
+            return nil
+        }
+
+        var retry []types.PutRecordsRequestEntry
+        for i, r := range out.Records {
+            if r.ErrorCode != nil {
+                <span class="c">// ProvisionedThroughputExceededException — this shard is hot</span>
+                retry = append(retry, recs[i])
+            }
+        }
+        recs = retry
+        time.Sleep(time.Duration(1&lt;&lt;attempt) * 100 * time.Millisecond)
+    }
+    return fmt.Errorf("%d records never accepted", len(recs))
+}
+
+<span class="c">// The partition key is the ordering AND the sharding decision. orderID keeps</span>
+<span class="c">// each order&rsquo;s events in sequence and spreads load; "orders" would put the</span>
+<span class="c">// entire stream on one shard.</span>
+entry := types.PutRecordsRequestEntry{
+    PartitionKey: aws.String(orderID),
+    Data:         payload,
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># put_records is a batch of up to 500 records — and it returns HTTP 200 with</span>
+<span class="c"># individual failures inside. Resending the WHOLE batch duplicates the records</span>
+<span class="c"># that succeeded, so resend only the failed indexes.</span>
+KIN = boto3.client("kinesis", config=CFG)
+
+
+def put_all(stream: str, records: list[dict]) -&gt; None:
+    pending = records
+    for attempt in range(5):
+        res = KIN.put_records(StreamName=stream, Records=pending)
+        if not res["FailedRecordCount"]:
+            return
+        <span class="c"># ProvisionedThroughputExceededException — that shard is hot</span>
+        pending = [
+            rec for rec, out in zip(pending, res["Records"]) if "ErrorCode" in out
+        ]
+        time.sleep(0.1 * 2 ** attempt)
+    raise PublishFailed(f"{len(pending)} records never accepted")
+
+
+<span class="c"># The partition key is the ordering AND the sharding decision. order_id keeps</span>
+<span class="c"># each order&rsquo;s events in sequence and spreads load; "orders" would put the</span>
+<span class="c"># entire stream on one shard.</span>
+put_all("order-events", [
+    {"PartitionKey": order_id, "Data": json.dumps(event).encode()},
+])</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>You need</th><th>SQS</th><th>Kinesis</th><th>MSK / Kafka</th></tr></thead>
+          <tbody>
+            <tr><td>Replay old messages</td><td>No &mdash; delete is final</td><td>Yes, up to 365 days</td><td>Yes, as long as retention allows</td></tr>
+            <tr><td>Several independent consumers</td><td>One queue each, fed by SNS or EventBridge</td><td>Built in, each with its own position</td><td>Built in, consumer groups</td></tr>
+            <tr><td>Ordering</td><td>FIFO queues, per message group</td><td>Per shard, always</td><td>Per partition, always</td></tr>
+            <tr><td>Skip one bad message</td><td>Trivially &mdash; DLQ it and move on</td><td>Only by configuring bisect and retry limits</td><td>Only by advancing the offset yourself</td></tr>
+            <tr><td>Scaling unit</td><td>None visible &mdash; it just absorbs</td><td>Shards, which you split and merge</td><td>Partitions, which you can only add</td></tr>
+            <tr><td>Operational weight</td><td>Almost none</td><td>Low, but shard maths is yours</td><td>Real &mdash; unless you take the serverless option</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <h4>Configure the poison-pill escape before you go live</h4>
+        <p>On a Kinesis or DynamoDB Streams event source mapping, set <code>MaximumRetryAttempts</code>, turn on <code>BisectBatchOnFunctionError</code> so a failing batch is halved until the bad record is isolated, and give it an <code>OnFailure</code> destination so the record lands somewhere you can read it. Without those three, one malformed record halts a shard until retention drops it &mdash; and takes every well-formed record behind it along the way.</p>
+      </div>
+    </section>
+  </div>
+</section>

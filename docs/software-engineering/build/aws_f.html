@@ -1,0 +1,389 @@
+<section class="part" id="frontdoor">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part six</span>
+      <h2>The front door</h2>
+      <p>Something has to accept the connection, decide it is allowed, and pick a backend. Whether that is a load balancer or API Gateway changes your latency floor, your per-request cost and the vocabulary of your 5xx errors.</p>
+    </div>
+
+    <section class="topic" id="alb">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>Load balancers, and what each 5xx actually means</h3>
+        <p class="lede">An ALB is a listener, a set of rules, and target groups with health checks. Four numbers &mdash; idle timeout, keep-alive, deregistration delay and health check thresholds &mdash; produce nearly every mysterious error it will ever show you.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 388" role="img" aria-label="A request path through an Application Load Balancer: listener, rules matched on host and path, target group with health checks, and targets; alongside a decision tree explaining 502, 503 and 504 responses and a timeline showing why the backend keep-alive must exceed the load balancer idle timeout.">
+          <defs>
+            <marker id="aw-16" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">LISTENER &rarr; RULE &rarr; TARGET GROUP &rarr; TARGET</text>
+
+          <rect x="20" y="34" width="120" height="48" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="30" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">:443 listener</text>
+          <text x="30" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">TLS ends here</text>
+
+          <g class="svg-l2">
+            <rect x="180" y="34" width="180" height="48" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="190" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">rule &middot; /api/* &rarr; orders</text>
+            <text x="190" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">host, path, header, weight</text>
+            <line x1="144" y1="58" x2="176" y2="58" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-16)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="400" y="34" width="200" height="48" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="410" y="54" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">TARGET GROUP</text>
+            <text x="410" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">health check owns membership</text>
+            <line x1="364" y1="58" x2="396" y2="58" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-16)"/>
+          </g>
+
+          <g class="svg-l1">
+            <rect x="640" y="26" width="120" height="28" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="650" y="45" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">task &middot; healthy</text>
+            <rect x="640" y="62" width="120" height="28" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="650" y="81" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">task &middot; healthy</text>
+            <line x1="604" y1="52" x2="636" y2="42" stroke="currentColor" stroke-width="1.1" marker-end="url(#aw-16)"/>
+            <line x1="604" y1="66" x2="636" y2="74" stroke="currentColor" stroke-width="1.1" marker-end="url(#aw-16)"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="640" y="98" width="120" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="4 3"/>
+            <text x="650" y="117" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">task &middot; draining</text>
+            <text x="774" y="117" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">300s by default</text>
+          </g>
+
+          <line x1="20" y1="148" x2="880" y2="148" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="170" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">Reading the failure from the status code</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="186" width="278" height="96" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="206" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">502 BAD GATEWAY</text>
+            <text x="32" y="226" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The target answered, badly &mdash; or closed</text>
+            <text x="32" y="242" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">the connection mid-request.</text>
+            <text x="32" y="264" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Almost always a keep-alive race, or</text>
+            <text x="32" y="276" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">a process that exited mid-flight.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="311" y="186" width="278" height="96" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="323" y="206" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">503 SERVICE UNAVAILABLE</text>
+            <text x="323" y="226" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">No registered targets in the group at all.</text>
+            <text x="323" y="248" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The load balancer never reached your</text>
+            <text x="323" y="264" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">code. Look at the health check path,</text>
+            <text x="323" y="276" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">not at the application logs.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="602" y="186" width="278" height="96" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="614" y="206" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">504 GATEWAY TIMEOUT</text>
+            <text x="614" y="226" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The target was still thinking when the</text>
+            <text x="614" y="242" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">idle timeout expired.</text>
+            <text x="614" y="264" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Raise the idle timeout, or make the</text>
+            <text x="614" y="276" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">handler faster. Usually the latter.</text>
+          </g>
+
+          <text x="20" y="308" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">The keep-alive ordering rule</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="322" width="424" height="56" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="32" y="342" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">CORRECT: BACKEND IDLE &gt; ALB IDLE</text>
+            <text x="32" y="360" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">ALB 60s, application 75s. The balancer closes</text>
+            <text x="32" y="374" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">idle connections; the application never does.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="460" y="322" width="420" height="56" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="472" y="342" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">BROKEN: BACKEND IDLE &lt; ALB IDLE</text>
+            <text x="472" y="360" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The application closes a pooled connection just</text>
+            <text x="472" y="374" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">as a request arrives on it. Intermittent 502s.</text>
+          </g>
+        </svg>
+        <figcaption><b>Intermittent 502s under low traffic, with nothing in the application log, are the keep-alive race almost every time.</b> The load balancer reuses an idle connection at the moment the backend decides to close it; neither side is wrong, and the request dies in between. Make the backend&rsquo;s idle timeout comfortably longer than the load balancer&rsquo;s and the errors disappear.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Setting</th><th>Default</th><th>Consider</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td>Idle timeout</td><td>60s</td><td>Just above your slowest endpoint</td><td>It bounds every request. A long-poll or a streaming response needs it raised deliberately, not accidentally.</td></tr>
+            <tr><td>Deregistration delay</td><td>300s</td><td>Slightly longer than your longest request &mdash; often 30s</td><td>Five minutes per task makes every rolling deploy glacial. Too short truncates requests in flight.</td></tr>
+            <tr><td>Health check interval / threshold</td><td>30s, 2 unhealthy (healthy threshold 5)</td><td>10s, 2</td><td>The defaults still take about a minute to remove a dead target. That is a long time to serve errors.</td></tr>
+            <tr><td>Health check path</td><td><code>/</code></td><td>A dedicated <code>/healthz</code> that checks nothing downstream</td><td>A health check that queries the database turns one slow database into zero healthy targets, fleet-wide.</td></tr>
+            <tr><td>Algorithm</td><td>Round robin</td><td>Least outstanding requests</td><td>Round robin sends work to a task that is already stuck. LOR routes around it automatically.</td></tr>
+            <tr><td>Cross-zone</td><td>On for ALB, <b>off</b> for NLB</td><td>On, and know the cost</td><td>Off means an imbalanced zone gets an imbalanced share. On means cross-AZ data transfer charges on NLB.</td></tr>
+            <tr><td>Access logs</td><td>Off</td><td>On, to S3, with a lifecycle rule</td><td>They contain the target processing time, the target status and the TLS details. Without them a 502 investigation is guesswork.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+<pre class="l2" data-lang="go"><span class="c">// An HTTP server configured for life behind an ALB. Every timeout here exists</span>
+<span class="c">// to fail in a way you can reason about.</span>
+srv := &amp;http.Server{
+    Addr:              ":8080",
+    Handler:           mux,
+    ReadHeaderTimeout: 5 * time.Second,     <span class="c">// slow-header attacks, and stuck clients</span>
+    ReadTimeout:       15 * time.Second,
+    WriteTimeout:      30 * time.Second,
+    <span class="c">// THE important one: strictly greater than the ALB idle timeout (60s),</span>
+    <span class="c">// so the balancer always closes idle connections, never the application.</span>
+    IdleTimeout: 75 * time.Second,
+}
+
+<span class="c">// Two endpoints, two meanings. Conflating them is how a slow database becomes</span>
+<span class="c">// a fleet-wide outage.</span>
+mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+    <span class="c">// Liveness: am I this process, and is my event loop turning? Nothing else.</span>
+    w.WriteHeader(http.StatusOK)
+})
+
+mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+    <span class="c">// Readiness: should the load balancer send me traffic right now?</span>
+    <span class="c">// Flipped to false by the SIGTERM handler before the drain begins.</span>
+    if !ready.Load() {
+        w.WriteHeader(http.StatusServiceUnavailable)
+        return
+    }
+    w.WriteHeader(http.StatusOK)
+})
+
+<span class="c">// The client&rsquo;s real address is in X-Forwarded-For, appended by the ALB. Trust</span>
+<span class="c">// only the LAST entry — anything earlier is client-supplied and forgeable.</span>
+func clientIP(r *http.Request) string {
+    xff := r.Header.Values("X-Forwarded-For")
+    if len(xff) == 0 {
+        return r.RemoteAddr
+    }
+    parts := strings.Split(xff[len(xff)-1], ",")
+    return strings.TrimSpace(parts[len(parts)-1])
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># A uvicorn server configured for life behind an ALB. Every timeout here</span>
+<span class="c"># exists to fail in a way you can reason about.</span>
+<span class="c">#</span>
+<span class="c">#   uvicorn app:app --host 0.0.0.0 --port 8080 \</span>
+<span class="c">#     --timeout-keep-alive 75 \      THE important one: strictly greater than</span>
+<span class="c">#                                    the ALB idle timeout (60s), so the</span>
+<span class="c">#                                    balancer always closes idle connections</span>
+<span class="c">#     --timeout-graceful-shutdown 20 \</span>
+<span class="c">#     --workers 4 --proxy-headers --forwarded-allow-ips='*'</span>
+
+<span class="c"># Two endpoints, two meanings. Conflating them is how a slow database becomes</span>
+<span class="c"># a fleet-wide outage.</span>
+
+
+@app.get("/healthz")
+async def healthz():
+    <span class="c"># Liveness: am I this process, and is my event loop turning? Nothing else.</span>
+    return Response(status_code=200)
+
+
+@app.get("/readyz")
+async def readyz():
+    <span class="c"># Readiness: should the load balancer send me traffic right now?</span>
+    <span class="c"># Flipped to False by the SIGTERM handler before the drain begins.</span>
+    return Response(status_code=200 if READY else 503)
+
+
+def client_ip(request: Request) -&gt; str:
+    <span class="c"># The client&rsquo;s real address is in X-Forwarded-For, appended by the ALB.</span>
+    <span class="c"># Trust only the LAST entry — anything earlier is forgeable by the client.</span>
+    xff = request.headers.get("x-forwarded-for")
+    if not xff:
+        return request.client.host
+    return xff.split(",")[-1].strip()</pre>
+
+      <div class="pair">
+        <div class="note">
+          <h4>NLB when you need layer four</h4>
+          <p>Static IP addresses per zone, source IP preserved to the target, millions of connections, and no HTTP awareness at all. Choose it for non-HTTP protocols, for clients that must allow-list an IP, and for extreme connection counts. Everything else wants an ALB, where routing rules and WAF live.</p>
+        </div>
+        <div class="note warn">
+          <h4>Health checks must not cascade</h4>
+          <p>If <code>/healthz</code> checks the database, then one database blip marks every target unhealthy at the same moment. The load balancer falls back to routing at unhealthy targets anyway, ECS starts replacing tasks that were never broken, and a slow dependency becomes a fleet-wide restart. Check dependencies in readiness at most, and even then with a stale-tolerant cached result.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="topic" id="apigw">
+      <div class="topic-head">
+        <span class="kicker">AWS &middot; 00</span>
+        <h3>API Gateway, and the three cheaper things it competes with</h3>
+        <p class="lede">API Gateway is four products in one name. Most teams need the HTTP API, some need REST&rsquo;s older feature set, and a fair number would be better served by a Function URL or an ALB &mdash; at a tenth of the price.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 372" role="img" aria-label="Four ways to put a Lambda or container behind a public HTTPS endpoint — Function URL, ALB, HTTP API and REST API — compared on cost, features and authentication, followed by the request lifecycle through an HTTP API: route match, authorizer, throttle, integration.">
+          <defs>
+            <marker id="aw-17" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">FOUR FRONT DOORS, CHEAPEST FIRST</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="32" width="204" height="118" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="32" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">FUNCTION URL</text>
+            <text x="32" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Free. One Lambda, one</text>
+            <text x="32" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">HTTPS endpoint, IAM or</text>
+            <text x="32" y="104" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">nothing for auth.</text>
+            <text x="32" y="126" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Response streaming, and</text>
+            <text x="32" y="142" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">no 29-second ceiling.</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="236" y="32" width="204" height="118" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="248" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">ALB</text>
+            <text x="248" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Hourly + capacity units,</text>
+            <text x="248" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">not per request &mdash; so it</text>
+            <text x="248" y="104" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">gets cheaper with volume.</text>
+            <text x="248" y="126" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">WAF, OIDC login, mixed</text>
+            <text x="248" y="142" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Lambda and container targets.</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="452" y="32" width="204" height="118" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text x="464" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">HTTP API</text>
+            <text x="464" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">About $1 per million. JWT</text>
+            <text x="464" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">authorizers, CORS, routes,</text>
+            <text x="464" y="104" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">stages, VPC links.</text>
+            <text x="464" y="126" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The default choice for a</text>
+            <text x="464" y="142" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">serverless HTTP API.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="668" y="32" width="212" height="118" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="680" y="52" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">REST API</text>
+            <text x="680" y="72" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">About $3.50 per million,</text>
+            <text x="680" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">and worth it only for what</text>
+            <text x="680" y="104" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">only it has:</text>
+            <text x="680" y="126" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">API keys and usage plans,</text>
+            <text x="680" y="142" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">caching, request validation.</text>
+          </g>
+
+          <line x1="20" y1="176" x2="880" y2="176" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="198" font-family="Bricolage Grotesque, sans-serif" font-size="14" font-weight="700" fill="currentColor">What happens to one request, in order</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="216" width="150" height="52" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="30" y="236" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">route match</text>
+            <text x="30" y="252" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">GET /orders/{id}</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="210" y="216" width="150" height="52" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="220" y="236" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">authorizer</text>
+            <text x="220" y="252" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">JWT, IAM or Lambda</text>
+            <line x1="174" y1="242" x2="206" y2="242" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-17)"/>
+          </g>
+          <g class="svg-l3">
+            <rect x="400" y="216" width="150" height="52" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="410" y="236" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">throttle</text>
+            <text x="410" y="252" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">burst, then rate</text>
+            <line x1="364" y1="242" x2="396" y2="242" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-17)"/>
+          </g>
+          <g class="svg-l1">
+            <rect x="590" y="216" width="150" height="52" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="600" y="236" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">integration</text>
+            <text x="600" y="252" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">Lambda, HTTP, service</text>
+            <line x1="554" y1="242" x2="586" y2="242" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-17)"/>
+          </g>
+          <g class="svg-l2">
+            <rect x="780" y="216" width="100" height="52" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="790" y="236" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">access log</text>
+            <text x="790" y="252" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">turn it on</text>
+            <line x1="744" y1="242" x2="776" y2="242" stroke="currentColor" stroke-width="1.2" marker-end="url(#aw-17)"/>
+          </g>
+
+          <g class="svg-l3">
+            <rect x="20" y="292" width="860" height="66" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="32" y="312" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">THE THROTTLE IS A TOKEN BUCKET, AND IT IS SHARED</text>
+            <text x="32" y="332" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Burst is the bucket size, rate is the refill. The account-level default applies across every API in the region, so one</text>
+            <text x="32" y="348" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">noisy endpoint throttles the others. Set per-route limits before you need them; a 429 here is invisible to your app.</text>
+          </g>
+        </svg>
+        <figcaption><b>Choose by the feature you cannot live without, not by the name.</b> Need API keys and per-customer quotas? REST. Need OIDC login at the edge and container targets? ALB. Need one endpoint for one function with no per-request fee? A Function URL. Everything else is an HTTP API, and it is both cheaper and faster than the REST API it replaced.</figcaption>
+      </figure>
+
+<pre class="l2" data-lang="go"><span class="c">// An HTTP API (payload format 2.0) handler. The event shape is different from</span>
+<span class="c">// the REST API&rsquo;s v1 — routeKey, http.method, and a flattened single-value</span>
+<span class="c">// header map are the differences that bite when you migrate.</span>
+func handle(ctx context.Context, req events.APIGatewayV2HTTPRequest) (
+    events.APIGatewayV2HTTPResponse, error) {
+
+    id := req.PathParameters["id"]                       <span class="c">// from route GET /orders/{id}</span>
+
+    <span class="c">// The authorizer&rsquo;s output arrives here — already verified, so do not</span>
+    <span class="c">// re-parse the token, and never trust a claim you did not configure.</span>
+    tenant, _ := req.RequestContext.Authorizer.JWT.Claims["tenant_id"]
+
+    order, err := app.load(ctx, tenant, id)
+    switch {
+    case errors.Is(err, ErrNotFound):
+        return jsonErr(404, "not_found", "no such order"), nil
+    case err != nil:
+        <span class="c">// Returning an error gives the caller an opaque 500 and no body.</span>
+        <span class="c">// Prefer an explicit response you control, and log the detail.</span>
+        log.Error("load order", "id", id, "err", err)
+        return jsonErr(500, "internal", "try again"), nil
+    }
+
+    body, _ := json.Marshal(order)
+    return events.APIGatewayV2HTTPResponse{
+        StatusCode: 200,
+        Headers: map[string]string{
+            "content-type":  "application/json",
+            "cache-control": "no-store",
+        },
+        Body: string(body),
+    }, nil
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># An HTTP API (payload format 2.0) handler. The event shape differs from the</span>
+<span class="c"># REST API&rsquo;s v1 — routeKey, requestContext.http.method, and single-value</span>
+<span class="c"># headers are the differences that bite when you migrate.</span>
+from aws_lambda_powertools.event_handler import APIGatewayHttpResolver
+from aws_lambda_powertools.event_handler.exceptions import NotFoundError
+
+app_router = APIGatewayHttpResolver()
+
+
+@app_router.get("/orders/&lt;order_id&gt;")
+def get_order(order_id: str):
+    <span class="c"># The authorizer&rsquo;s output arrives already verified — do not re-parse the</span>
+    <span class="c"># token, and never trust a claim you did not configure the authorizer to check.</span>
+    claims = app_router.current_event.request_context.authorizer.jwt_claim
+    tenant = claims["tenant_id"]
+
+    order = load(tenant, order_id)
+    if order is None:
+        raise NotFoundError                     <span class="c"># becomes a clean 404 JSON body</span>
+
+    return Response(
+        status_code=200,
+        content_type="application/json",
+        headers={"cache-control": "no-store"},
+        body=json.dumps(order),
+    )
+
+
+@logger.inject_lambda_context
+@tracer.capture_lambda_handler
+def handler(event, context):
+    <span class="c"># The resolver turns unhandled exceptions into 500s with a request id,</span>
+    <span class="c"># instead of the opaque gateway error you get from raising here.</span>
+    return app_router.resolve(event, context)</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Concept</th><th>Detail worth knowing</th></tr></thead>
+          <tbody>
+            <tr><td>Integration timeout</td><td>29 seconds is the long-standing maximum, and on REST APIs it can now be raised by quota. Anything longer needs an asynchronous pattern: accept, return 202 with a status URL, and do the work behind a queue.</td></tr>
+            <tr><td>Authorizers</td><td>JWT authorizers on HTTP APIs validate an OIDC token natively &mdash; no code, no cold start. A Lambda authorizer is for anything else, and its result is cacheable by identity source for up to an hour.</td></tr>
+            <tr><td>Stages</td><td>A deployment is immutable; a stage points at one. Stage variables plus a canary deployment give you a percentage rollout on REST APIs without touching the client.</td></tr>
+            <tr><td>Private integration</td><td>A VPC link lets the gateway reach an internal ALB or Cloud Map service, so &ldquo;public API, private compute&rdquo; needs no public subnet at all.</td></tr>
+            <tr><td>CORS</td><td>Configured on the API for HTTP APIs, which then answers <code>OPTIONS</code> itself. On REST APIs it is a mock integration you must create per resource &mdash; a classic half-day.</td></tr>
+            <tr><td>Access logs</td><td>Off by default. The <code>$context</code> variables carry the request id, the integration latency and the authorizer result &mdash; the three fields you need to tell &ldquo;slow backend&rdquo; from &ldquo;slow gateway&rdquo;.</td></tr>
+            <tr><td>Payload limits</td><td>10&nbsp;MB request, and Lambda&rsquo;s own 6&nbsp;MB synchronous response cap sits behind it. Large uploads belong on a presigned S3 URL, not through the gateway.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</section>
