@@ -48,6 +48,17 @@ const decode = s => s.replace(/&(#39|#x27|lt|gt|amp|quot|apos|nbsp|mdash|ndash|r
   (_, k) => ENT[k === '#x27' ? '#39' : k] ?? _);
 const attr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// Registers the offline cache. Fails quietly where it cannot run -- opened off
+// disk, or in a browser without service workers -- because the site works
+// without it either way.
+const register = src => `<script>
+if ("serviceWorker" in navigator) {
+  addEventListener("load", function () {
+    navigator.serviceWorker.register("${src}").catch(function () {});
+  });
+}
+</script>`;
+
 // An emoji favicon, the same one the artifact carries, as a self-contained SVG.
 const favicon = emoji =>
   'data:image/svg+xml,' + encodeURIComponent(
@@ -112,20 +123,17 @@ for (const page of PAGES) {
     '<meta name="color-scheme" content="light dark">',
     `<title>${title[1]}</title>`,
     `<meta name="description" content="${attr(description(body))}">`,
-    // The browser UI follows the page, which follows the system; the manifest's
-    // own theme_color is only the fallback before these are read.
+    // The browser UI follows the page, which follows the system.
     '<meta name="theme-color" content="#F2F5F7" media="(prefers-color-scheme: light)">',
     '<meta name="theme-color" content="#0B1218" media="(prefers-color-scheme: dark)">',
     `<link rel="icon" href="${favicon(page.icon)}">`,
-    // iOS ignores the manifest's icons for the home screen and wants this one.
-    `<link rel="apple-touch-icon" href="${ROOT}/icons/apple-touch-icon.png">`,
-    `<link rel="manifest" href="${ROOT}/manifest.json">`,
     // The artifacts load their fonts from Google -- the only host their CSP
     // allows, and they have nowhere to put a file. The site serves its own.
     `<link rel="stylesheet" href="${ROOT}/fonts/fonts.css">`,
     '</head>',
     '<body>',
     body.replace(/\n*$/, ''),
+    register(`${ROOT}/sw.js`),
     '</body>',
     '</html>',
     '',

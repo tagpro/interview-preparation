@@ -16,8 +16,9 @@ Published at **[study.jaspreet.info/software-engineering/](https://study.jaspree
 Each page is one self-contained HTML file: no build step, no framework, no
 JavaScript beyond the contents rail, the glossary tooltips and (on the AWS page)
 the Go/Python switch. The site loads nothing over the network -- the typefaces
-are served from `../fonts/` and everything else is inline -- so a saved copy
-works offline.
+are served from `../fonts/` and everything else is inline -- and a service worker
+caches the whole thing on first visit, so once you have opened it, it works
+offline.
 
 They carry a print stylesheet, so **Ctrl-P** or *Save as PDF* gives a properly
 paginated document — light palette whatever your theme, code wrapped rather than

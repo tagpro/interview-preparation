@@ -79,5 +79,5 @@ requirements.txt
 docs_check.mjs
 fonts_local.mjs
 offline_check.mjs
-icons_build.mjs
-manifest_check.mjs
+sw_build.mjs
+sw_check.mjs

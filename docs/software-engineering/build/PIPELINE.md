@@ -13,6 +13,7 @@ need `pymupdf` (`pip install -r requirements.txt`). Nothing else does.
     node   print_inject.mjs   # print stylesheet      -> <!-- print --> block
     python3 gloss_inject.py   # abbreviation glossary -> <!-- glossary --> block
     node   site_build.mjs ..  # wrap as standalone HTML and write the site
+    node   sw_build.mjs ../.. # regenerate the offline cache
 
 All three passes are re-runnable and strip their own previous block instead of
 stacking a second one, so running them again is always safe. `hl_inject.mjs`
@@ -62,9 +63,9 @@ artifact CSP is untouched and the reader downloads no extra JavaScript.
 | --- | --- |
 | `site_build.mjs` | Wraps the fragments as standalone HTML and rewrites cross-links |
 | `site_check.mjs` | Loads every built page and checks structure, links and the passes |
-| `icons_build.mjs` | Draws the app icon and renders it at the sizes a manifest needs |
-| `manifest_check.mjs` | Serves the site and checks the manifest as a browser would |
-| `offline_check.mjs` | Asserts every page loads with all network access blocked |
+| `sw_build.mjs` | Generates the service worker, its cache named by a content hash |
+| `sw_check.mjs` | Installs it, stops the server, and walks every page |
+| `offline_check.mjs` | Asserts no page reaches for the network in the first place |
 | `pipeline_check.sh` | Asserts the three passes compose to a fixed point |
 | `manifest.txt` | The files this directory needs; the rest of the working tree is scratch |
 
@@ -176,25 +177,30 @@ the Google link, since that is the only host their CSP allows.
     node fonts_local.mjs ../..        # refresh docs/fonts/ from upstream
     node offline_check.mjs ../..      # every page loads with the network blocked
 
-### Installing
+### The offline cache
 
-`docs/manifest.json` makes the site installable, and `icons_build.mjs` draws the
-icon it points at -- a ladder whose three rungs are the series' three levels, in
-plain SVG shapes so it does not depend on a font or an emoji set being present.
-It is rendered at 192 and 512 for the manifest, full-bleed at 512 for Android's
-maskable slot, and at 180 for iOS, which ignores manifest icons for the home
-screen.
+`sw_build.mjs` generates `docs/sw.js`. It is generated rather than written for
+one reason: a service worker's cache name has to change whenever any cached file
+changes, or a visitor is served the old site forever. The name here is a hash of
+the contents of everything it precaches, so it cannot drift from what it holds.
 
-Named `.json`, not `.webmanifest`: GitHub Pages' MIME mapping for the latter is
-not something to rely on, and `application/json` is accepted everywhere.
+The site is small and entirely static, so the worker precaches all of it on
+install -- 22 files, 2.8 MB. One visit to the front page makes all seven deep
+dives readable offline, not just the pages that happened to be opened. Requests
+are served cache-first; a navigation to something never cached gets the site's
+own 404 page rather than the browser's error screen.
 
-The manifest's `theme_color` is only a fallback -- each page carries a pair of
-`<meta name="theme-color">` tags so the browser UI follows the system theme the
-way the page does.
+There is no manifest and no install prompt: the site is a set of documents to
+read offline, not an app to install.
 
-**There is no service worker yet**, so Chrome will not offer to install the site:
-it requires one with a fetch handler. Everything else on the checklist passes.
+    node sw_build.mjs ../..           # regenerate after ANY change to a served file
+    node sw_check.mjs ../..           # install it, stop the server, walk every page
 
-    node manifest_check.mjs ../..     # served over HTTP, as a browser sees it
+`sw_check.mjs` takes the network away by **shutting the server down**, not by
+asking the browser to pretend. Playwright's offline emulation does not reliably
+reach a service worker's own fetches -- under it, pages still being served over
+the network looked like cache hits. With the server stopped, nothing but the
+cache can answer.
+
 
     node site_check.mjs ..    # loads every built page: structure, links, passes
