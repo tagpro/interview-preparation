@@ -155,3 +155,4 @@ Adding a page means adding it to `PAGES` in `site_build.mjs` and to the
 `toc-series` block each page carries.
 
     node site_check.mjs ..    # loads every built page: structure, links, passes
+    node docs_check.mjs ../..  # the site's hand-written front page and 404

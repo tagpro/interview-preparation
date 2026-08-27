@@ -77,3 +77,4 @@ check_aws.py
 pipeline_check.sh
 manifest.txt
 requirements.txt
+docs_check.mjs

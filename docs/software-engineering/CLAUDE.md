@@ -13,6 +13,12 @@ in `build/`.
 
 `index.html` is the hub page (`build/backend-go-ladder.html`), not a listing.
 
+One level up, `../index.html` and `../404.html` are the site's front page and
+error page. They are **hand-written, not generated** -- they belong to the site
+rather than to this series, and nothing regenerates them. `node
+build/docs_check.mjs ..` checks their links and structure. Adding a page here
+means adding a card to `../index.html` by hand.
+
 ## What is source and what is generated
 
 The seven `build/*.html` **pages** are the source of truth for their prose and

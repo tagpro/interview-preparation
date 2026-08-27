@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Study notes</title>
+<meta name="description" content="Long-form notes on backend engineering and system design — mechanisms drawn, then the code that shows them.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%226%22%20y%3D%2278%22%20font-size%3D%2276%22%3E%F0%9F%93%9A%3C%2Ftext%3E%3C%2Fsvg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#F2F5F7; --surface:#FFFFFF; --surface-2:#E8EEF1; --line:#CFDAE1;
+  --ink:#101A22; --ink-soft:#42545F; --ink-faint:#6E808B;
+  --l1:#0D7F8B; --l2:#4A5BB8; --l3:#B04E1B;
+  --accent:#0D7F8B;
+  --shadow:0 1px 0 #0f1b2410, 0 8px 24px -18px #0f1b2455;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0B1218; --surface:#111C24; --surface-2:#16232C; --line:#25353F;
+    --ink:#E2EAEF; --ink-soft:#9FB0BA; --ink-faint:#758791;
+    --l1:#3EC0CC; --l2:#8E9BEC; --l3:#E7935B;
+    --accent:#3EC0CC;
+    --shadow:0 1px 0 #00000040, 0 10px 28px -20px #000000;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0B1218; --surface:#111C24; --surface-2:#16232C; --line:#25353F;
+  --ink:#E2EAEF; --ink-soft:#9FB0BA; --ink-faint:#758791;
+  --l1:#3EC0CC; --l2:#8E9BEC; --l3:#E7935B;
+  --accent:#3EC0CC;
+  --shadow:0 1px 0 #00000040, 0 10px 28px -20px #000000;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased;
+}
+.shell{max-width:1040px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;text-wrap:balance;
+  margin:0;line-height:1.1;letter-spacing:-0.015em}
+h1{font-size:clamp(2.4rem,6vw,4.1rem);font-weight:800}
+h2{font-size:1.5rem;font-weight:700}
+p{margin:0 0 1em}
+a{color:var(--accent)}
+.kicker{font-family:"IBM Plex Mono",monospace;font-size:0.7rem;font-weight:600;
+  letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-faint)}
+
+.hero{padding:80px 0 40px;border-bottom:1px solid var(--line)}
+.hero .lede{font-size:1.14rem;color:var(--ink-soft);max-width:60ch;margin-top:20px}
+
+.part{padding:48px 0 8px}
+.part-head{margin-bottom:8px}
+.part-head p{color:var(--ink-soft);max-width:66ch;margin:10px 0 0}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:14px;margin-top:28px}
+.card{
+  display:block;text-decoration:none;background:var(--surface);
+  border:1px solid var(--line);border-left:3px solid var(--lc,var(--accent));
+  padding:18px 20px;box-shadow:var(--shadow);color:var(--ink);
+}
+.card:hover{border-color:var(--accent);border-left-color:var(--lc,var(--accent))}
+.card .t{display:block;font-family:"Bricolage Grotesque",sans-serif;font-size:1.06rem;
+  font-weight:700;letter-spacing:-0.01em}
+.card .s{display:block;font-family:"IBM Plex Mono",monospace;font-size:0.63rem;
+  letter-spacing:0.1em;text-transform:uppercase;color:var(--lc,var(--accent));margin-top:6px}
+.card .d{display:block;font-size:0.9rem;color:var(--ink-soft);margin-top:10px;line-height:1.5}
+.card.start{--lc:var(--accent);background:linear-gradient(#0d7f8b0f,#0d7f8b0f),var(--surface);
+  grid-column:1/-1}
+.c1{--lc:var(--l1)} .c2{--lc:var(--l2)} .c3{--lc:var(--l3)}
+
+.note{border:1px solid var(--line);border-left:3px solid var(--l2);background:var(--surface);
+  padding:16px 18px;margin:28px 0 0}
+.note h3{font-size:1.02rem;font-weight:700;margin-bottom:7px}
+.note p{margin:0;color:var(--ink-soft);font-size:0.93rem}
+.note code{font-family:"IBM Plex Mono",monospace;font-size:0.86em;
+  background:var(--surface-2);padding:0.1em 0.36em;border:1px solid var(--line)}
+
+.footer{padding:44px 0 72px;border-top:1px solid var(--line);margin-top:56px;
+  color:var(--ink-faint);font-size:0.86rem}
+.footer a{color:var(--ink-soft)}
+
+@media (max-width:640px){.hero{padding:52px 0 32px}}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+@media print{
+  @page{margin:14mm 13mm 16mm}
+  :root,:root[data-theme="dark"],:root[data-theme="light"]{
+    --ground:#fff!important;--surface:#fff!important;--surface-2:#fff!important;
+    --line:#AEBDC6!important;--ink:#0B141B!important;--ink-soft:#33424C!important;
+    --ink-faint:#596A74!important;--l1:#0A6E79!important;--l2:#3E4E9E!important;
+    --l3:#98420F!important;--accent:#0A6E79!important;--shadow:none!important;
+  }
+  html,body{background:#fff!important}
+  .shell{max-width:none;padding:0}
+  .hero{padding:0 0 16pt}
+  .cards{grid-template-columns:repeat(2,1fr)}
+  .card,.note{break-inside:avoid}
+  .card.start{background:none}
+  a[href^="http"]::after{content:" " attr(href);font-family:"IBM Plex Mono",monospace;
+    font-size:7pt;color:var(--ink-faint);word-break:break-all}
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="shell">
+    <p class="kicker">study.jaspreet.info</p>
+    <h1>Notes worth<br>keeping.</h1>
+    <p class="lede">Long-form notes on the things a backend engineer is asked to know cold &mdash; written to be read once in order and then used as a reference. Mechanisms drawn first, then the code that shows them.</p>
+  </div>
+</header>
+
+<section class="part">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Seven pages</span>
+      <h2>The Backend Ladder</h2>
+      <p>Systems thinking that survives contact with production, the languages you will be asked to read, and the cloud those systems actually run on. Every page prints properly &mdash; Ctrl-P gives a paginated document with the code wrapped rather than clipped.</p>
+    </div>
+
+    <div class="cards">
+      <a class="card start" href="software-engineering/">
+        <span class="t">The Backend Ladder</span>
+        <span class="s">Start here &middot; overview of all three pillars</span>
+        <span class="d">The map: what each mechanism is, sorted by depth, with a route through the other six pages.</span>
+      </a>
+
+      <a class="card c1" href="software-engineering/foundations.html">
+        <span class="t">The Machine Room</span>
+        <span class="s">Deep dive &middot; foundations</span>
+        <span class="d">Latency, Little&rsquo;s Law, the utilisation knee, delivery semantics, cache arithmetic, backpressure and metastable failure.</span>
+      </a>
+
+      <a class="card c1" href="software-engineering/go.html">
+        <span class="t">Reading Go</span>
+        <span class="s">Deep dive &middot; Go</span>
+        <span class="d">What a slice really is, where an allocation comes from, which timeout the server is missing, and why that goroutine is still running.</span>
+      </a>
+
+      <a class="card c2" href="software-engineering/cloud.html">
+        <span class="t">From Account to Pod</span>
+        <span class="s">Deep dive &middot; cloud</span>
+        <span class="d">Every hop between a user typing a hostname and your handler running &mdash; who authorised it, what it costs, what breaks it.</span>
+      </a>
+
+      <a class="card c2" href="software-engineering/python.html">
+        <span class="t">Python, End to End</span>
+        <span class="s">Foundations &middot; Python</span>
+        <span class="d">Names that are not variables, defaults evaluated once, a lock that serialises your threads, and an object model that costs bytes.</span>
+      </a>
+
+      <a class="card c3" href="software-engineering/java.html">
+        <span class="t">Java, Then Spring</span>
+        <span class="s">Tutorial &middot; Java + Spring Boot</span>
+        <span class="d">A compiler that actually says no, a runtime tuned for twenty-five years, and the framework that assembles the rest.</span>
+      </a>
+
+      <a class="card c3" href="software-engineering/aws.html">
+        <span class="t">AWS, Service by Service</span>
+        <span class="s">Deep dive &middot; AWS + SDKs</span>
+        <span class="d">What each service does when your code calls it &mdash; concepts, defaults, failure modes and working code, in Go and Python.</span>
+      </a>
+    </div>
+
+    <div class="note">
+      <h3>Also in the repository</h3>
+      <p>Eight worked system-design problems &mdash; news feed, URL shortener, WhatsApp, typeahead, Dropbox, Uber, rate limiter, YouTube &mdash; live in <code>system-design/</code> as Markdown, and are read on GitHub rather than served here.</p>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="shell">
+    <p style="margin:0">Source at <a href="https://github.com/tagpro/interview-preparation">github.com/tagpro/interview-preparation</a>. Every page is one self-contained HTML file: no framework, no build step to read it.</p>
+  </div>
+</footer>
+
+</body>
+</html>
