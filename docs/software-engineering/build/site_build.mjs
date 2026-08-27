@@ -10,12 +10,18 @@
 // publishing source, which is a level above this directory, and is committed
 // once rather than regenerated.
 //
-//     node site_build.mjs <outdir>
+//     node site_build.mjs <outdir> [font-stylesheet]
 import fs from 'node:fs';
 import path from 'node:path';
 
 const OUT = process.argv[2];
-if (!OUT) { console.error('usage: node site_build.mjs <outdir>'); process.exit(2); }
+if (!OUT) { console.error('usage: node site_build.mjs <outdir> [font-stylesheet]'); process.exit(2); }
+
+// The artifacts load their fonts from Google -- that is the only host their CSP
+// allows and they have nowhere to put a file. The site does not have to: it
+// serves the same faces itself, so nothing on it needs the network. Relative to
+// the page, because the site must also work opened straight off disk.
+const FONTS = process.argv[3] || '../fonts/fonts.css';
 
 // The hub is the front door of the series, so it becomes the directory index.
 const PAGES = [
@@ -82,6 +88,9 @@ for (const page of PAGES) {
   if (!title || !links.every(l => l.startsWith('<link '))) {
     console.error(`${page.src}: unexpected prologue`); process.exit(1);
   }
+  if (!links.some(l => l.includes('fonts.googleapis.com/css2'))) {
+    console.error(`${page.src}: expected a Google Fonts stylesheet to replace`); process.exit(1);
+  }
   let body = lines.slice(4).join('\n').replace(/^\n+/, '');
 
   // Series cross-links point at artifact URLs. Inside the site they are
@@ -105,7 +114,7 @@ for (const page of PAGES) {
     `<title>${title[1]}</title>`,
     `<meta name="description" content="${attr(description(body))}">`,
     `<link rel="icon" href="${favicon(page.icon)}">`,
-    ...links,
+    `<link rel="stylesheet" href="${FONTS}">`,
     '</head>',
     '<body>',
     body.replace(/\n*$/, ''),

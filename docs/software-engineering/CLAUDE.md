@@ -13,8 +13,9 @@ in `build/`.
 
 `index.html` is the hub page (`build/backend-go-ladder.html`), not a listing.
 
-One level up, `../index.html` and `../404.html` are the site's front page and
-error page. They are **hand-written, not generated** -- they belong to the site
+One level up, `../fonts/` holds the site's self-hosted typefaces and is
+**generated** by `build/fonts_local.mjs`. `../index.html` and `../404.html` are
+the site's front page and error page; they are **hand-written, not generated** -- they belong to the site
 rather than to this series, and nothing regenerates them. `node
 build/docs_check.mjs ..` checks their links and structure. Adding a page here
 means adding a card to `../index.html` by hand.
@@ -57,16 +58,26 @@ Run what the change touches; run all of them before publishing.
     node verify_gloss.mjs             # glossary wraps, misplaced: 0
     node verify_aws.mjs               # the Go/Python switch covers every pair
     node site_check.mjs ..            # the built site: links, passes, structure
+    node offline_check.mjs ../..      # every page loads with the network blocked
     node print_ink.mjs                # print colours survive Chrome's pipeline
     node print_pdf.mjs && python3 print_check.py 'pdf/*.pdf'
 
-`node fonts_fetch.mjs` first if you are rendering PDFs -- font metrics decide
-where code lines wrap, and the fallback mono measures a different document.
+`print_pdf.mjs` uses the site's own faces from `../fonts/`, because font metrics
+decide where code lines wrap and the fallback mono measures a different
+document.
 
 ## Constraints that are easy to break
 
-- **No runtime dependencies.** Highlighting happens at build time; the pages
-  ship spans and CSS. Nothing is fetched but the Google Fonts stylesheet.
+- **The site fetches nothing.** Highlighting happens at build time; the pages
+  ship spans and CSS, and the fonts are served from `../fonts/`. `offline_check.mjs`
+  asserts it by aborting every non-file request. The *artifacts* still link
+  Google Fonts -- that is the only host their CSP allows and they have nowhere
+  to put a file -- so `site_build.mjs` swaps that link when it builds the site,
+  and fails if the link it expects is not there.
+- **Adding a glyph can mean adding a font subset.** `fonts_local.mjs` keeps only
+  the subsets the pages' rendered text uses, counted from the DOM (the pages are
+  written with entities, and some glyphs exist only as CSS content). Re-run it
+  after adding text in a new script.
 - **Both themes, always.** Every colour token is defined on bare `:root` and
   redefined for `prefers-color-scheme: dark` and `[data-theme="dark"]`. A colour
   whose only definition sits inside a media query is a bug.

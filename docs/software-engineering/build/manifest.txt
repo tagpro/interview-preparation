@@ -65,7 +65,6 @@ print_contrast.py
 print_same.py
 print_sheet.py
 print_page.py
-fonts_fetch.mjs
 site_check.mjs
 audit2.mjs
 verify_go.mjs
@@ -78,3 +77,5 @@ pipeline_check.sh
 manifest.txt
 requirements.txt
 docs_check.mjs
+fonts_local.mjs
+offline_check.mjs

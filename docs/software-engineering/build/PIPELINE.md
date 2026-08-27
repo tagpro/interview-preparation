@@ -56,12 +56,13 @@ artifact CSP is untouched and the reader downloads no extra JavaScript.
 | `print_contrast.py` | Reads the colours back out of the PDF and checks them against white |
 | `print_same.py` | Asserts a dark-themed browser prints the same ink as a light one |
 | `print_sheet.py` / `print_page.py` | Contact sheet and single-page renders, for looking at it |
-| `fonts_fetch.mjs` | Caches the pages' Google fonts locally for the PDF renders |
+| `fonts_local.mjs` | Self-hosts the site's fonts, keeping only the subsets it uses |
 
 | Site file | What it is |
 | --- | --- |
 | `site_build.mjs` | Wraps the fragments as standalone HTML and rewrites cross-links |
 | `site_check.mjs` | Loads every built page and checks structure, links and the passes |
+| `offline_check.mjs` | Asserts every page loads with all network access blocked |
 | `pipeline_check.sh` | Asserts the three passes compose to a fixed point |
 | `manifest.txt` | The files this directory needs; the rest of the working tree is scratch |
 
@@ -124,10 +125,10 @@ What it has to deal with, in the order the stylesheet addresses it:
 
     python3 print_same.py                 # a dark-themed browser prints the same ink
 
-`print_pdf.mjs` serves the Google fonts from `_fonts/` rather than the network,
-because font metrics decide where code lines wrap and a fallback mono would
-measure the wrong thing. `node fonts_fetch.mjs` fills that directory; it is not
-committed.
+`print_pdf.mjs` serves the site's own faces from `docs/fonts/` rather than the
+network, because font metrics decide where code lines wrap and a fallback mono
+would measure the wrong thing. Pass a different stylesheet as an argument to
+override it.
 
 ## The site
 
@@ -154,5 +155,23 @@ and fails if any URL is left unresolved.
 Adding a page means adding it to `PAGES` in `site_build.mjs` and to the
 `toc-series` block each page carries.
 
+### Offline
+
+The served site loads nothing over the network. Its only external resource was
+the Google Fonts stylesheet, and `fonts_local.mjs` replaces it: the same faces,
+self-hosted under `docs/fonts/`, trimmed to the unicode subsets the pages
+actually render.
+
+Those subsets are counted from the **rendered DOM**, not the source. The pages
+are written with HTML entities, and several glyphs -- the contents tick, the run
+marker -- exist only as CSS generated content; counting the source alone drops
+the greek subset that the pages need for lambda and rho.
+
+The stylesheet's `url()`s are relative to itself, so one copy serves every page
+whatever its depth, from a web server or straight off disk. The artifacts keep
+the Google link, since that is the only host their CSP allows.
+
+    node fonts_local.mjs ../..        # refresh docs/fonts/ from upstream
+    node offline_check.mjs ../..      # every page loads with the network blocked
+
     node site_check.mjs ..    # loads every built page: structure, links, passes
-    node docs_check.mjs ../..  # the site's hand-written front page and 404
