@@ -1,0 +1,683 @@
+<section class="part" id="patterns">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part seven</span>
+      <h2>The patterns that solve most of the rest</h2>
+      <p>Below the level of named algorithms there is a smaller set of techniques that recur endlessly: keep two indices instead of two loops, precompute the sums, take the locally best option and prove it is safe, search exhaustively but prune early, and use the bits directly. None is difficult. Recognising which one a problem wants is the entire skill.</p>
+    </div>
+
+    <section class="topic" id="twoptr">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Two pointers and the sliding window</h3>
+        <p class="lede">A nested loop over pairs is <span class="big b">O(n&#178;)</span> because it reconsiders pairs it has already ruled out. When the data has an order &mdash; sorted values, or a window that only ever grows and shrinks in one direction &mdash; two indices that each move forward only can rule out whole ranges at once, and the whole sweep becomes <span class="big g">O(n)</span>.</p>
+      </div>
+
+      <figure class="demo" data-demo="window">
+        <div class="demo-head"><span class="demo-title">Two problems, one technique</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>The bookkeeping to watch is the total distance travelled.</b> In the sliding window each index moves forward at most n times and never backwards, so the two of them do at most 2n steps between them however many windows they describe. In the sorted two-sum, each step discards an entire row or column of the n&#178; pair table &mdash; because if the sum is too small, <em>no</em> pair using the current left element can work. Both arguments are the same shape, and it is the shape to look for: the linear bound comes from monotonic movement, not from a clever inner loop.</figcaption>
+      </figure>
+
+      <div class="svc">
+        <div><span class="h">Opposite ends</span><span class="b"><b>Needs sorted input.</b> Two-sum, three-sum, container-with-most-water, palindrome checks. Move whichever end can possibly improve the answer.</span></div>
+        <div><span class="h">Same direction</span><span class="b"><b>The sliding window.</b> Longest or shortest run satisfying a condition. Grow the right edge; when the condition breaks, advance the left until it holds again.</span></div>
+        <div><span class="h">Fast and slow</span><span class="b"><b>Cycle detection, middle of a list, k-th from the end.</b> One pointer moves twice as fast, or starts k ahead.</span></div>
+        <div><span class="h">Two sequences</span><span class="b"><b>Merging, intersecting sorted sets, and diffing.</b> Advance whichever side is behind &mdash; the merge step of merge sort is exactly this.</span></div>
+      </div>
+
+      <p class="langnote">Snippets in <b>Go</b>, <b>Python</b> and <b>Java</b> &mdash; switch in the bar, or press <b>g</b> / <b>p</b> / <b>j</b>.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// window.go — the sliding-window template. Almost every "longest or</span>
+<span class="c">// shortest run such that ..." problem is this eight-line shape with a</span>
+<span class="c">// different condition.</span>
+
+func LongestUnique(s string) (best, at int) {
+    last := make(map[byte]int, 64)               <span class="c">// byte -&gt; last index seen</span>
+    lo := 0
+    for hi := 0; hi &lt; len(s); hi++ {
+        if prev, seen := last[s[hi]]; seen &amp;&amp; prev &gt;= lo {
+            lo = prev + 1                        <span class="c">// jump past the duplicate; never back</span>
+        }
+        last[s[hi]] = hi
+        if hi-lo+1 &gt; best {
+            best, at = hi-lo+1, lo
+        }
+    }
+    return best, at
+}
+
+<span class="c">// Opposite ends, on sorted input. Each iteration eliminates one whole</span>
+<span class="c">// row or column of the pair matrix, which is why n steps suffice for</span>
+<span class="c">// n^2 pairs.</span>
+func TwoSum(sorted []int, target int) (int, int, bool) {
+    i, j := 0, len(sorted)-1
+    for i &lt; j {
+        switch sum := sorted[i] + sorted[j]; {
+        case sum == target:
+            return i, j, true
+        case sum &lt; target:
+            i++                                  <span class="c">// no pair with sorted[i] can work</span>
+        default:
+            j--                                  <span class="c">// no pair with sorted[j] can work</span>
+        }
+    }
+    return 0, 0, false
+}
+
+<span class="c">// In-place filter: read and write pointers over one array. This is the</span>
+<span class="c">// same idea and it is how every "remove duplicates from a sorted array</span>
+<span class="c">// without allocating" is written.</span>
+func Compact(xs []int) []int {
+    w := 0
+    for r := range xs {
+        if r == 0 || xs[r] != xs[r-1] {
+            xs[w] = xs[r]
+            w++
+        }
+    }
+    return xs[:w]                                <span class="c">// slices.Compact does exactly this</span>
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># window.py — the variable-size window, and the fixed-size one, which</span>
+<span class="c"># are different enough to be worth separating.</span>
+from collections import Counter
+
+def longest_unique(s: str) -&gt; str:
+    """Longest substring with no repeated character. O(n)."""
+    last: dict[str, int] = {}
+    lo = best = at = 0
+    for hi, ch in enumerate(s):
+        if (prev := last.get(ch, -1)) &gt;= lo:
+            lo = prev + 1                        <span class="c"># the left edge only ever advances</span>
+        last[ch] = hi
+        if hi - lo + 1 &gt; best:
+            best, at = hi - lo + 1, lo
+    return s[at:at + best]
+
+def min_window_covering(s: str, need: str) -&gt; str:
+    """Shortest substring containing every character of `need`. O(n).
+
+    The 'shortest' variant grows the right edge until the window is
+    valid, then shrinks the left as far as it can while staying valid.
+    Both edges still only move forward.
+    """
+    want = Counter(need)
+    missing = len(need)
+    lo = best_lo = 0
+    best = float("inf")
+    for hi, ch in enumerate(s):
+        if want[ch] &gt; 0:
+            missing -= 1
+        want[ch] -= 1
+        while missing == 0:                      <span class="c"># valid: try to shrink</span>
+            if hi - lo + 1 &lt; best:
+                best, best_lo = hi - lo + 1, lo
+            want[s[lo]] += 1
+            if want[s[lo]] &gt; 0:
+                missing += 1
+            lo += 1
+    return "" if best == float("inf") else s[best_lo:best_lo + best]
+
+<span class="c"># Fixed-size windows do not need any of this: keep a running sum and</span>
+<span class="c"># subtract the element leaving as you add the one arriving.</span>
+def rolling_mean(xs: list[float], k: int) -&gt; list[float]:
+    total = sum(xs[:k])
+    out = [total / k]
+    for i in range(k, len(xs)):
+        total += xs[i] - xs[i - k]               <span class="c"># O(1) per step, not O(k)</span>
+        out.append(total / k)
+    return out</pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Window.java — the template, with the two things Java makes you think</span>
+<span class="c">// about: char vs code point, and the array-as-counter trick.</span>
+
+static int longestUnique(String s) {
+    int[] last = new int[128];                   <span class="c">// ASCII: faster than a HashMap</span>
+    Arrays.fill(last, -1);
+    int lo = 0, best = 0;
+    for (int hi = 0; hi &lt; s.length(); hi++) {
+        char c = s.charAt(hi);
+        if (last[c] &gt;= lo) lo = last[c] + 1;     <span class="c">// jump; never move lo back</span>
+        last[c] = hi;
+        best = Math.max(best, hi - lo + 1);
+    }
+    return best;
+}
+
+<span class="c">// Two pointers over two sorted lists: the intersection, in O(n + m)</span>
+<span class="c">// rather than the O(n*m) of contains() in a loop.</span>
+static List&lt;Integer&gt; intersect(int[] a, int[] b) {
+    List&lt;Integer&gt; out = new ArrayList&lt;&gt;();
+    int i = 0, j = 0;
+    while (i &lt; a.length &amp;&amp; j &lt; b.length) {
+        if (a[i] == b[j]) { out.add(a[i]); i++; j++; }
+        else if (a[i] &lt; b[j]) i++;               <span class="c">// advance whichever is behind</span>
+        else j++;
+    }
+    return out;
+}
+
+<span class="c">// The read/write pointer, in place:</span>
+static int compact(int[] xs) {
+    int w = 0;
+    for (int r = 0; r &lt; xs.length; r++)
+        if (r == 0 || xs[r] != xs[r - 1]) xs[w++] = xs[r];
+    return w;                                    <span class="c">// the new logical length</span>
+}</pre>
+    </section>
+
+    <section class="topic" id="prefix">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Prefix sums and difference arrays</h3>
+        <p class="lede">If you are going to be asked many range questions about an array that is not changing, answer them all at once first. A prefix-sum array turns &ldquo;the sum from i to j&rdquo; from an O(n) loop into a single subtraction &mdash; and its mirror image, the difference array, turns &ldquo;add 5 to everything from i to j&rdquo; into two writes.</p>
+      </div>
+
+<pre class="l3" data-lang="go"><span class="c">// prefix.go — build once in O(n), answer every range query in O(1).</span>
+
+func Prefix(xs []int) []int {
+    p := make([]int, len(xs)+1)                  <span class="c">// note the +1: p[0] = 0 removes</span>
+    for i, v := range xs {                       <span class="c">// every "if i == 0" branch below</span>
+        p[i+1] = p[i] + v
+    }
+    return p
+}
+
+sum := p[j+1] - p[i]                             <span class="c">// inclusive range [i, j], O(1)</span>
+
+<span class="c">// The difference array is the same idea run backwards: to add `delta`</span>
+<span class="c">// to every element in [i, j], record it at the two ENDS and integrate</span>
+<span class="c">// once at the end. k range updates in O(k + n) instead of O(kn).</span>
+func ApplyRanges(n int, updates [][3]int) []int {
+    diff := make([]int, n+1)
+    for _, u := range updates {
+        lo, hi, delta := u[0], u[1], u[2]
+        diff[lo] += delta
+        diff[hi+1] -= delta                      <span class="c">// the +1 slot is why diff is n+1</span>
+    }
+    out := make([]int, n)
+    running := 0
+    for i := range out {
+        running += diff[i]
+        out[i] = running
+    }
+    return out
+}
+
+<span class="c">// This is how "how many meetings overlap at the busiest moment" is</span>
+<span class="c">// solved: +1 at each start, -1 at each end, then a running maximum of</span>
+<span class="c">// the integral. No interval tree required.</span>
+
+<span class="c">// When the array DOES change between queries, a prefix sum is wrong --</span>
+<span class="c">// every update invalidates the whole tail. That is what a Fenwick tree</span>
+<span class="c">// (binary indexed tree) is for: O(log n) update and O(log n) prefix</span>
+<span class="c">// query, in n words of memory and about fifteen lines.</span></pre>
+
+<pre class="l3" data-lang="py"><span class="c"># prefix.py — itertools.accumulate is the standard-library prefix sum.</span>
+from itertools import accumulate
+
+p = [0] + list(accumulate(xs))                   <span class="c"># p[i] = sum of xs[:i]</span>
+total = p[j + 1] - p[i]                          <span class="c"># inclusive [i, j], O(1)</span>
+
+<span class="c"># accumulate takes any binary function, so the same one line gives you</span>
+<span class="c"># running maxima, running products, or a running state machine.</span>
+running_max = list(accumulate(xs, max))
+drawdowns = [hi - v for hi, v in zip(accumulate(xs, max), xs)]
+
+<span class="c"># The prefix-sum + hash-map combination, which is the answer to a</span>
+<span class="c"># surprising number of questions: "how many subarrays sum to k?"</span>
+<span class="c"># A subarray (i, j] sums to k exactly when p[j] - p[i] == k, so for</span>
+<span class="c"># each j we need the count of earlier prefixes equal to p[j] - k.</span>
+def count_subarrays_summing_to(xs: list[int], k: int) -&gt; int:
+    from collections import defaultdict
+    seen = defaultdict(int)
+    seen[0] = 1                                  <span class="c"># the empty prefix</span>
+    running = total = 0
+    for v in xs:
+        running += v
+        total += seen[running - k]               <span class="c"># O(1) per element</span>
+        seen[running] += 1
+    return total
+
+<span class="c"># O(n) and one pass. The obvious version is O(n^2), and the difference</span>
+<span class="c"># is entirely "remember what you have already computed".</span>
+
+<span class="c"># Two dimensions: a 2-D prefix sum answers "sum of this rectangle" in</span>
+<span class="c"># four lookups by inclusion-exclusion.</span>
+<span class="c">#   area = P[r2][c2] - P[r1][c2] - P[r2][c1] + P[r1][c1]</span></pre>
+
+<pre class="l3" data-lang="java"><span class="c">// Prefix.java — and the Fenwick tree, for when the array changes.</span>
+
+static long[] prefix(int[] xs) {
+    long[] p = new long[xs.length + 1];          <span class="c">// long: prefix sums overflow int</span>
+    for (int i = 0; i &lt; xs.length; i++) p[i + 1] = p[i] + xs[i];
+    return p;
+}
+
+<span class="c">// A Fenwick tree: prefix sums that survive updates. Each slot i holds</span>
+<span class="c">// the sum of a block whose length is the lowest set bit of i, so both</span>
+<span class="c">// operations walk O(log n) slots. Fifteen lines, and it replaces a</span>
+<span class="c">// segment tree for anything that only needs sums.</span>
+final class Fenwick {
+    private final long[] t;
+
+    Fenwick(int n) { t = new long[n + 1]; }      <span class="c">// 1-indexed</span>
+
+    void add(int i, long delta) {                <span class="c">// O(log n)</span>
+        for (i++; i &lt; t.length; i += i &amp; -i) t[i] += delta;
+    }
+
+    long prefix(int i) {                         <span class="c">// sum of [0, i), O(log n)</span>
+        long s = 0;
+        for (; i &gt; 0; i -= i &amp; -i) s += t[i];
+        return s;
+    }
+
+    long range(int lo, int hi) { return prefix(hi) - prefix(lo); }
+}
+
+<span class="c">// `i &amp; -i` isolates the lowest set bit -- the one bit trick worth</span>
+<span class="c">// knowing by name, and the whole reason this structure is so small.</span>
+<span class="c">//</span>
+<span class="c">// Fenwick handles sums (and anything invertible). For minimum, maximum</span>
+<span class="c">// or gcd over a range, you need a segment tree, which is larger but</span>
+<span class="c">// handles any associative operation.</span></pre>
+    </section>
+
+    <section class="topic" id="greedy">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Greedy, and how to know it is safe</h3>
+        <p class="lede">A greedy algorithm takes the best-looking option at each step and never reconsiders. When it works it is the simplest and fastest thing available; when it does not, it produces a plausible wrong answer with no error. The difference is not intuition &mdash; it is a proof, and there are two standard ones.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Problem</th><th>Greedy rule</th><th>Safe?</th></tr></thead>
+          <tbody>
+            <tr><td>Interval scheduling &mdash; most non-overlapping meetings</td><td>Always take the one that <em>ends</em> earliest</td><td><b>Yes.</b> Exchange argument: swapping any optimal solution&rsquo;s first meeting for the earliest-ending one leaves it valid and no smaller.</td></tr>
+            <tr><td>Coin change, UK or US coins</td><td>Take the largest coin that fits</td><td><b>Yes</b>, for those coin systems. <b>No</b> in general: with coins 1, 3, 4 making 6, greedy gives 4+1+1 and the answer is 3+3.</td></tr>
+            <tr><td>Fractional knapsack</td><td>Take the highest value-per-weight first</td><td><b>Yes.</b> You can take a fraction of the last item, so there is no wasted capacity.</td></tr>
+            <tr><td>0/1 knapsack</td><td>Same rule</td><td><b>No.</b> Indivisibility breaks it, and this is exactly why the DP in part six exists.</td></tr>
+            <tr><td>Minimum spanning tree</td><td>Take the lightest edge that joins two components</td><td><b>Yes.</b> The cut property, proved in part five.</td></tr>
+            <tr><td>Huffman coding</td><td>Repeatedly merge the two least frequent symbols</td><td><b>Yes.</b> Exchange argument on the two deepest leaves.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>The two proofs, in one sentence each</h4>
+        <p><b>The exchange argument:</b> take any optimal solution, show you can swap its first choice for the greedy choice without making it worse, then repeat &mdash; so a solution that is greedy all the way down is optimal too. <b>The matroid / cut argument:</b> show that the locally best element is in <em>some</em> optimal solution, and that removing it leaves a problem of the same kind. If you cannot produce one of these two for your rule, assume greedy is wrong and look for a counterexample; they are usually small, and finding one takes less time than the incident does.</p>
+      </div>
+
+<pre class="l1" data-lang="go"><span class="c">// greedy.go — interval scheduling. The whole algorithm is the sort key,</span>
+<span class="c">// and choosing the wrong key is the classic error.</span>
+
+type Interval struct{ Start, End int }
+
+<span class="c">// Sort by END time, not by start and not by duration. A meeting that</span>
+<span class="c">// finishes early leaves the most room for everything after it, and that</span>
+<span class="c">// sentence is the proof.</span>
+func MaxNonOverlapping(ivs []Interval) []Interval {
+    slices.SortFunc(ivs, func(a, b Interval) int { return cmp.Compare(a.End, b.End) })
+
+    out := make([]Interval, 0, len(ivs))
+    lastEnd := math.MinInt
+    for _, iv := range ivs {
+        if iv.Start &gt;= lastEnd {                 <span class="c">// no overlap with the last kept</span>
+            out = append(out, iv)
+            lastEnd = iv.End
+        }
+    }
+    return out
+}
+
+<span class="c">// Merging overlapping intervals: sort by START, then extend or emit.</span>
+<span class="c">// Different question, different key -- and that is the point.</span>
+func Merge(ivs []Interval) []Interval {
+    slices.SortFunc(ivs, func(a, b Interval) int { return cmp.Compare(a.Start, b.Start) })
+
+    out := ivs[:0]                               <span class="c">// reuse the backing array</span>
+    for _, iv := range ivs {
+        if n := len(out); n &gt; 0 &amp;&amp; iv.Start &lt;= out[n-1].End {
+            out[n-1].End = max(out[n-1].End, iv.End)
+        } else {
+            out = append(out, iv)
+        }
+    }
+    return out
+}
+
+<span class="c">// Both are O(n log n), dominated entirely by the sort. Once the input</span>
+<span class="c">// is ordered, the sweep is a single pass with one variable of state.</span></pre>
+
+<pre class="l1" data-lang="py"><span class="c"># greedy.py — Huffman coding, which is greedy plus a heap and is the</span>
+<span class="c"># clearest example of a rule that is provably safe.</span>
+import heapq
+from collections import Counter
+from itertools import count
+
+def huffman(text: str) -&gt; dict[str, str]:
+    """Optimal prefix-free codes: frequent symbols get shorter codes."""
+    freq = Counter(text)
+    if len(freq) &lt; 2:
+        return {ch: "0" for ch in freq}
+
+    seq = count()                                <span class="c"># tie-breaker: never compare dicts</span>
+    heap = [(n, next(seq), {ch: ""}) for ch, n in freq.items()]
+    heapq.heapify(heap)
+
+    while len(heap) &gt; 1:
+        <span class="c"># The greedy step: the two least frequent symbols must be the</span>
+        <span class="c"># two DEEPEST leaves in some optimal tree, so merging them now</span>
+        <span class="c"># cannot cost anything.</span>
+        n1, _, a = heapq.heappop(heap)
+        n2, _, b = heapq.heappop(heap)
+        merged = {ch: "0" + code for ch, code in a.items()}
+        merged |= {ch: "1" + code for ch, code in b.items()}
+        heapq.heappush(heap, (n1 + n2, next(seq), merged))
+
+    return heap[0][2]
+
+<span class="c"># A counterexample to greedy coin change, small enough to keep in your</span>
+<span class="c"># head as a reminder that "obviously optimal" needs a proof:</span>
+<span class="c">#     coins = [1, 3, 4], target = 6</span>
+<span class="c">#     greedy -&gt; 4 + 1 + 1   (three coins)</span>
+<span class="c">#     optimal -&gt; 3 + 3      (two)</span></pre>
+
+<pre class="l1" data-lang="java"><span class="c">// Greedy.java — the meeting-rooms family, which is really a sweep line.</span>
+
+record Interval(int start, int end) {}
+
+<span class="c">// "How many rooms do I need?" is not an interval-scheduling problem: it</span>
+<span class="c">// is the maximum overlap, and the neat solution is a heap of end times.</span>
+static int roomsNeeded(List&lt;Interval&gt; meetings) {
+    List&lt;Interval&gt; sorted = new ArrayList&lt;&gt;(meetings);
+    sorted.sort(Comparator.comparingInt(Interval::start));
+
+    <span class="c">// The heap holds the end time of every meeting still running. Its</span>
+    <span class="c">// size is the number of rooms in use; its root is the one that</span>
+    <span class="c">// frees up first.</span>
+    PriorityQueue&lt;Integer&gt; running = new PriorityQueue&lt;&gt;();
+    for (Interval m : sorted) {
+        if (!running.isEmpty() &amp;&amp; running.peek() &lt;= m.start()) {
+            running.poll();                      <span class="c">// a room came free: reuse it</span>
+        }
+        running.add(m.end());
+    }
+    return running.size();                       <span class="c">// the peak, O(n log n)</span>
+}
+
+<span class="c">// The same answer as a difference array, in O(n log n) but with no heap</span>
+<span class="c">// and a much smaller constant: +1 at every start, -1 at every end, sort</span>
+<span class="c">// the events, and take the running maximum. Pick whichever you find</span>
+<span class="c">// easier to get right at 3 a.m.; they are the same algorithm seen from</span>
+<span class="c">// two directions.</span></pre>
+    </section>
+
+    <section class="topic" id="backtrack">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Backtracking: exhaustive search that stops early</h3>
+        <p class="lede">Some problems have no better answer than trying everything. Backtracking makes &ldquo;everything&rdquo; tractable by building candidates one decision at a time and abandoning a branch the moment it cannot possibly lead anywhere &mdash; so the pruning, not the enumeration, is the algorithm.</p>
+      </div>
+
+<pre class="l2" data-lang="go"><span class="c">// backtrack.go — the template. Choose, recurse, un-choose. That last</span>
+<span class="c">// step is what makes it backtracking rather than brute force with</span>
+<span class="c">// copies, and it keeps the allocation count at zero.</span>
+
+func Permutations(xs []int) [][]int {
+    var out [][]int
+    var cur []int
+    used := make([]bool, len(xs))
+
+    var walk func()
+    walk = func() {
+        if len(cur) == len(xs) {
+            out = append(out, slices.Clone(cur)) <span class="c">// CLONE: cur keeps mutating</span>
+            return
+        }
+        for i, v := range xs {
+            if used[i] {
+                continue
+            }
+            used[i], cur = true, append(cur, v)  <span class="c">// choose</span>
+            walk()                               <span class="c">// explore</span>
+            used[i], cur = false, cur[:len(cur)-1] <span class="c">// un-choose</span>
+        }
+    }
+    walk()
+    return out
+}
+
+<span class="c">// N-queens: the same template, with the pruning that makes it possible.</span>
+<span class="c">// Three bitmasks track which column and which of the two diagonals are</span>
+<span class="c">// already attacked, so "is this square safe" is one AND.</span>
+func NQueens(n int) int {
+    var count int
+    var place func(row, cols, diag, anti int)
+    place = func(row, cols, diag, anti int) {
+        if row == n {
+            count++
+            return
+        }
+        <span class="c">// free = the squares in this row attacked by nothing</span>
+        free := ^(cols | diag | anti) &amp; (1&lt;&lt;n - 1)
+        for free != 0 {
+            bit := free &amp; -free                  <span class="c">// lowest set bit: one square</span>
+            free ^= bit
+            place(row+1, cols|bit, (diag|bit)&lt;&lt;1, (anti|bit)&gt;&gt;1)
+        }
+    }
+    place(0, 0, 0, 0)
+    return count
+}
+
+<span class="c">// Without the masks this is 8^8 = 16 million placements for n=8; with</span>
+<span class="c">// them it is about 2,000. The search space did not change -- the number</span>
+<span class="c">// of branches worth entering did.</span></pre>
+
+<pre class="l2" data-lang="py"><span class="c"># backtrack.py — the template again, and the standard library shortcut</span>
+<span class="c"># for the cases that need no pruning at all.</span>
+from itertools import combinations, permutations, product
+
+list(permutations([1, 2, 3]))                    <span class="c"># all orderings, lazily</span>
+list(combinations(range(5), 3))                  <span class="c"># all 3-subsets, in order</span>
+list(product("ab", repeat=3))                    <span class="c"># the cartesian product</span>
+
+<span class="c"># Reach for itertools first: it is C, lazy, and correct. Write the</span>
+<span class="c"># recursion only when you need to PRUNE, which the library cannot do.</span>
+
+def subsets_summing_to(xs: list[int], target: int) -&gt; list[list[int]]:
+    """All subsets with a given sum, pruning branches that cannot reach it."""
+    xs = sorted(xs, reverse=True)                <span class="c"># big first: prune sooner</span>
+    suffix = [0] * (len(xs) + 1)                 <span class="c"># suffix[i] = sum of xs[i:]</span>
+    for i in range(len(xs) - 1, -1, -1):
+        suffix[i] = suffix[i + 1] + xs[i]
+
+    out: list[list[int]] = []
+    cur: list[int] = []
+
+    def walk(i: int, remaining: int) -&gt; None:
+        if remaining == 0:
+            out.append(cur.copy())               <span class="c"># copy: cur keeps mutating</span>
+            return
+        <span class="c"># The two prunes that turn 2^n into something finishable:</span>
+        if i == len(xs) or remaining &lt; 0:
+            return
+        if suffix[i] &lt; remaining:                <span class="c"># everything left is not enough</span>
+            return
+        cur.append(xs[i])                        <span class="c"># choose</span>
+        walk(i + 1, remaining - xs[i])
+        cur.pop()                                <span class="c"># un-choose</span>
+        walk(i + 1, remaining)                   <span class="c"># skip this element</span>
+
+    walk(0, target)
+    return out</pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Backtrack.java — a Sudoku solver, which is the pruning argument in</span>
+<span class="c">// its most familiar form.</span>
+
+static boolean solve(char[][] board) {
+    for (int r = 0; r &lt; 9; r++) {
+        for (int c = 0; c &lt; 9; c++) {
+            if (board[r][c] != '.') continue;
+            for (char v = '1'; v &lt;= '9'; v++) {
+                if (!isValid(board, r, c, v)) continue;
+                board[r][c] = v;                 <span class="c">// choose</span>
+                if (solve(board)) return true;   <span class="c">// explore</span>
+                board[r][c] = '.';               <span class="c">// un-choose</span>
+            }
+            return false;                        <span class="c">// no digit fits: this branch is dead</span>
+        }
+    }
+    return true;                                 <span class="c">// no empty cell left: solved</span>
+}
+
+static boolean isValid(char[][] b, int r, int c, char v) {
+    int br = r / 3 * 3, bc = c / 3 * 3;
+    for (int i = 0; i &lt; 9; i++)
+        if (b[r][i] == v || b[i][c] == v || b[br + i / 3][bc + i % 3] == v)
+            return false;
+    return true;
+}
+
+<span class="c">// That early `return false` is the whole algorithm. Without it you</span>
+<span class="c">// enumerate 9^81 boards; with it, a typical puzzle is solved in a few</span>
+<span class="c">// thousand placements.</span>
+<span class="c">//</span>
+<span class="c">// The next improvement is not a faster isValid but a better ORDER:</span>
+<span class="c">// fill the cell with the fewest legal candidates first (minimum</span>
+<span class="c">// remaining values). Choosing what to decide next is usually worth</span>
+<span class="c">// more than making each decision cheaper.</span></pre>
+    </section>
+
+    <section class="topic" id="bits">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Bit manipulation, for the handful of times it matters</h3>
+        <p class="lede">Bit tricks are over-taught as puzzles and under-taught as what they actually are: a set of up to 64 elements in one register, with union, intersection and membership as single instructions. That framing is what makes them useful in real code &mdash; permission masks, feature flags, small-set dynamic programming, and the innermost loop of a search.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Expression</th><th>What it does</th><th>Where it earns its place</th></tr></thead>
+          <tbody>
+            <tr><td><code>x &amp; (x-1)</code></td><td>Clears the lowest set bit</td><td>Counting set bits by looping only as many times as there are bits set.</td></tr>
+            <tr><td><code>x &amp; -x</code></td><td>Isolates the lowest set bit</td><td>Fenwick trees; iterating the members of a bitset one at a time.</td></tr>
+            <tr><td><code>x &amp; (x-1) == 0</code></td><td>True if x is a power of two (or zero)</td><td>Capacity checks in ring buffers and hash tables.</td></tr>
+            <tr><td><code>h &amp; (n-1)</code></td><td>Modulo, when n is a power of two</td><td>Why almost every hash table has a power-of-two size: one AND instead of a division.</td></tr>
+            <tr><td><code>1 &lt;&lt; i</code>, <code>x |= bit</code>, <code>x &amp;= ^bit</code></td><td>Make, add, remove a member</td><td>Permission and feature masks, and subset enumeration in DP over up to about 20 elements.</td></tr>
+            <tr><td><code>x ^ y</code></td><td>Symmetric difference; self-inverse</td><td>Finding the one unpaired element in O(1) space, and checksums.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+<pre class="l1" data-lang="go"><span class="c">// bits.go — math/bits compiles to single instructions. Do not hand-roll</span>
+<span class="c">// popcount; the CPU has had an instruction for it since 2008.</span>
+
+bits.OnesCount64(x)                              <span class="c">// population count</span>
+bits.TrailingZeros64(x)                          <span class="c">// index of the lowest set bit</span>
+bits.LeadingZeros64(x)                           <span class="c">// 63 - floor(log2(x))</span>
+bits.Len64(x)                                    <span class="c">// bits needed to represent x</span>
+
+<span class="c">// A bitset as a set of small integers. Iterating its members costs one</span>
+<span class="c">// step per PRESENT element, not per possible one.</span>
+type Set uint64
+
+func (s Set) Add(i int) Set      { return s | 1&lt;&lt;i }
+func (s Set) Has(i int) bool     { return s&amp;(1&lt;&lt;i) != 0 }
+func (s Set) Union(o Set) Set    { return s | o }
+func (s Set) Inter(o Set) Set    { return s &amp; o }
+
+func (s Set) Each(f func(int)) {
+    for s != 0 {
+        i := bits.TrailingZeros64(uint64(s))
+        f(i)
+        s &amp;= s - 1                               <span class="c">// clear the lowest set bit</span>
+    }
+}
+
+<span class="c">// Bitmask DP: the travelling salesman over 20 cities. The state is</span>
+<span class="c">// (set of cities visited, city we are standing in), so the table is</span>
+<span class="c">// 2^n * n entries -- exponential, but 20 million is a table rather than</span>
+<span class="c">// a fantasy, and the naive enumeration is 20! which is not.</span>
+dp := make([][]int32, 1&lt;&lt;n)
+for mask := range dp {
+    dp[mask] = make([]int32, n)
+}
+
+<span class="c">// Iterating every SUBSET of a mask, in O(3^n) over all masks rather</span>
+<span class="c">// than O(4^n) -- worth knowing, and impossible to derive on the spot:</span>
+for sub := mask; sub &gt; 0; sub = (sub - 1) &amp; mask {
+    <span class="c">// sub runs over every non-empty subset of mask, descending</span>
+}</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># bits.py — Python ints are arbitrary precision, so a bitset is just an</span>
+<span class="c"># int and it never overflows. That makes some of these unusually clean.</span>
+
+x.bit_count()                                    <span class="c"># popcount, 3.10+</span>
+x.bit_length()                                   <span class="c"># bits needed; 0 for 0</span>
+(x &amp; -x).bit_length() - 1                        <span class="c"># index of the lowest set bit</span>
+
+<span class="c"># A sieve as a single integer: set operations on millions of bits with</span>
+<span class="c"># one machine-word-at-a-time loop in C.</span>
+mask = 0
+mask |= 1 &lt;&lt; i                                   <span class="c"># add i</span>
+mask &amp;= ~(1 &lt;&lt; i)                                <span class="c"># remove i</span>
+present = mask &gt;&gt; i &amp; 1                          <span class="c"># test i</span>
+
+<span class="c"># IntFlag makes permission masks readable, which is the difference</span>
+<span class="c"># between a bit trick and a maintainable one.</span>
+from enum import IntFlag, auto
+
+class Perm(IntFlag):
+    READ = auto()                                <span class="c"># 1</span>
+    WRITE = auto()                               <span class="c"># 2</span>
+    ADMIN = auto()                               <span class="c"># 4</span>
+
+granted = Perm.READ | Perm.WRITE
+Perm.WRITE in granted                            <span class="c"># True</span>
+granted &amp; ~Perm.WRITE                            <span class="c"># revoke</span>
+repr(granted)                                    <span class="c"># &lt;Perm.READ|WRITE: 3&gt;</span>
+
+<span class="c"># The XOR trick: every value appears twice except one. XOR is</span>
+<span class="c"># associative, commutative, and self-cancelling, so the pairs vanish.</span>
+from functools import reduce
+from operator import xor
+unpaired = reduce(xor, values)                   <span class="c"># O(n) time, O(1) space</span></pre>
+
+<pre class="l1" data-lang="java"><span class="c">// Bits.java — Integer and Long carry the intrinsics; BitSet handles the</span>
+<span class="c">// cases that do not fit in 64 bits.</span>
+
+Integer.bitCount(x);                             <span class="c">// popcount</span>
+Integer.numberOfTrailingZeros(x);                <span class="c">// index of lowest set bit</span>
+Integer.highestOneBit(x);                        <span class="c">// the bit itself, not its index</span>
+Long.bitCount(y);
+
+<span class="c">// EnumSet is a bitmask wearing a Set interface: for enums with 64 or</span>
+<span class="c">// fewer constants it is a single long, and every operation is one</span>
+<span class="c">// instruction. It is faster than HashSet by an order of magnitude and</span>
+<span class="c">// reads as ordinary collection code.</span>
+EnumSet&lt;Permission&gt; granted = EnumSet.of(Permission.READ, Permission.WRITE);
+granted.contains(Permission.ADMIN);              <span class="c">// one AND</span>
+granted.addAll(EnumSet.allOf(Permission.class));
+
+<span class="c">// BitSet for large, sparse-ish sets of integers: a long[] under the</span>
+<span class="c">// hood, so a million flags is 128 KB rather than the ~16 MB a</span>
+<span class="c">// HashSet&lt;Integer&gt; would need.</span>
+BitSet seen = new BitSet(1_000_000);
+seen.set(id);
+seen.get(id);
+seen.cardinality();                              <span class="c">// popcount over the whole array</span>
+seen.stream().forEach(i -&gt; ...);                 <span class="c">// only the set bits</span>
+
+<span class="c">// The trap that survives into production: Java has no unsigned int, so</span>
+<span class="c">// &gt;&gt; is arithmetic (sign-extending) and &gt;&gt;&gt; is logical. Using &gt;&gt; on a</span>
+<span class="c">// value whose top bit is set fills with ones, and a binary search</span>
+<span class="c">// written with (lo + hi) &gt;&gt; 1 breaks exactly where (lo + hi) &gt;&gt;&gt; 1 does not.</span></pre>
+    </section>
+  </div>
+</section>

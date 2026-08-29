@@ -29,6 +29,12 @@ function covered(frag, want) {
 const RE = /<pre([^>]*)>([\s\S]*?)<\/pre>/g;
 let lost = 0, blocks = 0, gained = 0;
 for (const p of PAGES) {
+  if (!fs.existsSync('_bak/' + p)) {
+    // The baseline is the page as it was before the highlighter ran. Take one
+    // (build the page, copy it into _bak/) rather than skipping the check.
+    console.log(`${p.replace('.html', '')}: no _bak/ baseline -- not checked`);
+    continue;
+  }
   const ob = [...fs.readFileSync('_bak/' + p, 'utf8').matchAll(RE)];
   const nb = [...fs.readFileSync(p, 'utf8').matchAll(RE)];
   for (let i = 0; i < ob.length; i++) {

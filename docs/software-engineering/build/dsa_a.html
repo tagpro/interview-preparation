@@ -1,0 +1,451 @@
+<section class="part" id="cost">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>What a cost actually costs</h2>
+      <p>Before any structure or any algorithm: three ideas that decide whether the rest of this page helps you or misleads you. What the notation promises and what it quietly refuses to promise. Why two O(n) loops can differ by two orders of magnitude. And why the memory an algorithm uses is usually the constraint that bites first.</p>
+    </div>
+
+    <section class="topic" id="bigo">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>What the notation is hiding</h3>
+        <p class="lede">Big-O is a statement about the <em>shape of the curve</em> as the input grows without bound. It is not a statement about speed, it deliberately discards the constant factor, and it says nothing at all about the size of input you actually have. Every one of those omissions is load-bearing.</p>
+      </div>
+
+      <figure class="demo" data-demo="growth">
+        <div class="demo-head"><span class="demo-title">How the cost grows &middot; drag n</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Both axes are logarithmic, which is why every polynomial is a straight line and only the slope differs.</b> Drag slowly through the thousands. Notice that everything up to n log n stays inside a millisecond long after O(n&#178;) has left the building, and that the gap between O(n) and O(n log n) never becomes interesting &mdash; log&#8322; of ten million is 23. Almost every real optimisation is a jump between <em>lines</em>, not a nudge along one.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Notation</th><th>What it claims</th><th>What people wrongly assume</th></tr></thead>
+          <tbody>
+            <tr><td><span class="big g">O(f)</span> upper bound</td><td>Beyond some n, the cost is at most c&middot;f(n) for some constant c</td><td>That it is tight. <code>O(n&#178;)</code> is a true statement about binary search. Useless, but true.</td></tr>
+            <tr><td><span class="big a">&Theta;(f)</span> tight bound</td><td>The cost is squeezed between two constant multiples of f(n)</td><td>This is what people usually mean when they say &ldquo;O&rdquo;, and it is the honest thing to state.</td></tr>
+            <tr><td><span class="big b">&Omega;(f)</span> lower bound</td><td>The cost is at least c&middot;f(n)</td><td>That it describes an algorithm. Its best use is describing a <em>problem</em>: comparison sorting is &Omega;(n log n) no matter who writes it.</td></tr>
+            <tr><td>Amortised</td><td>Averaged over a <em>sequence</em>, with no probability involved</td><td>That it is the average case. It is a worst-case guarantee about totals: any n appends to a doubling array cost O(n) between them, always.</td></tr>
+            <tr><td>Average case</td><td>Expected cost over a distribution of inputs</td><td>That the distribution is the one you have. Quicksort&rsquo;s O(n log n) average assumes random pivots; sorted input with a naive pivot gives O(n&#178;).</td></tr>
+            <tr><td>Worst case</td><td>The cost when an adversary picks the input</td><td>That it is paranoid. If the input comes over HTTP, the adversary is real: hash flooding was a live denial-of-service class for years.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Read the loops</h4>
+          <ul>
+            <li><strong>Count nested iterations.</strong> Two loops over the same n, one inside the other, is <span class="big b">O(n&#178;)</span>. Sequential loops <em>add</em>, so they stay O(n).</li>
+            <li><strong>Halving is a logarithm.</strong> Anything that discards half the remaining work each step is <span class="big g">O(log n)</span>.</li>
+            <li><strong>Drop constants and lower terms.</strong> 3n + 200 is O(n); n&#178; + n is O(n&#178;).</li>
+            <li>Know the ladder by heart: constant, log, linear, n log n, quadratic, exponential.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Analyse what is actually there</h4>
+          <ul>
+            <li><strong>The hidden cost of a line.</strong> <code>s = s + x</code> in a loop is quadratic in most languages; <code>list.insert(0, x)</code> is O(n) each time; slicing copies.</li>
+            <li><strong>Amortised vs worst case.</strong> A hash insert is O(1) amortised, but the one that triggers the resize is O(n). If you have a latency budget, that tail is your problem.</li>
+            <li><strong>Recursion by the recurrence.</strong> T(n) = 2T(n/2) + O(n) is n log n &mdash; that single line explains merge sort, quicksort and most divide-and-conquer.</li>
+            <li>Two variables mean two symbols: graph work is O(V + E), not &ldquo;O(n)&rdquo;.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Know when the model breaks</h4>
+          <ul>
+            <li><strong>The constant wins below a threshold.</strong> Every industrial sort falls back to insertion sort under about 12&ndash;32 elements, because n&#178; with a tiny constant beats n log n with a large one.</li>
+            <li><strong>The model assumes uniform memory.</strong> It is wrong by two orders of magnitude, which the next section is about.</li>
+            <li><strong>Adversarial inputs change the class.</strong> Randomised pivots and seeded hashes are not paranoia; they are what makes the average case an honest claim.</li>
+            <li>Measure before and after. An analysis tells you which line to be on; only a benchmark tells you where you are on it.</li>
+          </ul>
+        </article>
+      </div>
+
+      <p class="langnote">Snippets in <b>Go</b>, <b>Python</b> and <b>Java</b> &mdash; switch in the bar, or press <b>g</b> / <b>p</b> / <b>j</b>.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// bench_test.go — the only honest way to compare two implementations.</span>
+<span class="c">// Run: go test -bench=. -benchmem -count=6 ./... | tee new.txt</span>
+<span class="c">//      benchstat old.txt new.txt   # tells you whether the difference is real</span>
+func BenchmarkContains(b *testing.B) {
+    for _, n := range []int{16, 256, 4096, 65536} {
+        haystack := rand.Perm(n)
+        set := make(map[int]struct{}, n)
+        for _, v := range haystack {
+            set[v] = struct{}{}
+        }
+        needle := n - 1                          <span class="c">// worst case for the scan</span>
+
+        b.Run(fmt.Sprintf("slice/%d", n), func(b *testing.B) {
+            for b.Loop() {                       <span class="c">// Go 1.24+; b.N loop before that</span>
+                _ = slices.Contains(haystack, needle)
+            }
+        })
+        b.Run(fmt.Sprintf("map/%d", n), func(b *testing.B) {
+            for b.Loop() {
+                _, _ = set[needle]
+            }
+        })
+    }
+}
+
+<span class="c">// slice/16      6.1 ns    map/16      5.4 ns   &lt;-- no difference worth having</span>
+<span class="c">// slice/65536  21400 ns   map/65536   5.6 ns   &lt;-- three orders of magnitude</span>
+<span class="c">// The crossover, not the asymptote, is what decides your design.</span></pre>
+
+<pre class="l2" data-lang="py"><span class="c"># bench.py — timeit, because a stopwatch around one call measures the clock.</span>
+import random
+import timeit
+
+def compare(n: int) -&gt; None:
+    haystack = random.sample(range(n * 4), n)
+    hay_set = set(haystack)
+    needle = haystack[-1]                        <span class="c"># worst case for the scan</span>
+
+    <span class="c"># number= is chosen so each variant runs for a measurable stretch;</span>
+    <span class="c"># repeat() then takes the *minimum*, which is the least noisy statistic.</span>
+    seq = min(timeit.repeat(lambda: needle in haystack, number=1000, repeat=7))
+    hsh = min(timeit.repeat(lambda: needle in hay_set, number=1000, repeat=7))
+    print(f"n={n:&gt;6}  list {seq * 1e6:7.1f} us   set {hsh * 1e6:6.1f} us   "
+          f"ratio {seq / hsh:6.1f}x")
+
+for n in (16, 256, 4096, 65536):
+    compare(n)
+
+<span class="c"># n=    16  list     6.9 us   set    3.4 us   ratio    2.0x</span>
+<span class="c"># n= 65536  list 21500.0 us   set    3.5 us   ratio 6100.0x</span>
+<span class="c">#</span>
+<span class="c"># `in` on a list is O(n) and `in` on a set is O(1). Identical syntax,</span>
+<span class="c"># different curve. This is the single most common accidental O(n^2)</span>
+<span class="c"># in Python: a membership test on a list inside a loop over another list.</span></pre>
+
+<pre class="l2" data-lang="java"><span class="c">// ContainsBench.java — JMH, because the JIT will happily delete a loop</span>
+<span class="c">// whose result nobody uses, and then you benchmark nothing at all.</span>
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.NANOSECONDS)
+@State(Scope.Benchmark)
+@Fork(value = 2, warmups = 1)
+@Warmup(iterations = 5)                          <span class="c">// let C2 compile and settle</span>
+@Measurement(iterations = 8)
+public class ContainsBench {
+
+    @Param({"16", "256", "4096", "65536"})
+    public int n;
+
+    private List&lt;Integer&gt; list;
+    private Set&lt;Integer&gt; set;
+    private Integer needle;
+
+    @Setup
+    public void setUp() {
+        list = ThreadLocalRandom.current().ints(n, 0, n * 4).boxed().toList();
+        set = new HashSet&lt;&gt;(list);
+        needle = list.get(n - 1);                 <span class="c">// worst case for the scan</span>
+    }
+
+    <span class="c">// Returning the value hands it to the Blackhole, so it cannot be</span>
+    <span class="c">// optimised away. This is the whole reason to use JMH over a loop and</span>
+    <span class="c">// System.nanoTime().</span>
+    @Benchmark public boolean listContains() { return list.contains(needle); }
+    @Benchmark public boolean setContains()  { return set.contains(needle); }
+}</pre>
+
+      <div class="callout">
+        <h4>The threshold matters more than the exponent</h4>
+        <p>All three benchmarks above tell the same story, and it is not &ldquo;hash sets are faster&rdquo;. At sixteen elements a linear scan of a contiguous array beats a hash lookup, because it is one cache line and no hashing. At sixty-five thousand it loses by three orders of magnitude. The asymptotic argument tells you these lines must cross; only measurement tells you <em>where</em>, and the answer for your data on your hardware is the number your design should turn on. Knowing that <code>slices.Contains</code> is O(n) is the beginning of the analysis, not the end of it.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="memory">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>The machine the analysis ignores</h3>
+        <p class="lede">Complexity analysis counts operations and charges the same price for each. Real hardware charges by <em>where the data is</em>, and the spread between the cheapest and the dearest answer is roughly a factor of a hundred. Two structures with identical O(n) traversals can differ by that much, and nothing in the notation will warn you.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 268" role="img" aria-label="The memory hierarchy drawn to scale by latency, from a register at under a nanosecond to main memory at about eighty, and the same walk over a contiguous array versus a chain of pointers.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHERE THE DATA IS, AND WHAT THAT COSTS &mdash; BARS ARE LOGARITHMIC</text>
+
+          <g class="svg-l1">
+            <rect x="150" y="30" width="26" height="20" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="20" y="45" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">register</text>
+            <text x="186" y="45" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">~0.3 ns</text>
+            <rect x="150" y="56" width="74" height="20" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="20" y="71" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">L1 cache</text>
+            <text x="234" y="71" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">~1 ns &middot; 32 KB &middot; 64-byte lines</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="150" y="82" width="140" height="20" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="20" y="97" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">L2 cache</text>
+            <text x="300" y="97" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">~4 ns &middot; 1 MB</text>
+            <rect x="150" y="108" width="248" height="20" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="20" y="123" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">L3 cache</text>
+            <text x="408" y="123" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">~15 ns &middot; 32 MB &middot; shared</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="150" y="134" width="420" height="20" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="20" y="149" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">main memory</text>
+            <text x="580" y="149" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">~80 ns &mdash; about 250 arithmetic instructions</text>
+            <rect x="150" y="160" width="730" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="5 4"/>
+            <text x="20" y="175" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">NVMe SSD</text>
+            <text x="560" y="175" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">~50&#181;s &mdash; the reason B-trees exist</text>
+          </g>
+
+          <line x1="20" y1="196" x2="880" y2="196" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="216" font-family="Bricolage Grotesque, sans-serif" font-size="13" font-weight="700" fill="currentColor">Same O(n) walk, two layouts</text>
+
+          <g class="svg-l1">
+            <text x="20" y="238" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">array</text>
+            <rect x="70" y="228" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="99" y="228" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="128" y="228" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="157" y="228" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="186" y="228" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="215" y="228" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="244" y="228" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="273" y="228" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M70 249 L301 249" stroke="currentColor" stroke-width="1.2"/>
+            <text x="310" y="243" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">one line fetched, the next prefetched before you ask &mdash; ~1 ns each</text>
+          </g>
+          <g class="svg-l3">
+            <text x="20" y="262" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">list</text>
+            <rect x="70" y="252" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="176" y="252" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="118" y="252" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <rect x="262" y="252" width="28" height="14" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M98 259 L172 259 M204 259 L232 259 L232 246 L128 246 L128 250 M146 259 L258 259" stroke="currentColor" stroke-width="1.1" stroke-dasharray="3 2" fill="none"/>
+            <text x="310" y="262" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">every hop is unpredictable: the prefetcher cannot help &mdash; up to ~80 ns each</text>
+          </g>
+        </svg>
+        <figcaption><b>The bars are logarithmic; the real ratio between L1 and main memory is about eighty to one.</b> A cache line is 64 bytes, so a scan over <code>int32</code> gets sixteen elements for one fetch and the hardware prefetcher will already be loading the next line. A linked list gets one element per fetch and gives the prefetcher nothing to predict. This is why &ldquo;an array is O(n) to search and a list is O(n) to search&rdquo; is a true sentence that hides a hundredfold difference.</figcaption>
+      </figure>
+
+      <div class="svc">
+        <div><span class="h">Cache line</span><span class="b"><b>64 bytes.</b> The smallest unit memory will move. Reading one byte costs the same as reading all sixty-four, so layout decides how much of that you waste.</span></div>
+        <div><span class="h">Prefetcher</span><span class="b"><b>Predicts strides.</b> Sequential and fixed-stride access are effectively free after the first miss. Pointer chasing defeats it completely.</span></div>
+        <div><span class="h">Branch predictor</span><span class="b"><b>~95% accurate, ~15 cycles to be wrong.</b> A comparison sort over random data mispredicts constantly, which is why branchless partitioning is a real optimisation.</span></div>
+        <div><span class="h">Allocation</span><span class="b"><b>Not free, and not counted.</b> One node per element means one allocation, one header and one pointer of overhead each &mdash; before the cache misses.</span></div>
+      </div>
+
+<pre class="l3" data-lang="go"><span class="c">// layout.go — identical asymptotics, very different machines.</span>
+
+type Node struct {                               <span class="c">// 24 bytes of payload,</span>
+    Value int64                                  <span class="c">// plus an 8-byte pointer,</span>
+    Next  *Node                                  <span class="c">// plus allocator overhead,</span>
+}                                                <span class="c">// scattered across the heap</span>
+
+func SumList(head *Node) int64 {
+    var total int64
+    for n := head; n != nil; n = n.Next {        <span class="c">// one cache miss per hop</span>
+        total += n.Value
+    }
+    return total
+}
+
+func SumSlice(xs []int64) int64 {
+    var total int64
+    for _, v := range xs {                       <span class="c">// 8 values per cache line,</span>
+        total += v                               <span class="c">// and the next line is already</span>
+    }                                            <span class="c">// on its way</span>
+    return total
+}
+
+<span class="c">// n = 10,000,000 on a warm machine:</span>
+<span class="c">//   SumSlice   6.8 ms      SumList   402 ms      59x, same O(n)</span>
+<span class="c">//</span>
+<span class="c">// A []Node (values, not pointers) recovers most of the gap. Prefer</span>
+<span class="c">// slices of structs to slices of pointers unless you need identity or</span>
+<span class="c">// the elements are genuinely large.</span></pre>
+
+<pre class="l3" data-lang="py"><span class="c"># layout.py — in Python every int in a list is already a pointer, so the</span>
+<span class="c"># question is not "list or linked list" but "objects or a buffer".</span>
+import array
+import sys
+
+xs = list(range(1_000_000))                      <span class="c"># 8 MB of pointers ...</span>
+buf = array.array("q", range(1_000_000))         <span class="c"># ... plus ~28 bytes per int</span>
+
+print(sys.getsizeof(xs) / 1e6, "MB of pointers")         <span class="c"># 8.06</span>
+print(sys.getsizeof(buf) / 1e6, "MB, values inline")     <span class="c"># 8.00, and that is all</span>
+
+<span class="c"># sum(xs)  ~4.5 ms   -- dereference, unbox, add, per element</span>
+<span class="c"># sum(buf) ~9.0 ms   -- array.array re-boxes on the way out, so this is</span>
+<span class="c">#                       *slower* despite the better layout: the win is</span>
+<span class="c">#                       memory, not speed</span>
+<span class="c">#</span>
+<span class="c"># numpy is the version that gets both, because the loop moves into C:</span>
+<span class="c">#   np.arange(1_000_000).sum()   ~0.4 ms, 8 MB, one pass, no boxing.</span>
+<span class="c">#</span>
+<span class="c"># The lesson is not "use numpy". It is that CPython's data model puts a</span>
+<span class="c"># pointer hop between you and every value, so the constant factor on a</span>
+<span class="c"># pure-Python O(n) loop is ~100x a compiled one. Choose the algorithm</span>
+<span class="c"># first; then choose whether the loop should run in Python at all.</span></pre>
+
+<pre class="l3" data-lang="java"><span class="c">// Layout.java — the difference between a value and a reference to one.</span>
+
+<span class="c">// Every element here is a pointer to a boxed Integer somewhere on the</span>
+<span class="c">// heap: 16 bytes of header plus 4 of payload, scattered by the allocator.</span>
+List&lt;Integer&gt; boxed = IntStream.range(0, 10_000_000).boxed().toList();
+
+<span class="c">// Here the values are the array. One allocation, 40 MB, perfectly linear.</span>
+int[] flat = IntStream.range(0, 10_000_000).toArray();
+
+long sumBoxed(List&lt;Integer&gt; xs) {
+    long total = 0;
+    for (Integer x : xs) total += x;             <span class="c">// deref + unbox per element</span>
+    return total;
+}
+
+long sumFlat(int[] xs) {
+    long total = 0;
+    for (int x : xs) total += x;                 <span class="c">// 16 ints per cache line</span>
+    return total;
+}
+
+<span class="c">// sumFlat    ~7 ms       sumBoxed   ~95 ms      13x, same O(n)</span>
+<span class="c">//</span>
+<span class="c">// Integer caches -128..127, so small-value benchmarks look far better</span>
+<span class="c">// than production. Use int[], long[] and double[] on hot paths, and</span>
+<span class="c">// reach for the primitive streams (IntStream, LongStream) rather than</span>
+<span class="c">// Stream&lt;Integer&gt;.</span></pre>
+    </section>
+
+    <section class="topic" id="space">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Space, and the stack nobody counted</h3>
+        <p class="lede">Every algorithm has a space complexity as well as a time complexity, and in production it is usually the one that fails first &mdash; because running out of memory is an incident, while being slow is a ticket. Recursion depth is space. It is the space most often left out of the analysis.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Algorithm</th><th>Extra space</th><th>What that means in practice</th></tr></thead>
+          <tbody>
+            <tr><td>Insertion / selection sort</td><td><span class="big g">O(1)</span></td><td>Truly in place. This is one reason they survive as the base case of better sorts.</td></tr>
+            <tr><td>Heapsort</td><td><span class="big g">O(1)</span></td><td>In place <em>and</em> O(n log n) worst case &mdash; the only common sort that is both. It loses on cache behaviour, which is why it is rarely the default.</td></tr>
+            <tr><td>Quicksort</td><td><span class="big a">O(log n)</span></td><td>Stack, not heap &mdash; but only if you recurse into the smaller side and loop on the larger. Recurse naively and the worst case is O(n) stack frames.</td></tr>
+            <tr><td>Merge sort</td><td><span class="big b">O(n)</span></td><td>The buffer is the price of stability and of predictable worst-case time. On linked lists it drops to O(log n), because merging needs no buffer.</td></tr>
+            <tr><td>BFS on a graph</td><td><span class="big b">O(V)</span></td><td>The frontier can be the whole width of the graph. On a wide, shallow graph BFS is the memory hog and DFS is cheap; on a deep one it is the reverse.</td></tr>
+            <tr><td>Recursive DFS</td><td><span class="big b">O(depth)</span></td><td>A stack frame per level. A million-node path graph will overflow the stack in every language on this page unless you make the traversal iterative.</td></tr>
+            <tr><td>Memoised DP</td><td><span class="big b">O(states)</span></td><td>The table is the algorithm. When the table does not fit, the fix is usually to keep only the rows the recurrence still needs.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+<pre class="l1" data-lang="go"><span class="c">// stack.go — Go grows goroutine stacks on demand (2 KB start, up to</span>
+<span class="c">// 1 GB by default), so deep recursion usually *works* and then abruptly</span>
+<span class="c">// does not, with "goroutine stack exceeds limit" and no recovery.</span>
+
+func SumRec(n *Node) int64 {                     <span class="c">// O(depth) stack</span>
+    if n == nil {
+        return 0
+    }
+    return n.Value + SumRec(n.Next)              <span class="c">// not a tail call: Go has none</span>
+}
+
+<span class="c">// The iterative form is the same algorithm with the frames deleted.</span>
+func SumIter(n *Node) int64 {                    <span class="c">// O(1) stack</span>
+    var total int64
+    for ; n != nil; n = n.Next {
+        total += n.Value
+    }
+    return total
+}
+
+<span class="c">// For trees, where iteration is genuinely less clear, carry your own</span>
+<span class="c">// stack. It is a slice, it costs one allocation, and it cannot overflow</span>
+<span class="c">// before the heap does.</span>
+func InOrder(root *TreeNode, visit func(int)) {
+    stack := make([]*TreeNode, 0, 32)
+    for cur := root; cur != nil || len(stack) &gt; 0; {
+        for ; cur != nil; cur = cur.Left {
+            stack = append(stack, cur)           <span class="c">// walk left, remembering</span>
+        }
+        cur = stack[len(stack)-1]
+        stack = stack[:len(stack)-1]
+        visit(cur.Val)
+        cur = cur.Right
+    }
+}</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># stack.py — CPython's limit is a *guard*, not the real stack size.</span>
+import sys
+
+sys.getrecursionlimit()                          <span class="c"># 1000 by default</span>
+
+<span class="c"># Raising it does not give you more C stack; it removes the check that</span>
+<span class="c"># was protecting you from a hard segfault. Since 3.12 pure-Python frames</span>
+<span class="c"># no longer consume C stack, which helps -- but the ceiling is still</span>
+<span class="c"># finite and the failure below it is much less friendly.</span>
+sys.setrecursionlimit(20_000)                    <span class="c"># a smell, not a fix</span>
+
+def in_order_recursive(node, out):               <span class="c"># O(depth) frames</span>
+    if node is None:
+        return
+    in_order_recursive(node.left, out)
+    out.append(node.val)
+    in_order_recursive(node.right, out)
+
+def in_order(root):                              <span class="c"># O(depth) list, no frames</span>
+    out, stack, cur = [], [], root
+    while cur is not None or stack:
+        while cur is not None:                   <span class="c"># walk left, remembering</span>
+            stack.append(cur)
+            cur = cur.left
+        cur = stack.pop()
+        out.append(cur.val)
+        cur = cur.right
+    return out
+
+<span class="c"># A balanced tree of a million nodes is 20 deep and recursion is fine.</span>
+<span class="c"># A million-node tree built by inserting sorted keys is a linked list</span>
+<span class="c"># 1,000,000 deep, and only the iterative version survives it. Which one</span>
+<span class="c"># you have depends on data you do not control.</span></pre>
+
+<pre class="l1" data-lang="java"><span class="c">// Stack.java — the JVM gives each thread a fixed stack, default about</span>
+<span class="c">// 512 KB to 1 MB. Deep recursion throws StackOverflowError, which is an</span>
+<span class="c">// Error, not an Exception: do not catch it and carry on.</span>
+
+<span class="c">// -Xss4m raises it per thread. That is a workaround with a cost:</span>
+<span class="c">// thousands of threads at 4 MB of reserved stack each adds up fast.</span>
+
+void inOrderRecursive(TreeNode node, List&lt;Integer&gt; out) {   <span class="c">// O(depth) frames</span>
+    if (node == null) return;
+    inOrderRecursive(node.left, out);
+    out.add(node.val);
+    inOrderRecursive(node.right, out);
+}
+
+List&lt;Integer&gt; inOrder(TreeNode root) {                      <span class="c">// O(depth) heap</span>
+    List&lt;Integer&gt; out = new ArrayList&lt;&gt;();
+    Deque&lt;TreeNode&gt; stack = new ArrayDeque&lt;&gt;();
+    TreeNode cur = root;
+    while (cur != null || !stack.isEmpty()) {
+        while (cur != null) {                                <span class="c">// walk left, remembering</span>
+            stack.push(cur);
+            cur = cur.left;
+        }
+        cur = stack.pop();
+        out.add(cur.val);
+        cur = cur.right;
+    }
+    return out;
+}
+
+<span class="c">// Use ArrayDeque, never java.util.Stack: Stack extends Vector, so every</span>
+<span class="c">// push and pop is synchronised and it exposes indexed access into the</span>
+<span class="c">// middle of a stack, which is not a thing a stack should have.</span></pre>
+
+      <div class="note warn">
+        <h4>Depth is data-dependent, and data is adversarial</h4>
+        <p>A recursive traversal that is 20 frames deep on your test tree is 1,000,000 frames deep on a degenerate one, and the shape of the tree is often decided by whoever supplies the input &mdash; sorted identifiers, a chain of replies, a JSON document nested by a script. Any recursion whose depth is bounded by input size rather than by <code>log n</code> should either be iterative or have an explicit depth limit that returns an error. This is the same class of bug as unbounded memory, and it is exploited the same way.</p>
+      </div>
+    </section>
+  </div>
+</section>

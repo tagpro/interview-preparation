@@ -1,0 +1,757 @@
+<section class="part" id="trees">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part three</span>
+      <h2>Trees, heaps and the structures built on them</h2>
+      <p>A tree is what you reach for when a hash table gives you the wrong thing: order. Hash lookup is faster, but it cannot answer &ldquo;the next key after this one&rdquo;, &ldquo;everything between these two&rdquo; or &ldquo;the smallest thing left&rdquo;. Those three questions are what this part is about, plus the two specialised trees &mdash; the trie and the disjoint-set forest &mdash; that solve problems nothing else solves cleanly.</p>
+    </div>
+
+    <section class="topic" id="bintree">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Binary trees, and the four orders you can walk them in</h3>
+        <p class="lede">A binary tree is a node with up to two children. Everything interesting about it comes from the order in which you visit the nodes &mdash; and the three recursive orders differ by <em>one line moving</em>, which is the clearest illustration in the subject that an algorithm is a sequence, not a shape.</p>
+      </div>
+
+      <figure class="demo" data-demo="tree">
+        <div class="demo-head"><span class="demo-title">The same tree, four traversals</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>The three depth-first orders run identical code with the visit in a different place; level-order cannot be written that way at all.</b> Pre-order visits on the way down, in-order between the two subtrees, post-order on the way back up &mdash; and because this is a search tree, in-order comes out sorted. Level-order needs a queue rather than the call stack, which is the same distinction as breadth-first versus depth-first on a graph, appearing here for the first time.</figcaption>
+      </figure>
+
+      <div class="svc">
+        <div><span class="h">Pre-order</span><span class="b"><b>Root, left, right.</b> Serialising a tree, copying it, or any task where the parent must be handled before its children &mdash; rendering nested UI, applying inherited permissions.</span></div>
+        <div><span class="h">In-order</span><span class="b"><b>Left, root, right.</b> On a binary <em>search</em> tree this yields sorted order, which is the property every sorted map is built on.</span></div>
+        <div><span class="h">Post-order</span><span class="b"><b>Left, right, root.</b> Freeing, computing a value from children (subtree sizes, directory sizes), and evaluating an expression tree.</span></div>
+        <div><span class="h">Level-order</span><span class="b"><b>By depth, using a queue.</b> Finding the shallowest anything, printing a tree by rows, and any &ldquo;fewest steps&rdquo; question.</span></div>
+      </div>
+
+      <p class="langnote">Snippets in <b>Go</b>, <b>Python</b> and <b>Java</b> &mdash; switch in the bar, or press <b>g</b> / <b>p</b> / <b>j</b>.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// tree.go — the three orders, then the two things you actually compute.</span>
+
+type TreeNode struct {
+    Val         int
+    Left, Right *TreeNode
+}
+
+func Walk(n *TreeNode, visit func(int)) {
+    if n == nil {
+        return
+    }
+    <span class="c">// visit(n.Val)          &lt;- pre-order goes here</span>
+    Walk(n.Left, visit)
+    visit(n.Val)                                 <span class="c">// in-order</span>
+    Walk(n.Right, visit)
+    <span class="c">// visit(n.Val)          &lt;- post-order goes here</span>
+}
+
+<span class="c">// Level order: a queue, and one loop per level so you know where the</span>
+<span class="c">// rows break. That inner "for range len(q)" is the whole trick.</span>
+func Levels(root *TreeNode) [][]int {
+    if root == nil {
+        return nil
+    }
+    var out [][]int
+    q := []*TreeNode{root}
+    for len(q) &gt; 0 {
+        row := make([]int, 0, len(q))
+        next := make([]*TreeNode, 0, len(q)*2)
+        for _, n := range q {                    <span class="c">// exactly one level</span>
+            row = append(row, n.Val)
+            if n.Left != nil {
+                next = append(next, n.Left)
+            }
+            if n.Right != nil {
+                next = append(next, n.Right)
+            }
+        }
+        out, q = append(out, row), next
+    }
+    return out
+}
+
+<span class="c">// Height is post-order: you cannot know yours until both children know</span>
+<span class="c">// theirs. Almost every "compute something about a subtree" is this shape.</span>
+func Height(n *TreeNode) int {
+    if n == nil {
+        return 0
+    }
+    return 1 + max(Height(n.Left), Height(n.Right))
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># tree.py — a generator makes the traversal lazy, which matters when</span>
+<span class="c"># the caller wants the first match rather than all of them.</span>
+from collections import deque
+from typing import Iterator, Optional
+
+class Node:
+    __slots__ = ("val", "left", "right")         <span class="c"># no __dict__: ~40% less memory</span>
+
+    def __init__(self, val, left=None, right=None):
+        self.val, self.left, self.right = val, left, right
+
+def in_order(n: Optional[Node]) -&gt; Iterator[int]:
+    if n is None:
+        return
+    yield from in_order(n.left)
+    yield n.val                                  <span class="c"># move this line for pre/post</span>
+    yield from in_order(n.right)
+
+def levels(root: Optional[Node]) -&gt; list[list[int]]:
+    if root is None:
+        return []
+    out, q = [], deque([root])
+    while q:
+        row = []
+        for _ in range(len(q)):                  <span class="c"># snapshot the level's width</span>
+            n = q.popleft()
+            row.append(n.val)
+            if n.left:
+                q.append(n.left)
+            if n.right:
+                q.append(n.right)
+        out.append(row)
+    return out
+
+<span class="c"># The generator version composes with everything: itertools.islice for</span>
+<span class="c"># the first k, next() for the first match, zip() to compare two trees.</span>
+first_over_100 = next((v for v in in_order(root) if v &gt; 100), None)
+
+<span class="c"># On a search tree this stops as soon as it finds one, because in_order</span>
+<span class="c"># is lazy -- the recursive list-building version would walk it all.</span></pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Trees.java — records make an immutable tree pleasant, and sealed</span>
+<span class="c">// interfaces let the compiler check that you handled every shape.</span>
+
+sealed interface Tree permits Leaf, Branch {}
+record Leaf() implements Tree {}
+record Branch(int val, Tree left, Tree right) implements Tree {}
+
+<span class="c">// Pattern matching in a switch: exhaustive, so a new variant is a</span>
+<span class="c">// compile error rather than a runtime surprise.</span>
+static int height(Tree t) {
+    return switch (t) {
+        case Leaf ignored -&gt; 0;
+        case Branch b -&gt; 1 + Math.max(height(b.left()), height(b.right()));
+    };
+}
+
+static void inOrder(Tree t, IntConsumer visit) {
+    if (t instanceof Branch b) {
+        inOrder(b.left(), visit);
+        visit.accept(b.val());                   <span class="c">// move for pre/post order</span>
+        inOrder(b.right(), visit);
+    }
+}
+
+static List&lt;List&lt;Integer&gt;&gt; levels(TreeNode root) {
+    List&lt;List&lt;Integer&gt;&gt; out = new ArrayList&lt;&gt;();
+    if (root == null) return out;
+    Deque&lt;TreeNode&gt; q = new ArrayDeque&lt;&gt;(List.of(root));
+    while (!q.isEmpty()) {
+        int width = q.size();                    <span class="c">// snapshot before adding children</span>
+        List&lt;Integer&gt; row = new ArrayList&lt;&gt;(width);
+        for (int i = 0; i &lt; width; i++) {
+            TreeNode n = q.poll();
+            row.add(n.val);
+            if (n.left != null) q.add(n.left);
+            if (n.right != null) q.add(n.right);
+        }
+        out.add(row);
+    }
+    return out;
+}</pre>
+    </section>
+
+    <section class="topic" id="bst">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Search trees, balance, and why you will use somebody else&rsquo;s</h3>
+        <p class="lede">A binary search tree keeps everything smaller on the left and everything larger on the right, which makes lookup a walk down one path &mdash; <span class="big g">O(log n)</span> if the tree is balanced and <span class="big b">O(n)</span> if it is not. Since the shape depends entirely on insertion order, and insertion order is frequently sorted, an unbalanced BST is not an edge case. It is the default outcome.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 250" role="img" aria-label="The same seven keys inserted in sorted order produce a chain of depth seven; inserted in balanced order they produce a tree of depth three. A single rotation is shown restoring balance.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">SAME KEYS, SAME CODE, DIFFERENT INSERTION ORDER</text>
+
+          <g class="svg-l3">
+            <text x="20" y="42" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">insert 1,2,3,4,5,6,7 &mdash; depth 7, lookup is a linear scan</text>
+            <circle cx="40" cy="66" r="12" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="40" y="70" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">1</text>
+            <circle cx="86" cy="90" r="12" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="86" y="94" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">2</text>
+            <circle cx="132" cy="114" r="12" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="132" y="118" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">3</text>
+            <circle cx="178" cy="138" r="12" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="178" y="142" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">4</text>
+            <circle cx="224" cy="162" r="12" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="224" y="166" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">5</text>
+            <circle cx="270" cy="186" r="12" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="270" y="190" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">6</text>
+            <circle cx="316" cy="210" r="12" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="316" y="214" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">7</text>
+            <path d="M48 74 L78 82 M94 98 L124 106 M140 122 L170 130 M186 146 L216 154 M232 170 L262 178 M278 194 L308 202" stroke="currentColor" stroke-width="1.3"/>
+            <text x="340" y="214" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">This is a linked list wearing a tree&rsquo;s type.</text>
+          </g>
+
+          <line x1="470" y1="30" x2="470" y2="230" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+
+          <g class="svg-l1">
+            <text x="500" y="42" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor">insert 4,2,6,1,3,5,7 &mdash; depth 3, lookup is three hops</text>
+            <circle cx="690" cy="72" r="13" fill="none" stroke="currentColor" stroke-width="1.6"/><text x="690" y="76" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">4</text>
+            <circle cx="610" cy="128" r="13" fill="none" stroke="currentColor" stroke-width="1.6"/><text x="610" y="132" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">2</text>
+            <circle cx="770" cy="128" r="13" fill="none" stroke="currentColor" stroke-width="1.6"/><text x="770" y="132" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">6</text>
+            <circle cx="570" cy="184" r="13" fill="none" stroke="currentColor" stroke-width="1.6"/><text x="570" y="188" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">1</text>
+            <circle cx="650" cy="184" r="13" fill="none" stroke="currentColor" stroke-width="1.6"/><text x="650" y="188" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">3</text>
+            <circle cx="730" cy="184" r="13" fill="none" stroke="currentColor" stroke-width="1.6"/><text x="730" y="188" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">5</text>
+            <circle cx="810" cy="184" r="13" fill="none" stroke="currentColor" stroke-width="1.6"/><text x="810" y="188" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">7</text>
+            <path d="M680 83 L620 117 M700 83 L760 117 M601 139 L579 173 M619 139 L641 173 M761 139 L739 173 M779 139 L801 173" stroke="currentColor" stroke-width="1.3"/>
+            <text x="500" y="214" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">A balanced tree does the same job in log&#8322;n hops.</text>
+            <text x="500" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Self-balancing trees rotate to keep it that way.</text>
+          </g>
+        </svg>
+        <figcaption><b>Sorted input is the common case, not the pathological one.</b> Auto-incrementing ids, timestamps, alphabetised names &mdash; all arrive sorted, and all turn a naive BST into a list. Self-balancing trees (AVL, red-black) fix this by rotating after an insert that makes one side too deep; a rotation is a local, constant-time re-pointing of three links that preserves the ordering invariant while reducing the height. You should understand rotations. You should almost never implement them.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>What you want</th><th>Go</th><th>Python</th><th>Java</th></tr></thead>
+          <tbody>
+            <tr><td>Sorted map, ordered iteration</td><td>Sorted <code>[]K</code> + <code>slices.BinarySearch</code>, or <code>google/btree</code></td><td><code>sortedcontainers.SortedDict</code> (third party)</td><td><code>TreeMap</code> &mdash; a red-black tree</td></tr>
+            <tr><td>Next key at or after x</td><td><code>slices.BinarySearch</code> returns the insertion point</td><td><code>bisect.bisect_left</code> on a sorted list</td><td><code>ceilingKey</code> / <code>floorKey</code></td></tr>
+            <tr><td>Everything in a range</td><td>Two binary searches, then a sub-slice</td><td>Two <code>bisect</code> calls, then a slice</td><td><code>subMap(lo, true, hi, false)</code> &mdash; a live view</td></tr>
+            <tr><td>Ordered set</td><td><code>map</code> plus a sorted key slice</td><td><code>sortedcontainers.SortedSet</code></td><td><code>TreeSet</code></td></tr>
+            <tr><td>On disk</td><td colspan="3">A B-tree or an LSM tree, never a binary one &mdash; see the callout below</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+<pre class="l1" data-lang="go"><span class="c">// sorted.go — Go has no ordered map, and for most workloads it does not</span>
+<span class="c">// need one: a sorted slice with binary search beats a pointer-based tree</span>
+<span class="c">// on every operation except insert-in-the-middle, because it is</span>
+<span class="c">// contiguous.</span>
+
+type Index struct {
+    keys []string                                <span class="c">// kept sorted</span>
+    vals []Record                                <span class="c">// parallel</span>
+}
+
+func (ix *Index) Get(k string) (Record, bool) {
+    i, ok := slices.BinarySearch(ix.keys, k)     <span class="c">// O(log n)</span>
+    if !ok {
+        return Record{}, false
+    }
+    return ix.vals[i], true
+}
+
+<span class="c">// The insertion point is the answer to "the first key &gt;= k" -- the same</span>
+<span class="c">// lower_bound that TreeMap.ceilingKey gives you.</span>
+func (ix *Index) Range(lo, hi string) []Record {
+    a, _ := slices.BinarySearch(ix.keys, lo)     <span class="c">// first &gt;= lo</span>
+    b, _ := slices.BinarySearch(ix.keys, hi)     <span class="c">// first &gt;= hi</span>
+    return ix.vals[a:b]
+}
+
+func (ix *Index) Put(k string, v Record) {
+    i, ok := slices.BinarySearch(ix.keys, k)
+    if ok {
+        ix.vals[i] = v
+        return
+    }
+    ix.keys = slices.Insert(ix.keys, i, k)       <span class="c">// O(n) memmove -- fast per</span>
+    ix.vals = slices.Insert(ix.vals, i, v)       <span class="c">// byte, but O(n)</span>
+}
+
+<span class="c">// Rule of thumb: read-mostly, up to a few hundred thousand entries, use</span>
+<span class="c">// the slice. Write-heavy or larger, use a B-tree package. A hand-rolled</span>
+<span class="c">// red-black tree is the wrong answer at every size.</span></pre>
+
+<pre class="l1" data-lang="py"><span class="c"># sorted.py — bisect is the standard library's ordered structure, and it</span>
+<span class="c"># is a pair of functions rather than a class, so it works on any list.</span>
+import bisect
+
+keys = []                                        <span class="c"># kept sorted</span>
+
+bisect.insort(keys, k)                           <span class="c"># O(log n) search + O(n) insert</span>
+
+i = bisect.bisect_left(keys, k)                  <span class="c"># first index with keys[i] &gt;= k</span>
+found = i &lt; len(keys) and keys[i] == k
+
+lo = bisect.bisect_left(keys, "2026-01-01")      <span class="c"># range query on a sorted list</span>
+hi = bisect.bisect_right(keys, "2026-01-31")     <span class="c"># is two bisects and a slice</span>
+window = keys[lo:hi]
+
+<span class="c"># bisect takes a key= function since 3.10, so you can index objects</span>
+<span class="c"># without building a parallel list of keys.</span>
+i = bisect.bisect_left(events, when, key=lambda e: e.timestamp)
+
+<span class="c"># The percentile / bucketing idiom: find which band a value falls in,</span>
+<span class="c"># in O(log n) rather than a chain of elifs.</span>
+BOUNDS = [60, 70, 80, 90]
+GRADES = "FDCBA"
+GRADES[bisect.bisect_right(BOUNDS, score)]
+
+<span class="c"># For heavy insert loads, sortedcontainers.SortedList is pure Python,</span>
+<span class="c"># has no C extension, and is genuinely faster than a tree because it</span>
+<span class="c"># keeps a list of short lists -- cache locality beating asymptotics again.</span></pre>
+
+<pre class="l1" data-lang="java"><span class="c">// Sorted.java — TreeMap is a red-black tree, and the navigation methods</span>
+<span class="c">// are the reason to choose it over HashMap. They are not obtainable from</span>
+<span class="c">// a hash table at any price.</span>
+
+NavigableMap&lt;Instant, Reading&gt; series = new TreeMap&lt;&gt;();
+
+Map.Entry&lt;Instant, Reading&gt; atOrBefore = series.floorEntry(t);   <span class="c">// O(log n)</span>
+Map.Entry&lt;Instant, Reading&gt; next       = series.higherEntry(t);
+
+<span class="c">// subMap is a VIEW: no copy, and writes through to the backing map.</span>
+<span class="c">// This is the range query, and it is the whole reason time series and</span>
+<span class="c">// rate limiters use TreeMap.</span>
+SortedMap&lt;Instant, Reading&gt; lastHour =
+        series.subMap(now.minus(Duration.ofHours(1)), true, now, false);
+
+<span class="c">// Expiring old entries is one call, because headMap is also a view and</span>
+<span class="c">// clear() on a view removes from the parent.</span>
+series.headMap(cutoff).clear();                  <span class="c">// O(k) in what it removes</span>
+
+<span class="c">// TreeMap orders by compareTo or by the comparator you pass -- NOT by</span>
+<span class="c">// equals. If compare() says two keys are equal, the map treats them as</span>
+<span class="c">// the same key even when equals() disagrees. That inconsistency is the</span>
+<span class="c">// classic TreeMap bug.</span>
+Map&lt;String, Integer&gt; ci = new TreeMap&lt;&gt;(String.CASE_INSENSITIVE_ORDER);
+ci.put("Key", 1);
+ci.put("KEY", 2);                                <span class="c">// overwrites: size() is 1</span></pre>
+
+      <div class="callout">
+        <h4>Why databases use B-trees and not binary trees</h4>
+        <p>A balanced binary tree over a billion keys is thirty levels deep, and if the tree is on disk that is thirty random reads &mdash; roughly a millisecond and a half at NVMe latencies, several hundred milliseconds on a spinning disk. A B-tree stores hundreds of keys per node, sized to a page, so the same billion keys are four levels deep and a lookup is four reads. The asymptotics are identical (both are O(log n); only the base of the logarithm changed) and the practical difference is a factor of eight. This is the memory hierarchy from part one deciding a data structure outright, and it is why <em>every</em> database index is a B-tree or an LSM tree.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="heapq">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Heaps: the structure that only answers one question</h3>
+        <p class="lede">A binary heap gives you the minimum (or maximum) in O(1) and lets you remove it or add a new element in O(log n). It cannot search, it cannot iterate in order, and it has no notion of position &mdash; and by giving all that up it becomes a plain array with no pointers at all.</p>
+      </div>
+
+      <figure class="demo" data-demo="heap">
+        <div class="demo-head"><span class="demo-title">Push ten, then pop the minimum</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>The tree drawn above and the array drawn below are the same object.</b> Node <code>i</code> has children at <code>2i+1</code> and <code>2i+2</code> and its parent at <code>(i-1)/2</code>, so the tree structure is arithmetic rather than pointers: no allocation per node, perfect locality, and nothing to rebalance. The heap property is only <em>local</em> &mdash; every parent beats its children and that is all &mdash; which is exactly weak enough to restore in one walk up or down, and exactly strong enough to put the smallest element at the root.</figcaption>
+      </figure>
+
+      <div class="svc">
+        <div><span class="h">Top-k</span><span class="b"><b>Keep a heap of size k</b> holding the best k so far, and push-then-pop for each new element. O(n log k) time and O(k) space, over a stream you cannot store.</span></div>
+        <div><span class="h">Merging sorted runs</span><span class="b"><b>One heap entry per run.</b> Pop the smallest, emit it, push that run&rsquo;s next value. This is how external sorts and LSM compaction work.</span></div>
+        <div><span class="h">Schedulers and timers</span><span class="b"><b>Keyed by deadline.</b> The next thing to do is always the root, and inserting a new timer is O(log n).</span></div>
+        <div><span class="h">Dijkstra and A*</span><span class="b"><b>Keyed by distance.</b> The priority queue is what turns the search from &ldquo;try everything&rdquo; into &ldquo;always expand the cheapest frontier node&rdquo;.</span></div>
+      </div>
+
+<pre class="l3" data-lang="go"><span class="c">// heap.go — container/heap is an interface, not a container: you supply</span>
+<span class="c">// the storage and the comparison, it supplies the sift logic.</span>
+
+type Job struct {
+    Priority int
+    Name     string
+    index    int                                 <span class="c">// maintained by heap.Fix</span>
+}
+
+type PQ []*Job
+
+func (q PQ) Len() int            { return len(q) }
+func (q PQ) Less(i, j int) bool  { return q[i].Priority &lt; q[j].Priority }  <span class="c">// min-heap</span>
+func (q PQ) Swap(i, j int)       { q[i], q[j] = q[j], q[i]; q[i].index = i; q[j].index = j }
+func (q *PQ) Push(x any)         { j := x.(*Job); j.index = len(*q); *q = append(*q, j) }
+func (q *PQ) Pop() any {
+    old := *q
+    n := len(old)
+    it := old[n-1]
+    old[n-1] = nil                               <span class="c">// let the GC have it</span>
+    *q = old[:n-1]
+    return it
+}
+
+pq := &amp;PQ{}
+heap.Init(pq)
+heap.Push(pq, &amp;Job{Priority: 3, Name: "compact"})
+next := heap.Pop(pq).(*Job)                      <span class="c">// O(log n)</span>
+
+<span class="c">// The reason to keep `index` is heap.Fix: change a job's priority in</span>
+<span class="c">// place and re-sift from where it sits, in O(log n) instead of O(n).</span>
+<span class="c">// Dijkstra with decrease-key needs exactly this.</span>
+job.Priority = 1
+heap.Fix(pq, job.index)
+
+<span class="c">// Top-k over a stream, in O(n log k) and O(k) memory: keep the k</span>
+<span class="c">// LARGEST by holding a MIN-heap and evicting the root.</span>
+for _, v := range stream {
+    if pq.Len() &lt; k {
+        heap.Push(pq, v)
+    } else if v.Priority &gt; (*pq)[0].Priority {
+        heap.Pop(pq)
+        heap.Push(pq, v)
+    }
+}</pre>
+
+<pre class="l3" data-lang="py"><span class="c"># heapq.py — heapq operates on a plain list. There is no Heap class,</span>
+<span class="c"># which surprises people and then turns out to be liberating.</span>
+import heapq
+
+h: list[int] = []
+heapq.heappush(h, 5)                             <span class="c"># O(log n)</span>
+smallest = heapq.heappop(h)                      <span class="c"># O(log n)</span>
+peek = h[0]                                      <span class="c"># O(1) -- it is just index 0</span>
+
+heapq.heapify(existing_list)                     <span class="c"># O(n), not O(n log n)</span>
+
+<span class="c"># heappushpop is one sift instead of two: use it in the top-k loop.</span>
+for v in stream:
+    if len(h) &lt; k:
+        heapq.heappush(h, v)
+    else:
+        heapq.heappushpop(h, v)                  <span class="c"># keeps the k largest</span>
+
+<span class="c"># nlargest/nsmallest do the above for you and pick the right strategy:</span>
+<span class="c"># sorted() when k is close to n, a heap when it is not.</span>
+top = heapq.nlargest(10, records, key=lambda r: r.score)
+
+<span class="c"># It is a MIN-heap only. For a max-heap, negate:</span>
+heapq.heappush(h, -priority)
+
+<span class="c"># Tuples compare lexicographically, which gives you priority queues for</span>
+<span class="c"># free -- but the tie-break falls through to the payload, and comparing</span>
+<span class="c"># two Task objects raises TypeError. Insert a counter as a tie-breaker:</span>
+from itertools import count
+seq = count()
+heapq.heappush(pq, (priority, next(seq), task))  <span class="c"># never compares `task`</span>
+
+<span class="c"># merge() streams any number of sorted iterables in sorted order using</span>
+<span class="c"># exactly one heap entry per input -- the external-sort merge, lazily.</span>
+for line in heapq.merge(*sorted_files, key=parse_ts):
+    ...</pre>
+
+<pre class="l3" data-lang="java"><span class="c">// Heaps.java — PriorityQueue is a binary heap. Two facts about it cause</span>
+<span class="c">// most of the bugs: it is a MIN-heap by default, and iterating it does</span>
+<span class="c">// NOT give sorted order -- only repeated poll() does.</span>
+
+PriorityQueue&lt;Job&gt; pq = new PriorityQueue&lt;&gt;(Comparator.comparingInt(Job::priority));
+pq.add(job);                                     <span class="c">// O(log n)</span>
+Job next = pq.poll();                            <span class="c">// O(log n), null when empty</span>
+Job peek = pq.peek();                            <span class="c">// O(1)</span>
+
+<span class="c">// for (Job j : pq)  -- iterates in ARRAY order, which is heap order,</span>
+<span class="c">// which looks almost sorted and is not. This is a real bug source.</span>
+
+<span class="c">// Top-k largest: a min-heap of size k, evicting the smallest.</span>
+PriorityQueue&lt;Integer&gt; topK = new PriorityQueue&lt;&gt;(k);
+for (int v : stream) {
+    if (topK.size() &lt; k) topK.add(v);
+    else if (v &gt; topK.peek()) { topK.poll(); topK.add(v); }
+}
+
+<span class="c">// remove(Object) is O(n): it scans for the element before sifting. If</span>
+<span class="c">// you need decrease-key, PriorityQueue cannot do it efficiently --</span>
+<span class="c">// either keep an index map yourself, or use the standard Dijkstra trick</span>
+<span class="c">// of pushing a duplicate and skipping stale entries on the way out.</span>
+
+<span class="c">// Across threads: PriorityBlockingQueue is unbounded (backpressure is</span>
+<span class="c">// your problem) and DelayQueue is the scheduler variant, releasing an</span>
+<span class="c">// element only once its delay has expired.</span></pre>
+    </section>
+
+    <section class="topic" id="trie">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Tries: when the key has structure worth sharing</h3>
+        <p class="lede">A hash map treats a key as an opaque blob to be digested. A trie treats it as a path, one edge per character, so that every key sharing a prefix shares the nodes for it. That buys three things a hash cannot offer at any price: prefix search, ordered iteration, and lookup time that depends on the key length rather than on how many keys there are.</p>
+      </div>
+
+<pre class="l2" data-lang="go"><span class="c">// trie.go — autocomplete, routing tables and dictionary lookups.</span>
+<span class="c">// A map per node keeps it simple; a [26]*Node array is faster and only</span>
+<span class="c">// works for a known alphabet.</span>
+
+type Trie struct {
+    kids map[rune]*Trie
+    term bool                                    <span class="c">// a word ends here</span>
+}
+
+func New() *Trie { return &amp;Trie{kids: map[rune]*Trie{}} }
+
+func (t *Trie) Insert(word string) {             <span class="c">// O(len(word))</span>
+    node := t
+    for _, r := range word {
+        next, ok := node.kids[r]
+        if !ok {
+            next = New()
+            node.kids[r] = next
+        }
+        node = next
+    }
+    node.term = true
+}
+
+func (t *Trie) node(prefix string) *Trie {
+    node := t
+    for _, r := range prefix {
+        next, ok := node.kids[r]
+        if !ok {
+            return nil
+        }
+        node = next
+    }
+    return node
+}
+
+<span class="c">// The operation a hash map cannot do: everything under a prefix, in</span>
+<span class="c">// sorted order, in time proportional to the OUTPUT rather than to the</span>
+<span class="c">// number of keys stored.</span>
+func (t *Trie) WithPrefix(prefix string, limit int) []string {
+    start := t.node(prefix)
+    if start == nil {
+        return nil
+    }
+    var out []string
+    var walk func(n *Trie, acc []rune)
+    walk = func(n *Trie, acc []rune) {
+        if len(out) &gt;= limit {
+            return
+        }
+        if n.term {
+            out = append(out, prefix+string(acc))
+        }
+        for _, r := range slices.Sorted(maps.Keys(n.kids)) {   <span class="c">// sorted order</span>
+            walk(n.kids[r], append(acc, r))
+        }
+    }
+    walk(start, nil)
+    return out
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># trie.py — a nested dict is a trie, and for most jobs that is enough.</span>
+END = object()                                   <span class="c"># a sentinel key meaning "word ends"</span>
+
+def build(words: list[str]) -&gt; dict:
+    root: dict = {}
+    for w in words:
+        node = root
+        for ch in w:
+            node = node.setdefault(ch, {})       <span class="c"># one line, one allocation</span>
+        node[END] = True
+    return root
+
+def starts_with(root: dict, prefix: str, limit: int = 10) -&gt; list[str]:
+    node = root
+    for ch in prefix:
+        node = node.get(ch)
+        if node is None:
+            return []
+    out: list[str] = []
+
+    def walk(n: dict, acc: str) -&gt; None:
+        if len(out) &gt;= limit:
+            return
+        if END in n:
+            out.append(prefix + acc)
+        for ch in sorted(k for k in n if k is not END):
+            walk(n[ch], acc + ch)
+
+    walk(node, "")
+    return out
+
+<span class="c"># When to use one, and when not to:</span>
+<span class="c">#   yes - autocomplete, longest-prefix routing, spell check, a word</span>
+<span class="c">#         list you query by prefix constantly</span>
+<span class="c">#   no  - "I have strings as keys". A dict is smaller and faster for</span>
+<span class="c">#         exact lookup; a trie costs a node per character and loses</span>
+<span class="c">#         badly on memory unless prefixes really are shared.</span>
+<span class="c">#</span>
+<span class="c"># For fixed dictionaries, pyahocorasick (Aho-Corasick) finds ALL of</span>
+<span class="c"># thousands of patterns in one pass over the text -- a trie plus failure</span>
+<span class="c"># links, and the right answer for keyword scanning.</span></pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Trie.java — a HashMap per node is the readable version; an array of</span>
+<span class="c">// 26 children is roughly twice as fast when the alphabet is fixed.</span>
+
+final class Trie {
+    private final Map&lt;Character, Trie&gt; kids = new TreeMap&lt;&gt;();   <span class="c">// sorted kids</span>
+    private boolean terminal;
+
+    void insert(String word) {                   <span class="c">// O(word.length())</span>
+        Trie node = this;
+        for (char c : word.toCharArray()) {
+            node = node.kids.computeIfAbsent(c, k -&gt; new Trie());
+        }
+        node.terminal = true;
+    }
+
+    private Trie descend(String prefix) {
+        Trie node = this;
+        for (char c : prefix.toCharArray()) {
+            node = node.kids.get(c);
+            if (node == null) return null;
+        }
+        return node;
+    }
+
+    List&lt;String&gt; withPrefix(String prefix, int limit) {
+        Trie start = descend(prefix);
+        List&lt;String&gt; out = new ArrayList&lt;&gt;();
+        if (start != null) collect(start, new StringBuilder(prefix), out, limit);
+        return out;
+    }
+
+    private static void collect(Trie n, StringBuilder acc, List&lt;String&gt; out, int limit) {
+        if (out.size() &gt;= limit) return;
+        if (n.terminal) out.add(acc.toString());
+        for (var e : n.kids.entrySet()) {        <span class="c">// TreeMap: sorted</span>
+            acc.append(e.getKey());
+            collect(e.getValue(), acc, out, limit);
+            acc.deleteCharAt(acc.length() - 1);  <span class="c">// backtrack, no copying</span>
+        }
+    }
+}
+
+<span class="c">// The StringBuilder-with-backtracking pattern above is worth stealing:</span>
+<span class="c">// it turns an O(depth) string copy at every node into an append and a</span>
+<span class="c">// delete. The same trick appears in every backtracking search.</span></pre>
+    </section>
+
+    <section class="topic" id="dsu">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Disjoint sets: forty lines that answer &ldquo;are these connected?&rdquo;</h3>
+        <p class="lede">Union-find maintains a partition of n elements under two operations: merge two groups, and ask which group something is in. With both of its optimisations it runs in near-constant amortised time &mdash; and it is the smallest piece of code on this page with a genuinely surprising complexity proof.</p>
+      </div>
+
+      <figure class="demo" data-demo="uf">
+        <div class="demo-head"><span class="demo-title">Twelve elements, twelve unions</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Turn path compression off and step through again, watching the &ldquo;tallest tree&rdquo; number.</b> Two optimisations do the work. <em>Union by size</em> always hangs the smaller tree under the larger root, which alone bounds the height at log n. <em>Path compression</em> re-points every node on a lookup path straight at the root, so the walk you just paid for makes all future walks shorter. Together they give an amortised cost of &alpha;(n), the inverse Ackermann function, which is below 5 for any n that fits in this universe &mdash; effectively constant, though provably not quite.</figcaption>
+      </figure>
+
+<pre class="l1" data-lang="go"><span class="c">// dsu.go — two int slices, twenty lines, and it is used by Kruskal's</span>
+<span class="c">// MST, connected components, image segmentation and cycle detection in</span>
+<span class="c">// undirected graphs.</span>
+
+type DSU struct {
+    parent []int
+    size   []int
+    groups int
+}
+
+func NewDSU(n int) *DSU {
+    d := &amp;DSU{parent: make([]int, n), size: make([]int, n), groups: n}
+    for i := range d.parent {
+        d.parent[i], d.size[i] = i, 1            <span class="c">// everyone is their own root</span>
+    }
+    return d
+}
+
+<span class="c">// Path halving: point every other node at its grandparent. One pass,</span>
+<span class="c">// no recursion, and asymptotically as good as full compression.</span>
+func (d *DSU) Find(x int) int {
+    for d.parent[x] != x {
+        d.parent[x] = d.parent[d.parent[x]]
+        x = d.parent[x]
+    }
+    return x
+}
+
+<span class="c">// Union by size. Returns false if they were already together, which is</span>
+<span class="c">// exactly the cycle test Kruskal needs.</span>
+func (d *DSU) Union(a, b int) bool {
+    ra, rb := d.Find(a), d.Find(b)
+    if ra == rb {
+        return false
+    }
+    if d.size[ra] &lt; d.size[rb] {
+        ra, rb = rb, ra                          <span class="c">// smaller hangs under larger</span>
+    }
+    d.parent[rb] = ra
+    d.size[ra] += d.size[rb]
+    d.groups--
+    return true
+}
+
+<span class="c">// Note what it cannot do: there is no Split. Union-find is one-way, so</span>
+<span class="c">// a problem with deletions needs a different structure -- or, commonly,</span>
+<span class="c">// processing the events in reverse so deletions become unions.</span></pre>
+
+<pre class="l1" data-lang="py"><span class="c"># dsu.py — the same twenty lines. The classic use is counting connected</span>
+<span class="c"># components in one pass over the edges, with no graph built at all.</span>
+
+class DSU:
+    def __init__(self, n: int) -&gt; None:
+        self.parent = list(range(n))
+        self.size = [1] * n
+        self.groups = n
+
+    def find(self, x: int) -&gt; int:
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]   <span class="c"># path halving</span>
+            x = self.parent[x]
+        return x
+
+    def union(self, a: int, b: int) -&gt; bool:
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return False                         <span class="c"># already connected -&gt; a cycle</span>
+        if self.size[ra] &lt; self.size[rb]:
+            ra, rb = rb, ra
+        self.parent[rb] = ra
+        self.size[ra] += self.size[rb]
+        self.groups -= 1
+        return True
+
+<span class="c"># Connected components of an undirected graph, without adjacency lists:</span>
+dsu = DSU(n)
+for a, b in edges:
+    dsu.union(a, b)
+print(dsu.groups, "components")
+
+<span class="c"># Recursive find() with full compression is prettier and will blow the</span>
+<span class="c"># stack on a long chain, which is exactly the input that makes chains.</span>
+<span class="c"># Use the loop.</span></pre>
+
+<pre class="l1" data-lang="java"><span class="c">// Dsu.java — int arrays, no objects, no boxing. This is one of the few</span>
+<span class="c">// places where the "write it yourself" answer is unambiguously right:</span>
+<span class="c">// the JDK has no union-find.</span>
+
+final class Dsu {
+    private final int[] parent;
+    private final int[] size;
+    private int groups;
+
+    Dsu(int n) {
+        parent = new int[n];
+        size = new int[n];
+        groups = n;
+        for (int i = 0; i &lt; n; i++) { parent[i] = i; size[i] = 1; }
+    }
+
+    int find(int x) {                            <span class="c">// iterative: no stack depth</span>
+        while (parent[x] != x) {
+            parent[x] = parent[parent[x]];       <span class="c">// path halving</span>
+            x = parent[x];
+        }
+        return x;
+    }
+
+    boolean union(int a, int b) {
+        int ra = find(a), rb = find(b);
+        if (ra == rb) return false;
+        if (size[ra] &lt; size[rb]) { int t = ra; ra = rb; rb = t; }
+        parent[rb] = ra;
+        size[ra] += size[rb];
+        groups--;
+        return true;
+    }
+
+    int groups() { return groups; }
+    boolean connected(int a, int b) { return find(a) == find(b); }
+}
+
+<span class="c">// Kruskal's minimum spanning tree is now four lines: sort the edges by</span>
+<span class="c">// weight, and keep each one whose union() returns true. The DSU is what</span>
+<span class="c">// makes "would this edge close a cycle?" an O(1) question.</span></pre>
+    </section>
+  </div>
+</section>

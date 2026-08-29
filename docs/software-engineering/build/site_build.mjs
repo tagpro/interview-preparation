@@ -1,4 +1,4 @@
-// Build the static site from the seven built pages.
+// Build the static site from the eight built pages.
 //
 // The pages are written as artifact *fragments*: no <!doctype>, no <html>, no
 // <head> -- the artifact host supplies those and puts the whole file in <body>.
@@ -38,6 +38,8 @@ const PAGES = [
     uuid: '5695328e-c427-4d93-b1d2-b7a3d48f675b' },
   { src: 'aws-deep-dive.html',        out: 'aws.html',         icon: '🧰' ,
     uuid: 'd8c052d4-750f-4967-bb0f-7d6a048681e6' },
+  { src: 'dsa.html',                  out: 'algorithms.html',  icon: '🧮',
+    uuid: 'de1c07a0-10a5-42a5-ac59-582c4a48cc19' },
 ];
 const BY_UUID = Object.fromEntries(PAGES.map(p => [p.uuid, p.out]));
 

@@ -1,0 +1,576 @@
+<section class="part" id="linear">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part two</span>
+      <h2>The linear structures</h2>
+      <p>Four structures carry the overwhelming majority of production code: the growable array, the linked list, the stack-or-queue, and the hash table. Everything later in this page is built out of them. What matters is not their interfaces &mdash; those you know &mdash; but what each one is doing to memory when you use it, and the one operation each is quietly bad at.</p>
+    </div>
+
+    <section class="topic" id="array">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>The growable array, and why appending is free</h3>
+        <p class="lede">A Go slice, a Python list and a Java <code>ArrayList</code> are the same idea: a fixed block of memory, a length, and a capacity. Appending past the capacity allocates a bigger block and copies. The reason that is not a disaster &mdash; the reason append is O(1) rather than O(n) &mdash; is one of the most useful arguments in the subject.</p>
+      </div>
+
+      <figure class="demo" data-demo="array">
+        <div class="demo-head"><span class="demo-title">Forty appends, four growth strategies</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Watch the &ldquo;copies per append&rdquo; number, not the capacity.</b> Doubling settles near 1 and stays there however long you run it: each element is copied once when it moves, then again when the array is twice as big, then at four times &mdash; a geometric series that sums to under 2n for n appends. Grow by a constant instead and the average climbs without bound, because the n-th append copies n elements: that is the difference between <span class="big g">O(1) amortised</span> and <span class="big b">O(n)</span> per operation, and it is decided entirely by whether the growth is multiplicative.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Operation</th><th>Cost</th><th>The reason, and the trap</th></tr></thead>
+          <tbody>
+            <tr><td>Index</td><td><span class="big g">O(1)</span></td><td>One multiply and one add. Nothing else in this page is this cheap.</td></tr>
+            <tr><td>Append</td><td><span class="big g">O(1)</span> amortised</td><td>The individual append that reallocates is O(n). If you have a tail-latency budget, preallocate.</td></tr>
+            <tr><td>Insert or delete at the front</td><td><span class="big b">O(n)</span></td><td>Every later element shifts. In a loop this is the classic accidental O(n&#178;) &mdash; use a deque, or append and reverse at the end.</td></tr>
+            <tr><td>Delete in the middle, order kept</td><td><span class="big b">O(n)</span></td><td>Same shift. If order does not matter, swap the last element into the hole: O(1).</td></tr>
+            <tr><td>Search, unsorted</td><td><span class="big b">O(n)</span></td><td>But with the best constant of any O(n) in existence, so it beats a hash set well past the size you would guess.</td></tr>
+            <tr><td>Search, sorted</td><td><span class="big g">O(log n)</span></td><td>Binary search. Keeping an array sorted costs O(n) per insert, which is only worth it when reads dominate heavily.</td></tr>
+            <tr><td>Grow past capacity</td><td><span class="big a">O(n)</span>, rarely</td><td>Go doubles under 256 elements then grows by roughly 1.25&times;; Java&rsquo;s <code>ArrayList</code> uses 1.5&times;; CPython uses about 1.125&times; plus a constant. All multiplicative, all amortised O(1).</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="langnote">Snippets in <b>Go</b>, <b>Python</b> and <b>Java</b> &mdash; switch in the bar, or press <b>g</b> / <b>p</b> / <b>j</b>.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// slice.go — a slice is a 24-byte header: pointer, length, capacity.</span>
+<span class="c">// Copying a slice copies the header, not the elements. This is the</span>
+<span class="c">// source of most Go slice surprises.</span>
+
+xs := make([]int, 0, 1024)                       <span class="c">// len 0, cap 1024: zero reallocations</span>
+for i := range 1024 {                            <span class="c">// for the next 1024 appends</span>
+    xs = append(xs, i)
+}
+
+<span class="c">// If you know the size, allocate it once. This is the single highest-</span>
+<span class="c">// value habit in Go performance work, and it is one argument.</span>
+out := make([]string, 0, len(in))                <span class="c">// not: var out []string</span>
+for _, v := range in {
+    out = append(out, transform(v))
+}
+
+<span class="c">// Deleting: O(n) if order matters, O(1) if it does not.</span>
+xs = slices.Delete(xs, i, i+1)                   <span class="c">// shifts the tail down</span>
+xs[i] = xs[len(xs)-1]; xs = xs[:len(xs)-1]       <span class="c">// swap-remove, order lost</span>
+
+<span class="c">// The trap: append may or may not share the backing array. Whether the</span>
+<span class="c">// caller sees your writes depends on capacity, which is not in the type.</span>
+func bad(xs []int) { xs = append(xs, 1) }        <span class="c">// caller may or may not see it</span>
+
+<span class="c">// A three-index slice caps the capacity, so append is forced to copy</span>
+<span class="c">// and can never scribble on the parent's tail.</span>
+head := xs[0:5:5]                                <span class="c">// len 5, cap 5</span>
+
+<span class="c">// Sub-slicing keeps the WHOLE backing array alive. Holding one small</span>
+<span class="c">// slice of a 100 MB read is a 100 MB leak; slices.Clone breaks it.</span>
+small := slices.Clone(big[:10])</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># list.py — a CPython list is a growable array of pointers. Every</span>
+<span class="c"># element costs 8 bytes in the array plus the object it points at.</span>
+
+xs = [0] * 1024                                  <span class="c"># preallocated, one allocation</span>
+xs = list(range(1024))                           <span class="c"># also one, and it knows the size</span>
+
+<span class="c"># A comprehension beats append-in-a-loop: same complexity, better</span>
+<span class="c"># constant, because it skips the method lookup and call per item.</span>
+out = [transform(v) for v in src]                <span class="c"># preferred</span>
+
+<span class="c"># O(n) operations that look O(1):</span>
+xs.insert(0, v)                                  <span class="c"># shifts every element</span>
+xs.pop(0)                                        <span class="c"># same</span>
+del xs[3]                                        <span class="c"># same</span>
+v in xs                                          <span class="c"># linear scan</span>
+
+<span class="c"># Building a queue out of a list is the most common O(n^2) in Python.</span>
+<span class="c"># collections.deque is a doubly linked list of 64-slot blocks, so both</span>
+<span class="c"># ends are O(1) and it still has decent locality.</span>
+from collections import deque
+q = deque(maxlen=1000)                           <span class="c"># and it can be a ring buffer</span>
+q.append(v); q.popleft()                         <span class="c"># both O(1)</span>
+
+<span class="c"># The mutable-default and shared-reference traps, which are the same bug:</span>
+grid = [[0] * 3] * 3                             <span class="c"># three references to ONE row</span>
+grid[0][0] = 1                                   <span class="c"># -&gt; [[1,0,0],[1,0,0],[1,0,0]]</span>
+grid = [[0] * 3 for _ in range(3)]               <span class="c"># three distinct rows</span>
+
+<span class="c"># Slicing copies. xs[:] is an O(n) copy, not a view -- which is exactly</span>
+<span class="c"># what you want for safe iteration while mutating, and exactly what you</span>
+<span class="c"># do not want in a loop.</span>
+for v in xs[:]:                                  <span class="c"># iterate a snapshot</span>
+    if drop(v):
+        xs.remove(v)                             <span class="c"># O(n) each -- see the note below</span></pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Lists.java — ArrayList wraps an Object[]. Growth is 1.5x, and the</span>
+<span class="c">// grow-copy uses Arrays.copyOf, which is an intrinsic (a memcpy).</span>
+
+List&lt;String&gt; out = new ArrayList&lt;&gt;(in.size());   <span class="c">// size it if you know it</span>
+for (String v : in) out.add(transform(v));
+
+<span class="c">// O(n) operations on an ArrayList, all of them System.arraycopy:</span>
+list.add(0, v);                                  <span class="c">// shifts everything right</span>
+list.remove(0);                                  <span class="c">// shifts everything left</span>
+list.contains(v);                                <span class="c">// linear scan with equals()</span>
+
+<span class="c">// Removing inside an enhanced for loop throws ConcurrentModification-</span>
+<span class="c">// Exception. removeIf does it in one O(n) pass, which is both correct</span>
+<span class="c">// and asymptotically better than remove() in a loop.</span>
+list.removeIf(v -&gt; drop(v));
+
+<span class="c">// The three "lists" that are not what you want:</span>
+<span class="c">//   Vector      - synchronised on every call, legacy</span>
+<span class="c">//   LinkedList  - O(1) at the ends, but terrible locality; use ArrayDeque</span>
+<span class="c">//   Arrays.asList(a) - a fixed-size VIEW of the array; add() throws</span>
+
+<span class="c">// Since Java 9, List.of is immutable, rejects nulls, and is compact.</span>
+<span class="c">// Since 10, copyOf snapshots. Prefer both to hand-rolled defensive copies.</span>
+List&lt;String&gt; fixed = List.of("a", "b", "c");
+List&lt;String&gt; snapshot = List.copyOf(mutable);
+
+<span class="c">// And for hot numeric paths, none of the above: int[] has no boxing,</span>
+<span class="c">// no headers, and sixteen elements per cache line.</span>
+int[] counts = new int[n];</pre>
+
+      <div class="note">
+        <h4>The remove-in-a-loop quadratic</h4>
+        <p>Deleting k elements one at a time from an array-backed list costs O(nk), because each delete shifts the tail. Deleting them in a single filtering pass costs O(n). Go has <code>slices.DeleteFunc</code>, Python has a comprehension, Java has <code>removeIf</code>; all three do the same thing, which is to write the survivors forwards over the original in one sweep. Whenever you find yourself removing inside a loop, you are choosing an algorithm, and it is the worse one.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="list">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Linked lists: rarely the answer, always the exam question</h3>
+        <p class="lede">A linked list buys O(1) insertion and removal <em>at a position you already hold</em>, and pays with a pointer per element, an allocation per element, and a cache miss per hop. That trade almost never wins in application code. It wins decisively in three specific places, and those are worth knowing precisely.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">Where it wins</span><span class="b"><b>Intrusive lists in allocators and kernels.</b> The node is part of the object, so there is no extra allocation, and O(1) unlink from a pointer you already have is exactly the operation needed.</span></div>
+        <div><span class="h">Where it wins</span><span class="b"><b>LRU caches.</b> A hash map to nodes plus a doubly linked list gives O(1) lookup and O(1) move-to-front. No array can do the second one.</span></div>
+        <div><span class="h">Where it wins</span><span class="b"><b>Lock-free queues.</b> A single atomic pointer swap publishes a node. Growable arrays cannot be resized without coordination.</span></div>
+        <div><span class="h">Where it loses</span><span class="b"><b>Everywhere else.</b> Iteration, search, sorting, memory use and cache behaviour are all worse, and &ldquo;O(1) insert&rdquo; is a lie if finding the position is O(n).</span></div>
+      </div>
+
+<pre class="l2" data-lang="go"><span class="c">// list.go — the two techniques worth memorising, both of them pointer</span>
+<span class="c">// discipline rather than cleverness.</span>
+
+type Node struct {
+    Val  int
+    Next *Node
+}
+
+<span class="c">// 1. Reverse in place. Three pointers, one pass, no allocation.</span>
+func Reverse(head *Node) *Node {
+    var prev *Node
+    for cur := head; cur != nil; {
+        next := cur.Next                         <span class="c">// remember before clobbering</span>
+        cur.Next = prev                          <span class="c">// flip</span>
+        prev, cur = cur, next                    <span class="c">// advance both</span>
+    }
+    return prev                                  <span class="c">// prev is the old tail</span>
+}
+
+<span class="c">// 2. Floyd's cycle detection. Fast moves two, slow moves one; if there</span>
+<span class="c">// is a loop they must meet inside it, in O(n) time and O(1) space.</span>
+<span class="c">// Restarting one pointer at the head then advancing both one step at a</span>
+<span class="c">// time lands them on the entry to the cycle -- that part is not obvious,</span>
+<span class="c">// and it falls out of the arithmetic of where they met.</span>
+func CycleStart(head *Node) *Node {
+    slow, fast := head, head
+    for fast != nil &amp;&amp; fast.Next != nil {
+        slow, fast = slow.Next, fast.Next.Next
+        if slow == fast {                        <span class="c">// a cycle exists</span>
+            for p := head; p != slow; p, slow = p.Next, slow.Next {
+            }
+            return slow                          <span class="c">// the node the loop enters at</span>
+        }
+    }
+    return nil
+}
+
+<span class="c">// A dummy head node removes every "is this the first element" branch</span>
+<span class="c">// from insert and delete. Use one; the code halves in size.</span></pre>
+
+<pre class="l2" data-lang="py"><span class="c"># linked.py — you will almost never write one of these in Python, but</span>
+<span class="c"># the two techniques generalise to every sequence you cannot index.</span>
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class Node:
+    val: int
+    next: Optional["Node"] = None
+
+def reverse(head: Optional[Node]) -&gt; Optional[Node]:
+    prev = None
+    while head is not None:
+        head.next, prev, head = prev, head, head.next   <span class="c"># one line, one pass</span>
+    return prev
+
+def cycle_start(head: Optional[Node]) -&gt; Optional[Node]:
+    slow = fast = head
+    while fast is not None and fast.next is not None:
+        slow, fast = slow.next, fast.next.next
+        if slow is fast:                         <span class="c"># identity, not equality</span>
+            slow = head
+            while slow is not fast:
+                slow, fast = slow.next, fast.next
+            return slow
+    return None
+
+<span class="c"># The real-world version of this structure is an LRU cache, and the</span>
+<span class="c"># standard library already has one -- built on exactly a dict plus a</span>
+<span class="c"># circular doubly linked list, in C.</span>
+from functools import lru_cache
+
+@lru_cache(maxsize=1024)                         <span class="c"># O(1) get, O(1) evict</span>
+def expensive(key: str) -&gt; int:
+    ...
+
+<span class="c"># functools.cache is lru_cache(maxsize=None): unbounded, so it is a</span>
+<span class="c"># memory leak with a friendly name unless the key space is finite.</span></pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Lists2.java — LinkedHashMap gives you the LRU cache in six lines,</span>
+<span class="c">// because it maintains exactly the hash-map-plus-linked-list structure</span>
+<span class="c">// you would otherwise build by hand.</span>
+
+class LruCache&lt;K, V&gt; extends LinkedHashMap&lt;K, V&gt; {
+    private final int cap;
+
+    LruCache(int cap) {
+        super(16, 0.75f, /* accessOrder = */ true);   <span class="c">// the whole trick</span>
+        this.cap = cap;
+    }
+
+    @Override protected boolean removeEldestEntry(Map.Entry&lt;K, V&gt; eldest) {
+        return size() &gt; cap;                     <span class="c">// evict on the way out of put()</span>
+    }
+}
+
+<span class="c">// accessOrder=true moves an entry to the end of the list on every get,</span>
+<span class="c">// which is the O(1) move-to-front an array cannot do. With it false</span>
+<span class="c">// (the default) you get insertion order, which is what you want when</span>
+<span class="c">// the map is really an ordered record rather than a cache.</span>
+
+<span class="c">// java.util.LinkedList exists and you should almost never use it. It is</span>
+<span class="c">// a doubly linked list with an object header and two pointers per</span>
+<span class="c">// element, and its get(i) is O(n) despite implementing List. For a</span>
+<span class="c">// queue or a stack use ArrayDeque, which is a growable ring buffer:</span>
+Deque&lt;Task&gt; queue = new ArrayDeque&lt;&gt;();
+queue.addLast(t);                                <span class="c">// enqueue</span>
+Task next = queue.pollFirst();                   <span class="c">// dequeue, null if empty</span></pre>
+    </section>
+
+    <section class="topic" id="stackq">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Stacks, queues, deques and the ring buffer underneath</h3>
+        <p class="lede">A stack is last-in-first-out, a queue is first-in-first-out, and a deque is both. All three are interfaces, not structures: the good implementations of all of them are arrays. What makes a queue an array rather than a list is one idea &mdash; move the head index instead of moving the elements.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 236" role="img" aria-label="A ring buffer: a fixed array with a head and tail index that wrap around, shown before and after four operations, next to the two ways a stack is used in practice.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">A QUEUE IS AN ARRAY WITH TWO MOVING INDICES</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="60" height="30" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="80" y="34" width="60" height="30" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="140" y="34" width="60" height="30" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="200" y="34" width="60" height="30" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="260" y="34" width="60" height="30" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="320" y="34" width="60" height="30" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="35" y="54" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity="0.4">&middot;</text>
+            <text x="95" y="54" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">c</text>
+            <text x="155" y="54" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">d</text>
+            <text x="215" y="54" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">e</text>
+            <text x="275" y="54" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity="0.4">&middot;</text>
+            <text x="335" y="54" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity="0.4">&middot;</text>
+            <text x="90" y="80" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">head = 1</text>
+            <text x="262" y="80" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">tail = 4</text>
+            <path d="M104 70 L104 64" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M284 70 L284 64" stroke="currentColor" stroke-width="1.2"/>
+          </g>
+
+          <text x="400" y="46" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Dequeue does not shift anything. It reads at <tspan font-family="IBM Plex Mono, monospace">head</tspan>, then</text>
+          <text x="400" y="62" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">sets <tspan font-family="IBM Plex Mono, monospace">head = (head + 1) % cap</tspan>. Enqueue writes at</text>
+          <text x="400" y="78" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor"><tspan font-family="IBM Plex Mono, monospace">tail</tspan> and advances it the same way &mdash; both O(1), both</text>
+          <text x="400" y="94" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">contiguous, no allocation until the ring is full.</text>
+
+          <line x1="20" y1="112" x2="880" y2="112" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="132" font-family="Bricolage Grotesque, sans-serif" font-size="13" font-weight="700" fill="currentColor">What each one is actually for</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="146" width="270" height="76" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="32" y="164" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">STACK &middot; LIFO</text>
+            <text x="32" y="182" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">Undo, matching brackets, DFS,</text>
+            <text x="32" y="197" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">expression evaluation, and the</text>
+            <text x="32" y="212" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">call stack itself.</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="306" y="146" width="270" height="76" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="318" y="164" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">QUEUE &middot; FIFO</text>
+            <text x="318" y="182" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">BFS, work distribution, request</text>
+            <text x="318" y="197" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">buffers, and anything where</text>
+            <text x="318" y="212" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">fairness matters.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="592" y="146" width="288" height="76" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="604" y="164" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">DEQUE &middot; BOTH ENDS</text>
+            <text x="604" y="182" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">Sliding-window maxima, work</text>
+            <text x="604" y="197" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">stealing, bounded histories that</text>
+            <text x="604" y="212" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">drop from the far end.</text>
+          </g>
+        </svg>
+        <figcaption><b>The monotonic deque is the one of these three that is a genuine algorithm rather than a container.</b> To find the maximum of every window of size k in an array, keep a deque of <em>indices</em> whose values are decreasing: push each new index after popping every smaller value off the back, and drop the front when it falls out of the window. Each index is pushed once and popped once, so the whole sweep is O(n) rather than the O(nk) of re-scanning each window.</figcaption>
+      </figure>
+
+<pre class="l1" data-lang="go"><span class="c">// deque.go — Go has no deque type. A slice is a fine stack; for a queue</span>
+<span class="c">// with bounded memory, write the ring buffer, it is thirty lines.</span>
+
+<span class="c">// Stack: a slice, and that is the whole implementation.</span>
+stack = append(stack, v)                         <span class="c">// push</span>
+v, stack = stack[len(stack)-1], stack[:len(stack)-1]  <span class="c">// pop</span>
+
+<span class="c">// Queue: the naive version leaks. `q = q[1:]` advances the pointer but</span>
+<span class="c">// keeps the whole backing array alive, so a long-running queue grows</span>
+<span class="c">// without bound even at constant depth.</span>
+type Ring[T any] struct {
+    buf        []T
+    head, tail int
+    n          int
+}
+
+func NewRing[T any](cap int) *Ring[T] { return &amp;Ring[T]{buf: make([]T, cap)} }
+
+func (r *Ring[T]) Push(v T) bool {
+    if r.n == len(r.buf) {
+        return false                             <span class="c">// full: caller decides — block,</span>
+    }                                            <span class="c">// drop, or grow</span>
+    r.buf[r.tail] = v
+    r.tail = (r.tail + 1) % len(r.buf)
+    r.n++
+    return true
+}
+
+func (r *Ring[T]) Pop() (T, bool) {
+    var zero T
+    if r.n == 0 {
+        return zero, false
+    }
+    v := r.buf[r.head]
+    r.buf[r.head] = zero                         <span class="c">// release the reference, or the</span>
+    r.head = (r.head + 1) % len(r.buf)           <span class="c">// GC keeps the popped object</span>
+    r.n--
+    return v, true
+}
+
+<span class="c">// In practice a buffered channel is Go's ring buffer, with the locking</span>
+<span class="c">// already done: make(chan T, 1024).</span></pre>
+
+<pre class="l1" data-lang="py"><span class="c"># deque.py — collections.deque is O(1) at both ends and written in C.</span>
+from collections import deque
+
+stack = []                                       <span class="c"># a list IS the right stack</span>
+stack.append(v); v = stack.pop()                 <span class="c"># both O(1) amortised</span>
+
+q = deque()                                      <span class="c"># the right queue</span>
+q.append(v); v = q.popleft()                     <span class="c"># both O(1)</span>
+
+<span class="c"># maxlen turns it into a ring buffer that silently drops from the far</span>
+<span class="c"># end -- exactly what you want for "the last 1000 log lines".</span>
+recent = deque(maxlen=1000)
+
+def window_max(nums: list[int], k: int) -&gt; list[int]:
+    """Maximum of every window of size k, in O(n) total.
+
+    The deque holds *indices* whose values are strictly decreasing, so
+    the front is always the current maximum. Each index enters once and
+    leaves once, which is where the linear bound comes from.
+    """
+    dq: deque[int] = deque()
+    out = []
+    for i, v in enumerate(nums):
+        while dq and dq[0] &lt;= i - k:             <span class="c"># front fell out of the window</span>
+            dq.popleft()
+        while dq and nums[dq[-1]] &lt;= v:          <span class="c"># everything smaller is dead:</span>
+            dq.pop()                             <span class="c"># v is newer AND bigger</span>
+        dq.append(i)
+        if i &gt;= k - 1:
+            out.append(nums[dq[0]])
+    return out
+
+<span class="c"># A heap would also work and would be O(n log k). The deque is O(n),</span>
+<span class="c"># because it never reconsiders an element it has thrown away.</span></pre>
+
+<pre class="l1" data-lang="java"><span class="c">// Deques.java — ArrayDeque is the one to reach for: a growable ring</span>
+<span class="c">// buffer, no synchronisation, faster than LinkedList and than Stack.</span>
+
+Deque&lt;Integer&gt; stack = new ArrayDeque&lt;&gt;();
+stack.push(v);                                   <span class="c">// addFirst</span>
+int top = stack.pop();                           <span class="c">// removeFirst, throws if empty</span>
+
+Deque&lt;Task&gt; queue = new ArrayDeque&lt;&gt;();
+queue.offer(t);                                  <span class="c">// addLast, false if capacity-bound</span>
+Task next = queue.poll();                        <span class="c">// removeFirst, null if empty</span>
+
+<span class="c">// Learn the pairs: add/remove/element throw on failure, offer/poll/peek</span>
+<span class="c">// return a sentinel. Mixing them is how a queue ends up throwing</span>
+<span class="c">// NoSuchElementException in production at 3 a.m.</span>
+
+int[] windowMax(int[] nums, int k) {             <span class="c">// O(n), monotonic deque</span>
+    int[] out = new int[nums.length - k + 1];
+    Deque&lt;Integer&gt; dq = new ArrayDeque&lt;&gt;();      <span class="c">// holds indices, values decreasing</span>
+    for (int i = 0; i &lt; nums.length; i++) {
+        while (!dq.isEmpty() &amp;&amp; dq.peekFirst() &lt;= i - k) dq.pollFirst();
+        while (!dq.isEmpty() &amp;&amp; nums[dq.peekLast()] &lt;= nums[i]) dq.pollLast();
+        dq.addLast(i);
+        if (i &gt;= k - 1) out[i - k + 1] = nums[dq.peekFirst()];
+    }
+    return out;
+}
+
+<span class="c">// For producer/consumer across threads, none of the above: use</span>
+<span class="c">// ArrayBlockingQueue (bounded, so it applies backpressure) or</span>
+<span class="c">// LinkedBlockingQueue. An unbounded queue in front of a slow consumer</span>
+<span class="c">// is an OutOfMemoryError with extra steps.</span></pre>
+    </section>
+
+    <section class="topic" id="hashmap">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Hash tables: O(1) with three asterisks</h3>
+        <p class="lede">A hash table turns a key into an array index and looks there. That is the entire idea, and it is genuinely close to O(1) &mdash; conditional on the hash spreading keys evenly, on the load factor staying low, and on nobody choosing your keys adversarially. Each of those three conditions has failed in production somewhere, expensively.</p>
+      </div>
+
+      <figure class="demo" data-demo="hash">
+        <div class="demo-head"><span class="demo-title">Sixteen keys, eight buckets, two hash functions</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Switch to &ldquo;hash = length of key&rdquo; and step through again.</b> Nothing about the table changed &mdash; same buckets, same resize rule, same amortised analysis &mdash; but every key now lands in one of four buckets and the lookup has quietly become a linear scan. This is not a hypothetical: it is what a hash function that ignores most of its input does, and it is what an attacker constructs deliberately when the function is unseeded. Java&rsquo;s <code>HashMap</code> answers by turning a chain of eight or more into a red-black tree, capping the damage at O(log n); Go and Python answer by seeding the hash randomly per process, so the attacker cannot predict the buckets.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>The asterisk</th><th>What goes wrong</th><th>What the runtimes do about it</th></tr></thead>
+          <tbody>
+            <tr><td>The hash must spread</td><td>A weak hash clusters keys into a few buckets and lookups degrade to O(n)</td><td>Go uses a seeded hash with hardware AES where available; Python uses SipHash for strings and bytes; Java relies on your <code>hashCode</code> and only spreads its high bits into the low ones.</td></tr>
+            <tr><td>The load factor must stay low</td><td>A nearly full table collides constantly whatever the hash</td><td>Resize at a threshold &mdash; Java at 0.75, Go at 6.5 entries per bucket group, Python at 2/3 &mdash; then rehash everything, which is the one O(n) insert.</td></tr>
+            <tr><td>Keys must not be chosen by an attacker</td><td>Hash flooding: a few thousand colliding keys turn one request into seconds of CPU</td><td>Per-process random seeds in Go and Python. Java has no seed, which is why <code>HashMap</code> treeifies instead.</td></tr>
+            <tr><td>Keys must be immutable</td><td>Mutating a key after insertion changes its hash; the entry becomes unreachable and un-removable</td><td>Nothing. Python enforces hashability but not immutability of custom objects; Go rejects unhashable types at compile time; Java trusts you.</td></tr>
+            <tr><td>Iteration order is not insertion order</td><td>Code that accidentally depends on order breaks on a resize, a rebuild or a new version</td><td>Go randomises iteration deliberately, to break that dependency early. Python dicts have kept insertion order since 3.7 and it is now guaranteed. Java&rsquo;s <code>HashMap</code> makes no promise; <code>LinkedHashMap</code> does.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+<pre class="l2" data-lang="go"><span class="c">// maps.go — Go 1.24 replaced the old bucketed map with Swiss tables:</span>
+<span class="c">// open addressing, SIMD probing of 8 slots at a time, better locality.</span>
+<span class="c">// The semantics did not change; the constant did.</span>
+
+counts := make(map[string]int, len(words))       <span class="c">// size the hint if you know it</span>
+for _, w := range words {
+    counts[w]++                                  <span class="c">// zero value: no "if absent" branch</span>
+}
+
+<span class="c">// The comma-ok form is the only way to tell "absent" from "present and</span>
+<span class="c">// zero". If that distinction matters, you must use it.</span>
+if v, ok := counts[w]; ok {
+    use(v)
+}
+
+<span class="c">// A set is a map to the empty struct, which occupies no space at all.</span>
+seen := make(map[string]struct{}, n)
+seen[w] = struct{}{}
+_, dup := seen[w]
+
+<span class="c">// You cannot take the address of a map element, because a resize moves</span>
+<span class="c">// it. Store pointers if you need to mutate in place.</span>
+<span class="c">//   m[k].field = v          // compile error for a struct value</span>
+type Row struct{ Hits int }
+m := map[string]*Row{}
+m[k] = &amp;Row{}; m[k].Hits++                       <span class="c">// fine: the pointer is stable</span>
+
+<span class="c">// Iteration order is randomised on purpose. Sort the keys when you need</span>
+<span class="c">// determinism -- in tests, in output, in anything hashed downstream.</span>
+for _, k := range slices.Sorted(maps.Keys(counts)) {
+    fmt.Println(k, counts[k])
+}
+
+<span class="c">// Maps never shrink. Deleting every key frees the entries but keeps the</span>
+<span class="c">// buckets; a map that peaked at ten million holds that memory until it</span>
+<span class="c">// is replaced with a fresh one.</span></pre>
+
+<pre class="l2" data-lang="py"><span class="c"># dicts.py — a CPython dict is a compact index array plus a dense entry</span>
+<span class="c"># array, which is why it preserves insertion order essentially for free.</span>
+from collections import Counter, defaultdict
+
+counts = Counter(words)                          <span class="c"># one pass, C speed</span>
+counts.most_common(10)                           <span class="c"># heapq under the hood, O(n log k)</span>
+
+<span class="c"># defaultdict removes the "if key not in d" branch. The factory is</span>
+<span class="c"># called on a MISSING KEY LOOKUP, so a plain read inserts:</span>
+groups = defaultdict(list)
+for item in items:
+    groups[item.kind].append(item)               <span class="c"># no setdefault dance</span>
+_ = groups["never-seen"]                         <span class="c"># this just created an entry</span>
+
+<span class="c"># setdefault is the non-mutating-on-read alternative, at the cost of</span>
+<span class="c"># building the default every call.</span>
+groups.setdefault(k, []).append(v)
+
+<span class="c"># Sets are dicts without values, and the set algebra is the reason to</span>
+<span class="c"># reach for them: all of these are O(len of the smaller side).</span>
+new = incoming - known                           <span class="c"># difference</span>
+both = incoming &amp; known                          <span class="c"># intersection</span>
+
+<span class="c"># The hashability rule, which is really an immutability rule:</span>
+{[1, 2]: "x"}                                    <span class="c"># TypeError: unhashable type 'list'</span>
+{(1, 2): "x"}                                    <span class="c"># fine -- tuples are immutable</span>
+
+<span class="c"># A dataclass is unhashable once it is mutable, and that is deliberate:</span>
+<span class="c">#   @dataclass(frozen=True)  -&gt; hashable, safe as a key</span>
+<span class="c">#   @dataclass               -&gt; eq=True sets __hash__ = None</span>
+
+<span class="c"># str and bytes hashes are randomised per process (PYTHONHASHSEED), so</span>
+<span class="c"># never persist a hash() value or expect it to match across runs.</span></pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Maps.java — HashMap is an array of bins; a bin is a linked list until</span>
+<span class="c">// it reaches 8 entries in a table of at least 64, at which point it</span>
+<span class="c">// becomes a red-black tree. That is the collision insurance policy.</span>
+
+Map&lt;String, Integer&gt; counts = new HashMap&lt;&gt;();
+for (String w : words) counts.merge(w, 1, Integer::sum);   <span class="c">// the idiom</span>
+
+<span class="c">// computeIfAbsent for grouping; the value is built once, on first use.</span>
+Map&lt;Kind, List&lt;Item&gt;&gt; groups = new HashMap&lt;&gt;();
+for (Item it : items) groups.computeIfAbsent(it.kind(), k -&gt; new ArrayList&lt;&gt;()).add(it);
+
+<span class="c">// getOrDefault does NOT insert; get() returning null is ambiguous when</span>
+<span class="c">// null is a legal value, which is one reason not to store nulls.</span>
+int n = counts.getOrDefault(w, 0);
+
+<span class="c">// THE contract: equals and hashCode must agree, and both must be stable</span>
+<span class="c">// for as long as the object is a key. A record gives you both, derived</span>
+<span class="c">// from the components, and is immutable -- so records are the correct</span>
+<span class="c">// default for map keys.</span>
+record CacheKey(String tenant, long id) {}       <span class="c">// equals + hashCode for free</span>
+
+<span class="c">// Mutating a key after insertion loses the entry: it hashes to a</span>
+<span class="c">// different bin, so get() misses and remove() cannot find it either.</span>
+<span class="c">// The entry is still there, holding memory, forever.</span>
+
+<span class="c">// Ordering, when you need it:</span>
+<span class="c">//   LinkedHashMap - insertion (or access) order, O(1) like HashMap</span>
+<span class="c">//   TreeMap       - sorted by key, O(log n), and gives you range queries</span>
+<span class="c">//   ConcurrentHashMap - the one to use across threads; NOT synchronized-</span>
+<span class="c">//                       Map, which locks the whole table on every call</span></pre>
+
+      <div class="note warn">
+        <h4>&ldquo;It is O(1)&rdquo; is a claim about the hash, not about the table</h4>
+        <p>Every guarantee in this section is inherited from the assumption that keys spread evenly across buckets. When you write <code>hashCode</code> by hand, use every field that <code>equals</code> uses and no field that it does not &mdash; the two must agree or the map breaks outright. When your key is a composite of a low-cardinality tenant and a high-cardinality id, make sure the id reaches the low bits of the hash. And when the keys arrive from outside your system, know which of your runtimes seeds its hash: Go and Python do, Java does not.</p>
+      </div>
+    </section>
+  </div>
+</section>

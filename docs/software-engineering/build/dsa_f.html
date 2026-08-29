@@ -1,0 +1,472 @@
+<section class="part" id="dynamic">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part six</span>
+      <h2>Recursion and dynamic programming</h2>
+      <p>Dynamic programming has a reputation for being hard that it does not deserve. It is one idea &mdash; a recursive definition whose subproblems repeat, computed once each instead of once per occurrence &mdash; and the difficulty is never the technique. It is finding the recurrence, and that is a matter of naming the state precisely enough that the answer for a state depends only on smaller states.</p>
+    </div>
+
+    <section class="topic" id="recursion">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>From exponential recursion to a table, in three steps</h3>
+        <p class="lede">Every dynamic program starts as an honest recursive definition that is unusably slow, because it recomputes the same subproblem an exponential number of times. Memoising it is a mechanical change that fixes the complexity without touching the logic. Turning it into a loop is a second, also mechanical, change that removes the stack.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 224" role="img" aria-label="The recursion tree for the naive Fibonacci computation, showing fib(3) computed three times and fib(2) five times, next to the memoised version where each value is computed once.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">FIB(6) WITHOUT MEMOISATION &mdash; 25 CALLS FOR 7 DISTINCT VALUES</text>
+          <g class="svg-l3">
+            <text x="30" y="46" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">f(6)</text>
+            <text x="80" y="66" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">f(5)</text>
+            <text x="130" y="86" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">f(4)</text>
+            <text x="180" y="106" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">f(3)</text>
+            <text x="230" y="126" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">f(2)</text>
+            <text x="230" y="146" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity="0.55">f(1)</text>
+            <text x="180" y="166" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">f(2)</text>
+            <text x="130" y="186" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">f(3)</text>
+            <text x="80" y="206" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">f(4)</text>
+            <path d="M42 50 L78 60 M42 50 L78 200 M92 70 L128 80 M92 70 L128 180 M142 90 L178 100 M142 90 L178 160 M192 110 L228 120 M192 110 L228 140" stroke="currentColor" stroke-width="1.1" opacity="0.55" fill="none"/>
+            <rect x="126" y="76" width="34" height="14" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <rect x="126" y="176" width="34" height="14" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="176" y="188" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor">identical subtree, computed twice</text>
+          </g>
+
+          <line x1="420" y1="30" x2="420" y2="214" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+
+          <text x="450" y="46" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The tree has <tspan font-weight="600">2&#8319;</tspan> nodes and only <tspan font-weight="600">n</tspan> distinct values in it. A cache</text>
+          <text x="450" y="62" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">keyed on the argument turns every repeated subtree into one</text>
+          <text x="450" y="78" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">lookup, and the algorithm becomes linear. Nothing about the</text>
+          <text x="450" y="94" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">recursive definition changed.</text>
+
+          <g class="svg-l1">
+            <rect x="450" y="112" width="410" height="88" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="462" y="132" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor">THE THREE STEPS, IN ORDER</text>
+            <text x="462" y="152" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">1 &nbsp;Write the honest recursion. Get it right, ignore the cost.</text>
+            <text x="462" y="170" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">2 &nbsp;Add a cache keyed on the arguments. Now it is O(states).</text>
+            <text x="462" y="188" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">3 &nbsp;If the stack or the constant matters, fill a table bottom-up.</text>
+          </g>
+        </svg>
+        <figcaption><b>Step two is where the complexity changes, and step three usually is not worth taking.</b> Memoised recursion computes only the states it actually needs, which on a sparse state space is far fewer than the table has; the bottom-up version computes all of them but has no call overhead and no stack limit. Write the recursion first in every case &mdash; the table is an optimisation of a correct program, and deriving it directly is how people end up with an off-by-one they cannot find.</figcaption>
+      </figure>
+
+      <p class="langnote">Snippets in <b>Go</b>, <b>Python</b> and <b>Java</b> &mdash; switch in the bar, or press <b>g</b> / <b>p</b> / <b>j</b>.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// dp.go — Go has no memoisation decorator, so the cache is explicit.</span>
+<span class="c">// That is not a loss: it makes the state space visible, which is the</span>
+<span class="c">// thing you are supposed to be thinking about.</span>
+
+<span class="c">// Step 1: the honest recursion. O(2^n), and correct.</span>
+func coinsNaive(amount int, coins []int) int {
+    if amount == 0 {
+        return 0
+    }
+    best := math.MaxInt
+    for _, c := range coins {
+        if c &lt;= amount {
+            if sub := coinsNaive(amount-c, coins); sub != math.MaxInt {
+                best = min(best, sub+1)
+            }
+        }
+    }
+    return best
+}
+
+<span class="c">// Step 2: memoise. The state is a single int, so the cache is a slice.</span>
+<span class="c">// O(amount * len(coins)).</span>
+func coinsMemo(amount int, coins []int) int {
+    memo := make([]int, amount+1)
+    for i := range memo {
+        memo[i] = -1                             <span class="c">// -1 = not computed yet</span>
+    }
+    var solve func(int) int
+    solve = func(a int) int {
+        if a == 0 {
+            return 0
+        }
+        if memo[a] != -1 {
+            return memo[a]
+        }
+        best := math.MaxInt
+        for _, c := range coins {
+            if c &lt;= a {
+                if sub := solve(a - c); sub != math.MaxInt {
+                    best = min(best, sub+1)
+                }
+            }
+        }
+        memo[a] = best
+        return best
+    }
+    return solve(amount)
+}
+
+<span class="c">// Step 3: bottom-up. Same complexity, no recursion, no stack, and the</span>
+<span class="c">// loop order IS the dependency order -- every a-c is smaller than a.</span>
+func coins(amount int, cs []int) int {
+    dp := make([]int, amount+1)
+    for a := 1; a &lt;= amount; a++ {
+        dp[a] = math.MaxInt
+        for _, c := range cs {
+            if c &lt;= a &amp;&amp; dp[a-c] != math.MaxInt {
+                dp[a] = min(dp[a], dp[a-c]+1)
+            }
+        }
+    }
+    return dp[amount]
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># dp.py — in Python step 2 is one line, which makes it the fastest</span>
+<span class="c"># language to explore a recurrence in.</span>
+from functools import cache
+
+<span class="c"># Step 1 and 2 together. The decorator IS the memoisation: it keys the</span>
+<span class="c"># cache on the argument tuple, so the arguments must be hashable.</span>
+@cache
+def coins(amount: int, coins_t: tuple[int, ...]) -&gt; float:
+    if amount == 0:
+        return 0
+    return min((coins(amount - c, coins_t) + 1
+                for c in coins_t if c &lt;= amount), default=float("inf"))
+
+<span class="c"># Two rules for @cache on a recursive function:</span>
+<span class="c">#   - every argument must be hashable, so pass tuples, not lists</span>
+<span class="c">#   - the cache is global and unbounded; it outlives the call. Use</span>
+<span class="c">#     lru_cache(maxsize=...) or clear it if the inputs are unbounded.</span>
+
+<span class="c"># Step 3, when the recursion depth would exceed 1000 or the constant</span>
+<span class="c"># factor matters:</span>
+def coins_iter(amount: int, cs: list[int]) -&gt; float:
+    dp = [0] + [float("inf")] * amount
+    for a in range(1, amount + 1):
+        dp[a] = min((dp[a - c] + 1 for c in cs if c &lt;= a), default=float("inf"))
+    return dp[amount]
+
+<span class="c"># Reconstructing the ANSWER, not just its cost: keep the choice.</span>
+def coins_which(amount: int, cs: list[int]) -&gt; list[int] | None:
+    dp = [0] + [None] * amount                   <span class="c"># dp[a] = coin used to reach a</span>
+    reach = [0] + [False] * amount
+    for a in range(1, amount + 1):
+        for c in cs:
+            if c &lt;= a and reach[a - c]:
+                dp[a], reach[a] = c, True
+                break
+    if not reach[amount]:
+        return None
+    out = []
+    while amount:                                <span class="c"># walk the choices backwards</span>
+        out.append(dp[amount])
+        amount -= dp[amount]
+    return out</pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Dp.java — an int[] cache and a sentinel. Java has no memo decorator</span>
+<span class="c">// either; computeIfAbsent on a Map works but boxes every key.</span>
+
+static final int UNSET = -1, IMPOSSIBLE = Integer.MAX_VALUE;
+
+<span class="c">// Step 2: top-down with an explicit cache.</span>
+static int coinsMemo(int amount, int[] coins, int[] memo) {
+    if (amount == 0) return 0;
+    if (memo[amount] != UNSET) return memo[amount];
+
+    int best = IMPOSSIBLE;
+    for (int c : coins) {
+        if (c &lt;= amount) {
+            int sub = coinsMemo(amount - c, coins, memo);
+            if (sub != IMPOSSIBLE) best = Math.min(best, sub + 1);
+        }
+    }
+    return memo[amount] = best;
+}
+
+<span class="c">// Step 3: bottom-up. Prefer this in Java -- the default stack is around</span>
+<span class="c">// 512 KB and a recursion of depth 100,000 will not survive it.</span>
+static int coins(int amount, int[] cs) {
+    int[] dp = new int[amount + 1];
+    Arrays.fill(dp, IMPOSSIBLE);
+    dp[0] = 0;
+    for (int a = 1; a &lt;= amount; a++)
+        for (int c : cs)
+            if (c &lt;= a &amp;&amp; dp[a - c] != IMPOSSIBLE)
+                dp[a] = Math.min(dp[a], dp[a - c] + 1);
+    return dp[amount];
+}
+
+<span class="c">// Note the guard `dp[a - c] != IMPOSSIBLE` in both. Without it,</span>
+<span class="c">// IMPOSSIBLE + 1 overflows to Integer.MIN_VALUE and min() cheerfully</span>
+<span class="c">// picks it -- an "unreachable amount costs minus two billion coins" bug</span>
+<span class="c">// that produces a plausible-looking wrong answer rather than a crash.</span></pre>
+    </section>
+
+    <section class="topic" id="dptable">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Two dimensions: the table, and reading the answer back out</h3>
+        <p class="lede">Edit distance is the archetype for two-dimensional dynamic programming, and it is worth knowing in full because <code>diff</code>, spell checkers, fuzzy search, DNA alignment and merge algorithms are all variations of it. Each cell asks one question: given the best answers for three smaller problems, what is the best answer here?</p>
+      </div>
+
+      <figure class="demo" data-demo="dp">
+        <div class="demo-head"><span class="demo-title">Edit distance &middot; type your own words</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Every cell depends on exactly three neighbours: above, left, and diagonal.</b> Those three are delete, insert and substitute, and each costs one except the diagonal on a matching letter, which is free. Because a cell only ever reads cells above and to the left, a single row of memory is enough to compute the final <em>number</em> &mdash; but the backtrace at the end, the part that recovers the actual edits, needs the whole table. That is the general trade: <span class="big g">O(min(m,n))</span> space for the cost, <span class="big b">O(mn)</span> if you want to know what the answer <em>was</em>.</figcaption>
+      </figure>
+
+<pre class="l3" data-lang="go"><span class="c">// edit.go — the rolling-row version, which is what you ship when you</span>
+<span class="c">// only need the distance. Two rows instead of m*n.</span>
+
+func EditDistance(a, b string) int {
+    ra, rb := []rune(a), []rune(b)               <span class="c">// runes: "café" is 4, not 5</span>
+    if len(ra) &lt; len(rb) {
+        ra, rb = rb, ra                          <span class="c">// keep the short side as the row</span>
+    }
+
+    prev := make([]int, len(rb)+1)
+    curr := make([]int, len(rb)+1)
+    for j := range prev {
+        prev[j] = j                              <span class="c">// turning "" into b[:j] costs j</span>
+    }
+
+    for i := 1; i &lt;= len(ra); i++ {
+        curr[0] = i                              <span class="c">// turning a[:i] into "" costs i</span>
+        for j := 1; j &lt;= len(rb); j++ {
+            sub := prev[j-1]
+            if ra[i-1] != rb[j-1] {
+                sub++
+            }
+            curr[j] = min(
+                prev[j]+1,                       <span class="c">// delete a[i-1]</span>
+                curr[j-1]+1,                     <span class="c">// insert b[j-1]</span>
+                sub,                             <span class="c">// substitute, or free on a match</span>
+            )
+        }
+        prev, curr = curr, prev                  <span class="c">// swap, do not allocate</span>
+    }
+    return prev[len(rb)]
+}
+
+<span class="c">// Early exit for a fuzzy-search threshold: if the smallest value in a</span>
+<span class="c">// whole row already exceeds the limit, every later row is worse, so you</span>
+<span class="c">// can stop. On a dictionary scan this is the difference between usable</span>
+<span class="c">// and not.</span>
+<span class="c">//</span>
+<span class="c">// Longest common subsequence is the same table with a different</span>
+<span class="c">// recurrence -- max instead of min, and only the diagonal advances on a</span>
+<span class="c">// match. That is what `diff` computes, then reads back as the edit script.</span></pre>
+
+<pre class="l3" data-lang="py"><span class="c"># edit.py — the full table, because the backtrace is the interesting</span>
+<span class="c"># half and the reason `diff` output looks the way it does.</span>
+
+def edit_table(a: str, b: str) -&gt; list[list[int]]:
+    n, m = len(a), len(b)
+    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n + 1):
+        dp[i][0] = i                             <span class="c"># delete everything</span>
+    for j in range(m + 1):
+        dp[0][j] = j                             <span class="c"># insert everything</span>
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            dp[i][j] = min(
+                dp[i - 1][j] + 1,                <span class="c"># delete a[i-1]</span>
+                dp[i][j - 1] + 1,                <span class="c"># insert b[j-1]</span>
+                dp[i - 1][j - 1] + (a[i - 1] != b[j - 1]),   <span class="c"># substitute/match</span>
+            )
+    return dp
+
+def edit_script(a: str, b: str) -&gt; list[str]:
+    """Walk backwards from the corner, taking whichever choice produced it."""
+    dp = edit_table(a, b)
+    i, j, out = len(a), len(b), []
+    while i &gt; 0 or j &gt; 0:
+        if i &gt; 0 and dp[i][j] == dp[i - 1][j] + 1:
+            out.append(f"-{a[i - 1]}"); i -= 1
+        elif j &gt; 0 and dp[i][j] == dp[i][j - 1] + 1:
+            out.append(f"+{b[j - 1]}"); j -= 1
+        else:
+            if a[i - 1] != b[j - 1]:
+                out.append(f"~{a[i - 1]}{b[j - 1]}")
+            i -= 1; j -= 1
+    return out[::-1]
+
+<span class="c"># edit_script("kitten", "sitting") -&gt; ['~ks', '~ie', '+g'] with the</span>
+<span class="c"># matched letters skipped: three edits, which is the distance.</span>
+<span class="c">#</span>
+<span class="c"># difflib.SequenceMatcher in the standard library solves the related</span>
+<span class="c"># problem (longest matching blocks) with a different algorithm tuned for</span>
+<span class="c"># human-readable diffs rather than minimal edit count.</span></pre>
+
+<pre class="l3" data-lang="java"><span class="c">// Edit.java — one int[] row, which is all the distance needs.</span>
+
+static int editDistance(String a, String b) {
+    if (a.length() &lt; b.length()) { String t = a; a = b; b = t; }
+
+    int[] prev = new int[b.length() + 1];
+    int[] curr = new int[b.length() + 1];
+    for (int j = 0; j &lt;= b.length(); j++) prev[j] = j;
+
+    for (int i = 1; i &lt;= a.length(); i++) {
+        curr[0] = i;
+        for (int j = 1; j &lt;= b.length(); j++) {
+            int sub = prev[j - 1] + (a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1);
+            curr[j] = Math.min(Math.min(prev[j] + 1, curr[j - 1] + 1), sub);
+        }
+        int[] swap = prev; prev = curr; curr = swap;   <span class="c">// reuse both arrays</span>
+    }
+    return prev[b.length()];
+}
+
+<span class="c">// charAt() is UTF-16 code units, not characters: an emoji is two units</span>
+<span class="c">// and this will happily compute a distance in half-characters. For</span>
+<span class="c">// text from users, work in code points:</span>
+<span class="c">//     int[] cps = a.codePoints().toArray();</span>
+
+<span class="c">// The same table shape, four common recurrences:</span>
+<span class="c">//   edit distance          min(del, ins, sub)</span>
+<span class="c">//   longest common subseq  match ? diag+1 : max(up, left)</span>
+<span class="c">//   longest common substr  match ? diag+1 : 0, and track the max</span>
+<span class="c">//   0/1 knapsack           max(without item, value + best of remainder)</span>
+<span class="c">// Learn the shape once and all four are the same twenty lines.</span></pre>
+    </section>
+
+    <section class="topic" id="dpclassics">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>The recurrences worth memorising</h3>
+        <p class="lede">There are perhaps six dynamic programs that between them cover most of what you will meet. They are worth knowing not as code to recall but as <em>state definitions</em> &mdash; once you can say precisely what <code>dp[i][j]</code> means, the recurrence usually writes itself and the base cases become obvious.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Problem</th><th>State</th><th>Recurrence</th><th>Cost</th></tr></thead>
+          <tbody>
+            <tr><td>0/1 knapsack</td><td><code>dp[i][w]</code> = best value using the first i items within weight w</td><td>max(skip item i, take it and add <code>dp[i-1][w-wi]</code>)</td><td><span class="big a">O(nW)</span></td></tr>
+            <tr><td>Coin change</td><td><code>dp[a]</code> = fewest coins making amount a</td><td>1 + min over coins of <code>dp[a-c]</code></td><td><span class="big a">O(aC)</span></td></tr>
+            <tr><td>Longest common subsequence</td><td><code>dp[i][j]</code> = LCS of the two prefixes</td><td>match ? <code>dp[i-1][j-1]</code>+1 : max(<code>dp[i-1][j]</code>, <code>dp[i][j-1]</code>)</td><td><span class="big b">O(nm)</span></td></tr>
+            <tr><td>Longest increasing subsequence</td><td><code>tails[k]</code> = smallest tail of any increasing run of length k+1</td><td>Binary search for the position to replace &mdash; the greedy-plus-bisect trick</td><td><span class="big g">O(n log n)</span></td></tr>
+            <tr><td>Maximum subarray (Kadane)</td><td><code>best</code> = largest sum of a run ending exactly here</td><td>max(this element, this element + previous best)</td><td><span class="big g">O(n)</span></td></tr>
+            <tr><td>Word break</td><td><code>dp[i]</code> = can the first i characters be split into words</td><td>OR over j of (<code>dp[j]</code> and s[j:i] is a word)</td><td><span class="big a">O(n&#178;)</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+<pre class="l1" data-lang="go"><span class="c">// classics.go — Kadane and LIS, the two whose clever versions beat the</span>
+<span class="c">// obvious table outright.</span>
+
+<span class="c">// Kadane: maximum sum of any contiguous run, in one pass. The state is</span>
+<span class="c">// "best run ENDING HERE", which either extends the previous run or</span>
+<span class="c">// starts fresh -- and that choice is the whole algorithm.</span>
+func MaxSubarray(xs []int) (best, lo, hi int) {
+    best, cur, start := math.MinInt, 0, 0
+    for i, v := range xs {
+        if cur &lt;= 0 {
+            cur, start = v, i                    <span class="c">// the past is a liability: drop it</span>
+        } else {
+            cur += v
+        }
+        if cur &gt; best {
+            best, lo, hi = cur, start, i
+        }
+    }
+    return best, lo, hi
+}
+
+<span class="c">// Longest increasing subsequence in O(n log n). tails[k] holds the</span>
+<span class="c">// smallest possible tail of an increasing subsequence of length k+1;</span>
+<span class="c">// it is always sorted, so the position is a binary search.</span>
+func LIS(xs []int) int {
+    tails := make([]int, 0, len(xs))
+    for _, v := range xs {
+        i, _ := slices.BinarySearch(tails, v)
+        if i == len(tails) {
+            tails = append(tails, v)             <span class="c">// v extends the longest run</span>
+        } else {
+            tails[i] = v                         <span class="c">// v gives length i+1 a better tail</span>
+        }
+    }
+    return len(tails)                            <span class="c">// NOTE: the length, not the run</span>
+}
+
+<span class="c">// `tails` is not itself a valid subsequence -- a common misreading. To</span>
+<span class="c">// recover the actual run, record a predecessor index for each element</span>
+<span class="c">// as you place it, then walk backwards from the last one appended.</span></pre>
+
+<pre class="l1" data-lang="py"><span class="c"># classics.py — knapsack, and the space optimisation that catches</span>
+<span class="c"># people out.</span>
+
+def knapsack(weights: list[int], values: list[int], cap: int) -&gt; int:
+    """0/1 knapsack: each item may be taken at most once."""
+    dp = [0] * (cap + 1)                         <span class="c"># dp[w] = best value within w</span>
+    for wt, val in zip(weights, values):
+        <span class="c"># BACKWARDS. Forwards would let this item be picked twice,</span>
+        <span class="c"># because dp[w - wt] would already include it. That single</span>
+        <span class="c"># reversal is the difference between 0/1 and unbounded knapsack.</span>
+        for w in range(cap, wt - 1, -1):
+            dp[w] = max(dp[w], dp[w - wt] + val)
+    return dp[cap]
+
+def unbounded_knapsack(weights, values, cap) -&gt; int:
+    dp = [0] * (cap + 1)
+    for wt, val in zip(weights, values):
+        for w in range(wt, cap + 1):             <span class="c"># forwards: reuse is allowed</span>
+            dp[w] = max(dp[w], dp[w - wt] + val)
+    return dp[cap]
+
+<span class="c"># O(nW) is "pseudo-polynomial": W is a VALUE, not an input length, so a</span>
+<span class="c"># capacity of 10^9 makes this table impossible even with ten items.</span>
+<span class="c"># Knapsack is NP-hard; the DP is only fast because W is usually small.</span>
+
+def lis_with_run(xs: list[int]) -&gt; list[int]:
+    """The actual subsequence, not just its length."""
+    import bisect
+    tails, tail_idx, prev = [], [], [-1] * len(xs)
+    for i, v in enumerate(xs):
+        k = bisect.bisect_left(tails, v)
+        if k == len(tails):
+            tails.append(v); tail_idx.append(i)
+        else:
+            tails[k], tail_idx[k] = v, i
+        prev[i] = tail_idx[k - 1] if k else -1
+    out, i = [], tail_idx[-1] if tail_idx else -1
+    while i &gt;= 0:
+        out.append(xs[i]); i = prev[i]
+    return out[::-1]</pre>
+
+<pre class="l1" data-lang="java"><span class="c">// Classics.java — word break, which is the one that most often shows up</span>
+<span class="c">// disguised as something else (tokenising, URL routing, segmentation).</span>
+
+static boolean wordBreak(String s, Set&lt;String&gt; dict) {
+    int n = s.length();
+    boolean[] dp = new boolean[n + 1];
+    dp[0] = true;                                <span class="c">// the empty prefix is splittable</span>
+
+    int longest = dict.stream().mapToInt(String::length).max().orElse(0);
+
+    for (int i = 1; i &lt;= n; i++) {
+        <span class="c">// Only look back as far as the longest word: turns O(n^2) into</span>
+        <span class="c">// O(n * longest), which for real dictionaries is linear.</span>
+        for (int j = Math.max(0, i - longest); j &lt; i; j++) {
+            if (dp[j] &amp;&amp; dict.contains(s.substring(j, i))) {
+                dp[i] = true;
+                break;
+            }
+        }
+    }
+    return dp[n];
+}
+
+<span class="c">// substring() is O(length) and allocates, so this does O(n^2) character</span>
+<span class="c">// copying on top of the O(n^2) loop. A trie over the dictionary removes</span>
+<span class="c">// both: walk forward from j one character at a time, and stop the</span>
+<span class="c">// instant the prefix leaves the trie.</span>
+
+static int maxSubarray(int[] xs) {               <span class="c">// Kadane, O(n), O(1)</span>
+    int best = Integer.MIN_VALUE, cur = 0;
+    for (int v : xs) {
+        cur = Math.max(v, cur + v);              <span class="c">// extend, or start again here</span>
+        best = Math.max(best, cur);
+    }
+    return best;
+}</pre>
+    </section>
+  </div>
+</section>

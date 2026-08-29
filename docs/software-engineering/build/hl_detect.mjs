@@ -1,7 +1,7 @@
 // Language detection for the series' <pre> blocks.
 //
 // The blocks carry no language marker -- only class="l1|l2|l3" and, on the AWS
-// page, data-lang="go|py". Everything else is inferred from content. Shared by
+// page, data-lang="go|py|java". Everything else is inferred from content. Shared by
 // hl_inject.mjs and hl_report.mjs so detection has exactly one implementation.
 
 import { createHash } from 'node:crypto';
@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 export const PAGES = [
   'backend-go-ladder.html', 'pillar-a-foundations.html', 'pillar-b-go.html',
   'pillar-c-cloud.html', 'python-foundations.html', 'java-spring.html',
-  'aws-deep-dive.html',
+  'aws-deep-dive.html', 'dsa.html',
 ];
 
 const ENT = { '&lt;': '<', '&gt;': '>', '&amp;': '&', '&quot;': '"', '&#39;': "'",
@@ -104,14 +104,16 @@ export function detect(body, attrs, page) {
     has(/\.(?:append|join|items|keys|values|get)\(/) ||
     has(/^\s*(?:try|except|finally|elif|else):/m);
 
-  // The AWS page states the pane language on the element; trust it unless the
-  // body plainly disagrees.
-  const dl = /data-lang="(go|py)"/.exec(attrs || '');
+  // The AWS and algorithms pages state the pane language on the element.
+  // Trust it -- unless the body plainly disagrees and plainly agrees with a
+  // different one, which catches a snippet filed under the wrong pane.
+  const dl = /data-lang="(go|py|java)"/.exec(attrs || '');
   if (dl) {
-    if (dl[1] === 'go' && goish) return 'go';
-    if (dl[1] === 'py' && pyish) return 'python';
-    if (dl[1] === 'go' && pyish) return 'python';
-    if (dl[1] === 'py' && goish) return 'go';
+    const want = { go: 'go', py: 'python', java: 'java' }[dl[1]];
+    const looks = { go: goish, python: pyish, java: javaish };
+    if (looks[want]) return want;
+    for (const alt of ['go', 'python', 'java']) if (looks[alt]) return alt;
+    return want;
   }
 
   // --- structured formats -----------------------------------------------

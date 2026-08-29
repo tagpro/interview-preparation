@@ -5,7 +5,7 @@
  * activation. That is the whole update story: there is no manual versioning to
  * forget, and no way to serve a stale page from a previous deploy.
  */
-const CACHE = 'ladder-8aefd9abc105';
+const CACHE = 'ladder-db527aa32f7f';
 
 const PRECACHE = [
   '.',
@@ -24,6 +24,7 @@ const PRECACHE = [
   'fonts/ibm-plex-sans-600-greek.woff2',
   'fonts/ibm-plex-sans-600-latin.woff2',
   'index.html',
+  'software-engineering/algorithms.html',
   'software-engineering/aws.html',
   'software-engineering/cloud.html',
   'software-engineering/foundations.html',

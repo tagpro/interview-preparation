@@ -1,0 +1,498 @@
+<section class="part" id="sortsearch">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part four</span>
+      <h2>Sorting, searching and selecting</h2>
+      <p>You will not write a sort. You will, constantly, decide whether to sort &mdash; and that decision needs you to know what sorting costs, what it buys, what your language actually runs when you call it, and which of the three cheaper questions (is it here? where would it go? what are the top ten?) you could have asked instead.</p>
+    </div>
+
+    <section class="topic" id="sorting">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Six sorts, and what separates them</h3>
+        <p class="lede">Every comparison sort does the same job with the same lower bound, so what distinguishes them is not the exponent. It is the memory they need, whether equal elements keep their original order, how they behave on data that is already nearly sorted, and how they fail on the input designed to hurt them.</p>
+      </div>
+
+      <figure class="demo" data-demo="sort">
+        <div class="demo-head"><span class="demo-title">Pick an algorithm, pick an input shape</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Run insertion sort on &ldquo;shuffled&rdquo; and then on &ldquo;already sorted&rdquo;, and watch the comparison counter.</b> It goes from about 220 to 29 &mdash; O(n&#178;) to O(n) &mdash; which is why it survives as the base case inside every industrial sort. Then run quicksort on &ldquo;few distinct values&rdquo;: the Lomuto partition shown here degrades badly on duplicates, which is precisely the bug that three-way partitioning exists to fix. Selection sort is the interesting failure: its comparison count is identical on every input, because it never learns anything from what it has seen.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Sort</th><th>Average</th><th>Worst</th><th>Space</th><th>Stable</th><th>Why it exists</th></tr></thead>
+          <tbody>
+            <tr><td>Insertion</td><td><span class="big b">n&#178;</span></td><td><span class="big b">n&#178;</span></td><td>1</td><td>yes</td><td>Linear on nearly-sorted input and unbeatable under ~30 elements. The base case of everything else.</td></tr>
+            <tr><td>Selection</td><td><span class="big b">n&#178;</span></td><td><span class="big b">n&#178;</span></td><td>1</td><td>no</td><td>Makes exactly n&minus;1 swaps. Useful only when writes are enormously more expensive than reads.</td></tr>
+            <tr><td>Bubble</td><td><span class="big b">n&#178;</span></td><td><span class="big b">n&#178;</span></td><td>1</td><td>yes</td><td>Nothing. It is a teaching device; every property it has, insertion sort has better.</td></tr>
+            <tr><td>Merge</td><td><span class="big g">n log n</span></td><td><span class="big g">n log n</span></td><td><span class="big b">n</span></td><td>yes</td><td>Stable, predictable, parallelises, and works on data that does not fit in memory or that you can only walk forwards.</td></tr>
+            <tr><td>Quick</td><td><span class="big g">n log n</span></td><td><span class="big b">n&#178;</span></td><td>log n</td><td>no</td><td>The best constant factor of any comparison sort, because it is in place and sequential. The worst case is real and is defended against, not ignored.</td></tr>
+            <tr><td>Heap</td><td><span class="big g">n log n</span></td><td><span class="big g">n log n</span></td><td>1</td><td>no</td><td>The only common sort that is both in place and worst-case n log n. Poor locality keeps it a fallback rather than a default.</td></tr>
+            <tr><td>Counting / radix</td><td><span class="big g">n + k</span></td><td><span class="big g">n + k</span></td><td><span class="big b">n + k</span></td><td>yes</td><td>Not a comparison sort, so the n log n bound does not apply. For small integer keys it is the fastest thing there is.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>Stability is a correctness property, not a nicety</h4>
+        <p>A stable sort keeps equal elements in their original relative order. That is what lets you sort by one field, then by another, and end up with a result ordered by both &mdash; sort by name, then by department, and each department&rsquo;s names are still alphabetical. With an unstable sort the second pass scrambles the first, and the bug shows up as &ldquo;the list is <em>mostly</em> right&rdquo;, which is the hardest kind to notice. Python&rsquo;s <code>sort</code> is stable, Java&rsquo;s <code>Collections.sort</code> and <code>Arrays.sort</code> on objects are stable, Go&rsquo;s <code>sort.Slice</code> and <code>slices.Sort</code> are <em>not</em> &mdash; Go makes you ask for <code>slices.SortStableFunc</code>.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Go</b>, <b>Python</b> and <b>Java</b> &mdash; switch in the bar, or press <b>g</b> / <b>p</b> / <b>j</b>.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// mergesort.go — the one worth being able to write from memory, because</span>
+<span class="c">// the recurrence T(n) = 2T(n/2) + O(n) is the shape of half this page.</span>
+
+func MergeSort(xs []int) []int {
+    if len(xs) &lt; 2 {
+        return xs
+    }
+    mid := len(xs) / 2
+    left := MergeSort(slices.Clone(xs[:mid]))
+    right := MergeSort(slices.Clone(xs[mid:]))
+    return merge(left, right)
+}
+
+<span class="c">// The merge is the algorithm. Note `&lt;=`: taking from the left on a tie</span>
+<span class="c">// is exactly what makes the sort stable. `&lt;` would not.</span>
+func merge(a, b []int) []int {
+    out := make([]int, 0, len(a)+len(b))
+    i, j := 0, 0
+    for i &lt; len(a) &amp;&amp; j &lt; len(b) {
+        if a[i] &lt;= b[j] {
+            out, i = append(out, a[i]), i+1
+        } else {
+            out, j = append(out, b[j]), j+1
+        }
+    }
+    return append(append(out, a[i:]...), b[j:]...)
+}
+
+<span class="c">// Quicksort's partition, for contrast: no buffer, and the whole cost is</span>
+<span class="c">// in choosing the pivot. Median-of-three on the first, middle and last</span>
+<span class="c">// element turns "sorted input is O(n^2)" into "you would have to try".</span>
+func partition(xs []int, lo, hi int) int {
+    mid := lo + (hi-lo)/2
+    if xs[mid] &lt; xs[lo] { xs[mid], xs[lo] = xs[lo], xs[mid] }
+    if xs[hi] &lt; xs[lo]  { xs[hi], xs[lo] = xs[lo], xs[hi] }
+    if xs[hi] &lt; xs[mid] { xs[hi], xs[mid] = xs[mid], xs[hi] }
+    pivot := xs[mid]
+    i, j := lo, hi
+    for i &lt;= j {
+        for xs[i] &lt; pivot { i++ }
+        for xs[j] &gt; pivot { j-- }
+        if i &lt;= j {
+            xs[i], xs[j] = xs[j], xs[i]
+            i, j = i+1, j-1
+        }
+    }
+    return i
+}</pre>
+
+<pre class="l2" data-lang="py"><span class="c"># sorts.py — write these once to understand them, then never again.</span>
+
+def merge_sort(xs: list[int]) -&gt; list[int]:
+    if len(xs) &lt; 2:
+        return xs
+    mid = len(xs) // 2
+    left, right = merge_sort(xs[:mid]), merge_sort(xs[mid:])
+
+    out, i, j = [], 0, 0
+    while i &lt; len(left) and j &lt; len(right):
+        if left[i] &lt;= right[j]:                  <span class="c"># `&lt;=` is what makes it stable</span>
+            out.append(left[i]); i += 1
+        else:
+            out.append(right[j]); j += 1
+    out.extend(left[i:]); out.extend(right[j:])
+    return out
+
+<span class="c"># Three-way (Dutch national flag) partitioning: the fix for quicksort on</span>
+<span class="c"># data with many duplicates. Everything equal to the pivot ends up in</span>
+<span class="c"># the middle and is never looked at again, so an array of one repeated</span>
+<span class="c"># value goes from O(n^2) to O(n).</span>
+def quicksort(xs: list[int]) -&gt; list[int]:
+    if len(xs) &lt; 2:
+        return xs
+    pivot = xs[len(xs) // 2]
+    lt = [x for x in xs if x &lt; pivot]
+    eq = [x for x in xs if x == pivot]
+    gt = [x for x in xs if x &gt; pivot]
+    return quicksort(lt) + eq + quicksort(gt)
+
+<span class="c"># Counting sort: no comparisons, so the n log n bound simply does not</span>
+<span class="c"># apply. O(n + k) for keys in a small known range -- ages, HTTP status</span>
+<span class="c"># codes, bucket indices, anything with a few thousand distinct values.</span>
+def counting_sort(xs: list[int], k: int) -&gt; list[int]:
+    counts = [0] * k
+    for x in xs:
+        counts[x] += 1
+    return [v for v, c in enumerate(counts) for _ in range(c)]</pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Sorts.java — and the reason the JDK ships two completely different</span>
+<span class="c">// algorithms, chosen by the element type.</span>
+
+static void mergeSort(int[] a, int[] buf, int lo, int hi) {
+    if (hi - lo &lt; 2) return;
+    int mid = (lo + hi) &gt;&gt;&gt; 1;                   <span class="c">// &gt;&gt;&gt; not /2: no overflow</span>
+    mergeSort(a, buf, lo, mid);
+    mergeSort(a, buf, mid, hi);
+    if (a[mid - 1] &lt;= a[mid]) return;            <span class="c">// already ordered: skip the merge</span>
+
+    int i = lo, j = mid, k = lo;
+    while (i &lt; mid &amp;&amp; j &lt; hi) buf[k++] = (a[i] &lt;= a[j]) ? a[i++] : a[j++];
+    while (i &lt; mid) buf[k++] = a[i++];
+    while (j &lt; hi) buf[k++] = a[j++];
+    System.arraycopy(buf, lo, a, lo, hi - lo);
+}
+
+<span class="c">// That one-line early exit is the seed of Timsort: real data arrives in</span>
+<span class="c">// runs, and a sort that detects them is linear on the common case.</span>
+
+<span class="c">// Arrays.sort(int[])     -&gt; dual-pivot quicksort. In place, unstable,</span>
+<span class="c">//                           but stability is meaningless for primitives</span>
+<span class="c">//                           since equal ints are indistinguishable.</span>
+<span class="c">// Arrays.sort(Object[])  -&gt; Timsort. Stable, O(n) on sorted input,</span>
+<span class="c">//                           needs an O(n) buffer.</span>
+<span class="c">// Arrays.parallelSort()  -&gt; fork/join merge sort above ~8k elements.</span>
+
+<span class="c">// The contract you must not break: compare() has to be a total order.</span>
+<span class="c">// Violate transitivity and Timsort throws "Comparison method violates</span>
+<span class="c">// its general contract!" at random, on inputs above 32 elements.</span>
+Comparator&lt;Item&gt; bad = (x, y) -&gt; x.score() &gt; y.score() ? 1 : -1;   <span class="c">// never 0!</span>
+Comparator&lt;Item&gt; good = Comparator.comparingDouble(Item::score);</pre>
+    </section>
+
+    <section class="topic" id="stdsort">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>What your language actually runs</h3>
+        <p class="lede">None of the six sorts above is what happens when you call <code>sort</code>. All three of these languages ship a hybrid: a main algorithm, a small-array fallback, a detector for pre-existing order, and in two of the three an escape hatch for adversarial input. Knowing which hybrid you have tells you what your worst case really is.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th></th><th>Go &mdash; <code>slices.Sort</code></th><th>Python &mdash; <code>list.sort</code></th><th>Java &mdash; <code>Arrays.sort</code></th></tr></thead>
+          <tbody>
+            <tr><td>Algorithm</td><td>pdqsort (pattern-defeating quicksort)</td><td>Timsort</td><td>Dual-pivot quicksort for primitives, Timsort for objects</td></tr>
+            <tr><td>Small arrays</td><td>Insertion sort below 12</td><td>Binary insertion sort below 64</td><td>Insertion sort below 47</td></tr>
+            <tr><td>Nearly sorted</td><td>Detects sorted and reversed runs</td><td>Finds and extends natural runs &mdash; genuinely O(n)</td><td>Timsort path is O(n); the primitive path is not</td></tr>
+            <tr><td>Worst case</td><td><span class="big g">n log n</span> &mdash; falls back to heapsort when recursion goes too deep</td><td><span class="big g">n log n</span> guaranteed</td><td><span class="big b">n&#178;</span> is theoretically reachable for primitives; <span class="big g">n log n</span> for objects</td></tr>
+            <tr><td>Stable</td><td>No &mdash; use <code>slices.SortStableFunc</code></td><td>Yes, always</td><td>Objects yes; primitives unstable but indistinguishable</td></tr>
+            <tr><td>Extra memory</td><td><span class="big g">O(log n)</span></td><td><span class="big b">O(n)</span></td><td>Primitives O(log n), objects O(n)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+<pre class="l1" data-lang="go"><span class="c">// sortapi.go — since 1.21 the generic slices package replaces the old</span>
+<span class="c">// sort.Slice reflection-based API. It is both faster and type-safe.</span>
+
+slices.Sort(nums)                                <span class="c">// ordered types, ascending</span>
+slices.SortFunc(users, func(a, b User) int {     <span class="c">// -1 / 0 / +1, like strcmp</span>
+    return cmp.Compare(a.Age, b.Age)
+})
+slices.SortStableFunc(users, byName)             <span class="c">// when a previous order matters</span>
+
+<span class="c">// Multi-key: compare the first, and only fall through on a tie. cmp.Or</span>
+<span class="c">// (Go 1.22) returns the first non-zero, which reads exactly like SQL's</span>
+<span class="c">// ORDER BY dept, name DESC.</span>
+slices.SortFunc(rows, func(a, b Row) int {
+    return cmp.Or(
+        cmp.Compare(a.Dept, b.Dept),
+        cmp.Compare(b.Name, a.Name),             <span class="c">// reversed: b before a</span>
+    )
+})
+
+<span class="c">// Sorting by an expensive key: decorate, sort, undecorate. Computing</span>
+<span class="c">// the key inside the comparator evaluates it O(n log n) times.</span>
+type keyed struct {
+    key  string
+    item Item
+}
+ks := make([]keyed, len(items))
+for i, it := range items {
+    ks[i] = keyed{expensiveKey(it), it}          <span class="c">// exactly n calls</span>
+}
+slices.SortFunc(ks, func(a, b keyed) int { return cmp.Compare(a.key, b.key) })
+
+<span class="c">// slices.IsSorted is O(n) and worth an assertion in tests; slices.Min,</span>
+<span class="c">// slices.Max and slices.Index are all O(n) and beat sorting outright</span>
+<span class="c">// when you only need one element.</span></pre>
+
+<pre class="l1" data-lang="py"><span class="c"># sortapi.py — key= is computed exactly once per element, cmp= is gone</span>
+<span class="c"># (removed in Python 3), and both facts are deliberate.</span>
+
+users.sort(key=lambda u: u.age)                  <span class="c"># in place, returns None</span>
+ordered = sorted(users, key=lambda u: u.age)     <span class="c"># new list</span>
+
+<span class="c"># operator.attrgetter/itemgetter are faster than a lambda -- the loop</span>
+<span class="c"># stays in C instead of calling back into the interpreter n times.</span>
+from operator import attrgetter, itemgetter
+users.sort(key=attrgetter("dept", "name"))       <span class="c"># tuple key: multi-column</span>
+rows.sort(key=itemgetter(2))
+
+<span class="c"># Mixed ascending/descending on a tuple key: negate numbers, or -- since</span>
+<span class="c"># the sort is STABLE -- sort by the minor key first, then the major.</span>
+rows.sort(key=attrgetter("name"))                <span class="c"># minor key first</span>
+rows.sort(key=attrgetter("dept"))                <span class="c"># major key second, stably</span>
+
+<span class="c"># functools.cmp_to_key exists for the rare genuine comparator (natural</span>
+<span class="c"># sort, locale collation). It is slow: it wraps every element in an</span>
+<span class="c"># object whose __lt__ calls your function.</span>
+from functools import cmp_to_key
+files.sort(key=cmp_to_key(natural_compare))
+
+<span class="c"># Timsort's superpower: concatenating two sorted lists and re-sorting is</span>
+<span class="c"># O(n), not O(n log n), because it finds the two runs and merges them.</span>
+<span class="c"># "Append the new batch and re-sort" is a genuinely good pattern here.</span>
+existing.extend(new_batch)
+existing.sort(key=attrgetter("ts"))              <span class="c"># linear-ish in practice</span></pre>
+
+<pre class="l1" data-lang="java"><span class="c">// SortApi.java — Comparator is a small combinator library, and using it</span>
+<span class="c">// properly removes essentially all hand-written compare methods.</span>
+
+users.sort(Comparator.comparingInt(User::age));
+users.sort(Comparator.comparing(User::dept)
+                     .thenComparing(User::name, Comparator.reverseOrder()));
+
+<span class="c">// nullsFirst/nullsLast wrap any comparator so nulls stop throwing.</span>
+users.sort(Comparator.comparing(User::manager,
+                                Comparator.nullsLast(Comparator.naturalOrder())));
+
+<span class="c">// comparingInt/Long/Double avoid boxing the key on every comparison.</span>
+<span class="c">// comparing(User::age) boxes n log n times; comparingInt does not.</span>
+
+<span class="c">// The three-line trap, and it is common: subtraction overflows.</span>
+Comparator&lt;User&gt; broken = (a, b) -&gt; a.id() - b.id();     <span class="c">// int overflow</span>
+Comparator&lt;User&gt; fixed   = Comparator.comparingInt(User::id);
+
+<span class="c">// Sorting a stream: sorted() is a stateful full-barrier operation --</span>
+<span class="c">// it buffers everything, so it cannot be lazy and cannot stream.</span>
+List&lt;User&gt; top = users.stream()
+        .sorted(Comparator.comparingInt(User::score).reversed())
+        .limit(10)                               <span class="c">// sorts ALL n, then takes 10</span>
+        .toList();
+
+<span class="c">// For top-k, a bounded PriorityQueue is O(n log k) instead of</span>
+<span class="c">// O(n log n) -- see the selection section below.</span></pre>
+    </section>
+
+    <section class="topic" id="binsearch">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Binary search, and the two bounds you actually need</h3>
+        <p class="lede">Everyone can describe binary search and most people write it wrong, because the interesting version is not &ldquo;find x&rdquo;. It is &ldquo;where does x belong&rdquo; &mdash; the first position at or after which the answer lies. That version has no special case for &ldquo;not found&rdquo;, it handles duplicates, and it is what every standard library actually gives you.</p>
+      </div>
+
+      <figure class="demo" data-demo="bsearch">
+        <div class="demo-head"><span class="demo-title">Twenty sorted values, three questions</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Search for 8 &mdash; which appears four times &mdash; and compare the three modes.</b> &ldquo;Find&rdquo; returns some arbitrary one of the four and needs a separate answer for absent values. Lower bound returns the first index whose value is at least 8, upper bound the first strictly greater; between them lies the whole run, and their difference is how many there are. Both bounds always return a valid insertion point, so &ldquo;not found&rdquo; stops being a special case. Try a target that is not in the array at all &mdash; 12, or 99 &mdash; and notice that only the bounds still answer usefully.</figcaption>
+      </figure>
+
+<pre class="l3" data-lang="go"><span class="c">// bsearch.go — the standard library covers the ordinary cases; the one</span>
+<span class="c">// worth understanding is the predicate form.</span>
+
+i, found := slices.BinarySearch(xs, target)      <span class="c">// i is the insertion point</span>
+if !found {
+    xs = slices.Insert(xs, i, target)            <span class="c">// keeps xs sorted</span>
+}
+
+<span class="c">// sort.Search is binary search over a PREDICATE, not over values: it</span>
+<span class="c">// returns the smallest i in [0, n) for which f(i) is true, assuming f</span>
+<span class="c">// is false then true. That "assuming" is the whole contract.</span>
+i = sort.Search(len(xs), func(i int) bool { return xs[i] &gt;= target })   <span class="c">// lower bound</span>
+j := sort.Search(len(xs), func(i int) bool { return xs[i] &gt; target })   <span class="c">// upper bound</span>
+count := j - i                                   <span class="c">// how many equal `target`</span>
+
+<span class="c">// The powerful use: the array need not exist. Binary search the ANSWER</span>
+<span class="c">// of a monotone question. "What is the smallest capacity that finishes</span>
+<span class="c">// the work in `limit` hours?" -- feasible() is false, false, ..., true.</span>
+lo, hi := 1, maxLoad
+best := sort.Search(hi-lo, func(k int) bool { return feasible(lo + k) }) + lo
+
+<span class="c">// The overflow bug that lived in the JDK for nine years and in Bentley's</span>
+<span class="c">// published version for twenty:</span>
+<span class="c">//   mid := (lo + hi) / 2        // overflows once lo+hi exceeds maxint</span>
+<span class="c">//   mid := lo + (hi-lo)/2       // does not</span></pre>
+
+<pre class="l3" data-lang="py"><span class="c"># bsearch.py — bisect IS lower_bound and upper_bound, named after what</span>
+<span class="c"># they do to the list rather than after what they answer.</span>
+import bisect
+
+lo = bisect.bisect_left(xs, target)              <span class="c"># first index with xs[i] &gt;= target</span>
+hi = bisect.bisect_right(xs, target)             <span class="c"># first index with xs[i] &gt;  target</span>
+count = hi - lo                                  <span class="c"># occurrences, in O(log n)</span>
+present = lo &lt; len(xs) and xs[lo] == target      <span class="c"># the "found" test, written out</span>
+
+<span class="c"># Binary search on the answer, written by hand because there is no</span>
+<span class="c"># array: the classic "minimum capacity to ship in D days" shape.</span>
+def min_feasible(lo: int, hi: int, ok) -&gt; int:
+    """Smallest v in [lo, hi] with ok(v) true, where ok is monotone."""
+    while lo &lt; hi:
+        mid = (lo + hi) // 2                     <span class="c"># Python ints never overflow</span>
+        if ok(mid):
+            hi = mid                             <span class="c"># mid might be the answer: keep it</span>
+        else:
+            lo = mid + 1                         <span class="c"># mid is not: discard it</span>
+    return lo
+
+<span class="c"># The invariant to hold in your head, and the reason this loop is right:</span>
+<span class="c">#   ok(x) is false for every x &lt; lo, and true for hi (or hi is the</span>
+<span class="c">#   past-the-end sentinel). Each iteration shrinks the window and</span>
+<span class="c">#   preserves that, so when lo == hi it is the answer.</span>
+<span class="c">#</span>
+<span class="c"># Write `hi = mid` and `lo = mid + 1`. The asymmetry is not a typo: it</span>
+<span class="c"># is what guarantees the window shrinks and the loop terminates.</span></pre>
+
+<pre class="l3" data-lang="java"><span class="c">// BSearch.java — Arrays.binarySearch encodes "not found" in the sign,</span>
+<span class="c">// which is efficient and catches people out for a decade.</span>
+
+int i = Arrays.binarySearch(xs, target);
+if (i &lt; 0) {
+    int insertionPoint = -(i + 1);               <span class="c">// the documented decoding</span>
+    <span class="c">// negative means absent; -(i+1) is where it would go</span>
+}
+
+<span class="c">// It also does NOT promise which one it finds among duplicates. For</span>
+<span class="c">// bounds, write the loop -- it is five lines and it is the version you</span>
+<span class="c">// want anyway.</span>
+static int lowerBound(int[] a, int target) {     <span class="c">// first index with a[i] &gt;= target</span>
+    int lo = 0, hi = a.length;                   <span class="c">// note: hi is EXCLUSIVE</span>
+    while (lo &lt; hi) {
+        int mid = (lo + hi) &gt;&gt;&gt; 1;               <span class="c">// unsigned shift: no overflow</span>
+        if (a[mid] &lt; target) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;                                   <span class="c">// == a.length when all are smaller</span>
+}
+
+<span class="c">// TreeMap gives you the same three answers on a live, mutable map:</span>
+<span class="c">//   ceilingKey(k)  -- lower bound</span>
+<span class="c">//   higherKey(k)   -- upper bound</span>
+<span class="c">//   floorKey(k)    -- the largest key &lt;= k</span>
+<span class="c">// all O(log n), and unlike a sorted array they survive insertion.</span>
+
+<span class="c">// Collections.binarySearch on a LinkedList is O(n log n): it does</span>
+<span class="c">// log n lookups, each O(n). The JDK checks for RandomAccess and falls</span>
+<span class="c">// back to an iterator walk, which is better but still not what you want.</span></pre>
+    </section>
+
+    <section class="topic" id="qselect">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Selection: the top ten without sorting the other million</h3>
+        <p class="lede">&ldquo;Give me the ten highest scores&rdquo; does not require the other 999,990 to be put in order. Two algorithms answer it without sorting: a bounded heap, which costs <span class="big g">O(n log k)</span> and works on a stream you cannot store, and quickselect, which costs <span class="big g">O(n)</span> expected and needs the array in memory.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">Sort then slice</span><span class="b"><b>O(n log n).</b> Fine up to a few tens of thousands, and the clearest code. Do not optimise past it without a measurement.</span></div>
+        <div><span class="h">Bounded heap</span><span class="b"><b>O(n log k), O(k) space.</b> The only option when the data is a stream, and the one to use when k is small and n is huge.</span></div>
+        <div><span class="h">Quickselect</span><span class="b"><b>O(n) expected, in place.</b> Partition, then recurse into <em>one</em> side. The median in linear time, but it reorders your array and its worst case is O(n&#178;).</span></div>
+        <div><span class="h">Partial sort</span><span class="b"><b>Quickselect then sort k.</b> What you want when the top k must themselves be ordered: O(n + k log k).</span></div>
+      </div>
+
+<pre class="l1" data-lang="go"><span class="c">// select.go — quickselect is quicksort that throws away half the work.</span>
+<span class="c">// After partitioning, the pivot is in its final position; if that is</span>
+<span class="c">// past k, only the left side can contain the answer.</span>
+
+func QuickSelect(xs []int, k int) int {          <span class="c">// the k-th smallest, 0-based</span>
+    lo, hi := 0, len(xs)-1
+    for lo &lt; hi {
+        p := partition(xs, lo, hi)               <span class="c">// same partition as quicksort</span>
+        switch {
+        case p == k:
+            return xs[k]
+        case p &lt; k:
+            lo = p + 1                           <span class="c">// answer is to the right</span>
+        default:
+            hi = p - 1                           <span class="c">// answer is to the left</span>
+        }
+    }
+    return xs[k]
+}
+
+<span class="c">// Why it is O(n): each pass halves the remaining range on average, so</span>
+<span class="c">// the total work is n + n/2 + n/4 + ... = 2n. Sorting does log n full</span>
+<span class="c">// passes; this does two.</span>
+<span class="c">//</span>
+<span class="c">// It MUTATES the slice. Clone first if the caller still needs the order.</span>
+
+<span class="c">// The streaming alternative, which never holds more than k:</span>
+func TopK(stream iter.Seq[Score], k int) []Score {
+    h := &amp;MinHeap{}                              <span class="c">// smallest of the best-k at the root</span>
+    for s := range stream {
+        if h.Len() &lt; k {
+            heap.Push(h, s)
+        } else if s.Value &gt; (*h)[0].Value {
+            heap.Pop(h)                          <span class="c">// evict the weakest survivor</span>
+            heap.Push(h, s)
+        }
+    }
+    out := make([]Score, h.Len())
+    for i := len(out) - 1; i &gt;= 0; i-- {
+        out[i] = heap.Pop(h).(Score)             <span class="c">// pops ascending, so fill back</span>
+    }
+    return out
+}</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># select.py — the standard library already picks the right strategy.</span>
+import heapq
+import random
+
+<span class="c"># nlargest uses a bounded heap when k &lt;&lt; n and falls back to sorted()</span>
+<span class="c"># when k is a large fraction of n. Trust it.</span>
+top = heapq.nlargest(10, scores, key=lambda s: s.value)
+
+<span class="c"># statistics.median is O(n log n) because it sorts. For one median over</span>
+<span class="c"># a large array, quickselect is the linear alternative:</span>
+def quickselect(xs: list[int], k: int) -&gt; int:
+    """k-th smallest, 0-based. Randomised pivot, so sorted input is fine."""
+    while True:
+        if len(xs) == 1:
+            return xs[0]
+        pivot = random.choice(xs)                <span class="c"># randomised: no adversarial case</span>
+        lt = [x for x in xs if x &lt; pivot]
+        eq = [x for x in xs if x == pivot]
+        if k &lt; len(lt):
+            xs = lt                              <span class="c"># recurse left only</span>
+        elif k &lt; len(lt) + len(eq):
+            return pivot                         <span class="c"># the pivot IS the answer</span>
+        else:
+            k -= len(lt) + len(eq)               <span class="c"># recurse right, reindexed</span>
+            xs = [x for x in xs if x &gt; pivot]
+
+<span class="c"># For a running median over a stream, neither works: use two heaps, a</span>
+<span class="c"># max-heap of the lower half and a min-heap of the upper, kept within</span>
+<span class="c"># one element of the same size. The median is then one or two peeks.</span></pre>
+
+<pre class="l1" data-lang="java"><span class="c">// Select.java — the bounded-heap version, which is the one you will</span>
+<span class="c">// actually deploy, because it works over an unbounded stream.</span>
+
+static List&lt;Score&gt; topK(Stream&lt;Score&gt; stream, int k) {
+    PriorityQueue&lt;Score&gt; heap =                   <span class="c">// MIN-heap of the best k</span>
+            new PriorityQueue&lt;&gt;(k, Comparator.comparingInt(Score::value));
+    stream.forEach(s -&gt; {
+        if (heap.size() &lt; k) heap.add(s);
+        else if (s.value() &gt; heap.peek().value()) {
+            heap.poll();                         <span class="c">// drop the weakest survivor</span>
+            heap.add(s);
+        }
+    });
+    List&lt;Score&gt; out = new ArrayList&lt;&gt;(heap);     <span class="c">// heap order, NOT sorted</span>
+    out.sort(Comparator.comparingInt(Score::value).reversed());
+    return out;                                  <span class="c">// O(n log k + k log k)</span>
+}
+
+<span class="c">// Compare with the obvious version, which sorts a million elements to</span>
+<span class="c">// look at ten of them:</span>
+<span class="c">//   stream.sorted(byValue.reversed()).limit(10).toList()  // O(n log n)</span>
+<span class="c">//</span>
+<span class="c">// At n = 1,000,000 and k = 10 the heap does ~3.3 million comparisons</span>
+<span class="c">// and the sort does ~20 million, and the heap holds 10 objects rather</span>
+<span class="c">// than buffering all of them. That is the whole argument.</span></pre>
+    </section>
+  </div>
+</section>

@@ -25,6 +25,7 @@ PAGES = [
     'python-foundations.html',
     'java-spring.html',
     'aws-deep-dive.html',
+    'dsa.html',
 ]
 
 ENTS = {'&rsquo;': '’', '&mdash;': '—', '&ndash;': '–',

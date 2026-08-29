@@ -1,6 +1,6 @@
 # Build pipeline for the Backend Ladder series
 
-Seven pages. Four are assembled from fragments; two carry no code; the hub is
+Eight pages. Five are assembled from fragments; two carry no code; the hub is
 hand-maintained. Three post-processing passes run over the **built** HTML.
 
 Node dependencies are in `package.json` (`npm install`); the print checks also
@@ -8,7 +8,8 @@ need `pymupdf` (`pip install -r requirements.txt`). Nothing else does.
 
 ## Order
 
-    python3 build_go.py / build_py.py / build_java.py / build_aws.py   # if fragments changed
+    python3 build_go.py / build_py.py / build_java.py / build_aws.py / build_dsa.py
+    python3 series_sync.py    # the cross-link rail, from series.py
     node   hl_inject.mjs      # syntax highlighting  -> <!-- highlight --> block
     node   print_inject.mjs   # print stylesheet      -> <!-- print --> block
     python3 gloss_inject.py   # abbreviation glossary -> <!-- glossary --> block
@@ -42,7 +43,7 @@ artifact CSP is untouched and the reader downloads no extra JavaScript.
 | `hl_detect.mjs` | Per-block language detection, page defaults, fingerprint overrides |
 | `hl_theme.mjs` | Light and dark token palettes drawn from the series' own `--l1/--l2/--l3` |
 | `hl_inject.mjs` | The pass itself |
-| `hl_report.mjs` | Prints the language assigned to all 244 blocks |
+| `hl_report.mjs` | Prints the language assigned to all 334 blocks |
 | `hl_contrast.mjs` | Asserts every token colour clears 4.5:1 (3.5:1 for comments) |
 | `hl_verify_dim.mjs` | Asserts no text the pages used to dim lost its dimming |
 
@@ -61,6 +62,8 @@ artifact CSP is untouched and the reader downloads no extra JavaScript.
 
 | Site file | What it is |
 | --- | --- |
+| `series.py` | The one list of pages in the series, and the rail that renders it |
+| `series_sync.py` | Writes that rail into all eight pages, including the ones with no build script |
 | `site_build.mjs` | Wraps the fragments as standalone HTML and rewrites cross-links |
 | `site_check.mjs` | Loads every built page and checks structure, links and the passes |
 | `sw_build.mjs` | Generates the service worker, its cache named by a content hash |
@@ -72,7 +75,7 @@ artifact CSP is untouched and the reader downloads no extra JavaScript.
 ### Why there are custom languages
 
 The bundled set is web-oriented and ships neither Go nor Java, which together
-cover 117 of the 244 blocks; `go.mod` and Terraform appear once each. The
+cover 177 of the 334 blocks; `go.mod` and Terraform appear once each. The
 bundled `shell` is written for shell *scripts* and lexes a quote as opening a
 string that runs to the next quote anywhere later in the block, so an apostrophe
 in prose output ("the compiler's own lint") swallowed every comment after it.
@@ -114,6 +117,8 @@ What it has to deal with, in the order the stylesheet addresses it:
 | Auto table layout starves the prose column | The key column asks for the narrowest fit; snippets in later columns may wrap |
 | The abbreviation expansions live in a tooltip | Spelled out inline at each first mention, from the same `data-full` the tooltip reads |
 | The AWS page hides half its snippets behind a switch in the bar | Prints what is on screen, and says which half on the title page |
+| The algorithms page is half interactive figures | Controls dropped; the figure prints the state it opens in. `print-color-adjust: exact` keeps the fills, because a bar chart with the fills off is blank paper |
+| A highlighted cell reverses white text out of a colour | Becomes an outline, so every character on the paper is dark on white and `print_contrast.py` can check all of them |
 
 ### Checks
 
@@ -154,9 +159,38 @@ and fails if any URL is left unresolved.
 | Python, End to End | `python.html` |
 | Java, Then Spring | `java.html` |
 | AWS, Service by Service | `aws.html` |
+| Data Structures, In Motion | `algorithms.html` |
 
-Adding a page means adding it to `PAGES` in `site_build.mjs` and to the
-`toc-series` block each page carries.
+Adding a page means one entry in `series.py` plus a run of `series_sync.py`,
+and one entry in `PAGES` in `site_build.mjs`, `hl_detect.mjs` and
+`gloss_inject.py`.
+
+## The algorithms page
+
+The eighth page is the only one with runtime behaviour worth describing.
+
+| File | What it is |
+| --- | --- |
+| `dsa_hero.html`, `dsa_a.html` .. `dsa_h.html`, `dsa_foot.html` | The prose, eight parts and thirty topics |
+| `dsa_ui.py` | The three-way Go/Python/Java switch, and the chrome around the figures |
+| `dsa_demos.py` | One player and eleven demos, in plain JavaScript with no dependencies |
+| `build_dsa.py` | Assembles the page and asserts every topic carries all three languages |
+
+Every demo is a **trace**: the algorithm runs once, up front, and each
+interesting moment is recorded as a frame. Frames are cheap at these sizes, and
+precomputing them buys two things a coroutine cannot -- the reader can step
+backwards, and the figure's opening state is deterministic.
+
+Nothing autoplays. That is not a style preference: `print_same.py` compares two
+renders of the same page, so a figure that started moving on its own would make
+the printed output depend on when Chrome took the snapshot. It would also be
+noise beside the paragraph explaining it.
+
+Everything is drawn as DOM or SVG, never a canvas, so it prints.
+
+`build_dsa.py` fails the build if a topic is missing one of the three languages,
+if a figure names a demo the script does not register, or if a demo is
+registered and never used.
 
 ### Offline
 

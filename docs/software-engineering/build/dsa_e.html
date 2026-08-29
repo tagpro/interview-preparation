@@ -1,0 +1,637 @@
+<section class="part" id="graphs">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part five</span>
+      <h2>Graphs, which are most problems in disguise</h2>
+      <p>A graph is nodes and edges, and the reason it matters is that an enormous number of real problems are one once you look: build dependencies, service call chains, permission inheritance, routing, scheduling, deadlock detection, social connections, state machines. The algorithms are few and they compose. The hard part &mdash; the part worth practising &mdash; is recognising the graph.</p>
+    </div>
+
+    <section class="topic" id="graphrepr">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Modelling: what is a node, what is an edge</h3>
+        <p class="lede">Before any algorithm, two decisions. What the graph is made of &mdash; and that is a modelling question with more than one right answer &mdash; and how to store it, which is nearly always an adjacency list and occasionally, for very dense graphs, a matrix.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Property</th><th>Adjacency list</th><th>Adjacency matrix</th></tr></thead>
+          <tbody>
+            <tr><td>Space</td><td><span class="big g">O(V + E)</span></td><td><span class="big b">O(V&#178;)</span> &mdash; a million nodes is a terabyte</td></tr>
+            <tr><td>Iterate a node&rsquo;s neighbours</td><td><span class="big g">O(degree)</span></td><td><span class="big b">O(V)</span>, mostly reading zeros</td></tr>
+            <tr><td>Is there an edge u&rarr;v?</td><td>O(degree), or O(1) with a set per node</td><td><span class="big g">O(1)</span></td></tr>
+            <tr><td>Add an edge</td><td><span class="big g">O(1)</span></td><td><span class="big g">O(1)</span></td></tr>
+            <tr><td>Best for</td><td>Nearly everything. Real graphs are sparse: E is a small multiple of V, not V&#178;</td><td>Dense graphs, tiny graphs, and algorithms defined on matrices (Floyd&ndash;Warshall, spectral methods)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>The modelling move that solves the problem</h4>
+        <p>Many puzzles that look nothing like graphs become easy once you pick the right node. &ldquo;The fewest word changes from COLD to WARM&rdquo; is a shortest path where nodes are words and edges join words differing in one letter. &ldquo;Can these courses be taken?&rdquo; is cycle detection. &ldquo;The cheapest exchange from GBP to JPY&rdquo; is a shortest path over a graph whose edge weights are logarithms of rates &mdash; because multiplying rates becomes adding logs, and now Dijkstra applies. When a problem resists, the useful question is not &ldquo;which algorithm&rdquo; but &ldquo;what are the nodes?&rdquo;</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Go</b>, <b>Python</b> and <b>Java</b> &mdash; switch in the bar, or press <b>g</b> / <b>p</b> / <b>j</b>.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// graph.go — for dense integer ids, a [][]int is the fastest graph there</span>
+<span class="c">// is: one allocation per node, contiguous neighbours, no hashing.</span>
+
+type Graph struct {
+    adj [][]int32                                <span class="c">// adj[u] = neighbours of u</span>
+}
+
+func NewGraph(n int) *Graph { return &amp;Graph{adj: make([][]int32, n)} }
+
+func (g *Graph) AddEdge(u, v int32) {
+    g.adj[u] = append(g.adj[u], v)
+    g.adj[v] = append(g.adj[v], u)               <span class="c">// drop this line for a digraph</span>
+}
+
+<span class="c">// When ids are strings, map them to dense integers once. Every</span>
+<span class="c">// algorithm below then indexes arrays instead of hashing, which is</span>
+<span class="c">// usually a 3-5x difference on a large graph.</span>
+type Ids struct {
+    byName map[string]int32
+    names  []string
+}
+
+func (ix *Ids) Get(name string) int32 {
+    if id, ok := ix.byName[name]; ok {
+        return id
+    }
+    id := int32(len(ix.names))
+    ix.byName[name] = id
+    ix.names = append(ix.names, name)
+    return id
+}
+
+<span class="c">// Weighted edges: a struct, kept small so several fit in a cache line.</span>
+type Edge struct {
+    To     int32
+    Weight int32
+}
+
+<span class="c">// A CSR (compressed sparse row) layout goes further: two flat slices,</span>
+<span class="c">// offsets and targets, so the whole graph is two allocations. Worth it</span>
+<span class="c">// above a few million edges, and the format every graph library uses</span>
+<span class="c">// internally.</span>
+type CSR struct {
+    offset []int32                               <span class="c">// len V+1</span>
+    target []int32                               <span class="c">// len E; neighbours of u are</span>
+}                                                <span class="c">// target[offset[u]:offset[u+1]]</span></pre>
+
+<pre class="l2" data-lang="py"><span class="c"># graph.py — a defaultdict of lists is the readable default and is</span>
+<span class="c"># almost always what you want.</span>
+from collections import defaultdict
+
+graph: dict[str, list[str]] = defaultdict(list)
+for u, v in edges:
+    graph[u].append(v)
+    graph[v].append(u)                           <span class="c"># omit for a directed graph</span>
+
+<span class="c"># Careful: reading a missing key on a defaultdict CREATES it, so</span>
+<span class="c"># `for nb in graph[node]` silently grows the graph while you traverse.</span>
+<span class="c"># Use .get(node, ()) in the read path, or a plain dict built up front.</span>
+for nb in graph.get(node, ()):
+    ...
+
+<span class="c"># Weighted: a list of (neighbour, weight) tuples.</span>
+weighted: dict[str, list[tuple[str, int]]] = defaultdict(list)
+weighted[u].append((v, w))
+
+<span class="c"># A grid is a graph whose edges are implied by arithmetic -- do not</span>
+<span class="c"># build one. This generator is the entire adjacency structure:</span>
+def neighbours(r: int, c: int, rows: int, cols: int):
+    for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        nr, nc = r + dr, c + dc
+        if 0 &lt;= nr &lt; rows and 0 &lt;= nc &lt; cols:
+            yield nr, nc
+
+<span class="c"># networkx is excellent for analysis and exploration, and slow: it holds</span>
+<span class="c"># a dict-of-dicts-of-dicts per node. For anything in a hot path, write</span>
+<span class="c"># the twenty lines.</span></pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Graph.java — records for edges, arrays for adjacency. Keep node ids</span>
+<span class="c">// dense and int-typed; a Map&lt;String, List&lt;String&gt;&gt; costs a hash on every</span>
+<span class="c">// single neighbour lookup inside the innermost loop of every algorithm.</span>
+
+record Edge(int to, int weight) {}
+
+final class Graph {
+    private final List&lt;List&lt;Edge&gt;&gt; adj;
+
+    Graph(int n) {
+        adj = new ArrayList&lt;&gt;(n);
+        for (int i = 0; i &lt; n; i++) adj.add(new ArrayList&lt;&gt;());
+    }
+
+    void addEdge(int u, int v, int w) {
+        adj.get(u).add(new Edge(v, w));
+        adj.get(v).add(new Edge(u, w));          <span class="c">// omit for a digraph</span>
+    }
+
+    List&lt;Edge&gt; neighbours(int u) { return adj.get(u); }
+    int size() { return adj.size(); }
+}
+
+<span class="c">// Interning string ids to dense ints, once:</span>
+Map&lt;String, Integer&gt; ids = new HashMap&lt;&gt;();
+IntFunction&lt;String&gt; name = i -&gt; names.get(i);
+int id = ids.computeIfAbsent(rawName, k -&gt; { names.add(k); return names.size() - 1; });
+
+<span class="c">// For very large graphs, drop to primitive arrays entirely: int[]</span>
+<span class="c">// offsets and int[] targets (CSR). It removes every object header and</span>
+<span class="c">// makes neighbour iteration a contiguous scan, which on a graph with</span>
+<span class="c">// tens of millions of edges is the difference between fitting in cache</span>
+<span class="c">// and not.</span></pre>
+    </section>
+
+    <section class="topic" id="traverse">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>The four searches, and how little separates them</h3>
+        <p class="lede">Breadth-first, depth-first, Dijkstra and A* are the same loop. Take a node from a collection of frontier nodes, mark it seen, add its unseen neighbours. The <em>only</em> difference is which node the collection hands back &mdash; the oldest, the newest, the cheapest, or the cheapest-plus-a-guess &mdash; and that single choice changes everything about the search.</p>
+      </div>
+
+      <figure class="demo" data-demo="graph">
+        <div class="demo-head"><span class="demo-title">One grid, four searches &middot; click to build walls</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Run all four and compare the &ldquo;cells expanded&rdquo; counter; that number is the algorithm.</b> Breadth-first expands in rings and finds the fewest <em>steps</em>, but treats the pale grey ground as though it were free. Depth-first commits to a direction and finds a path that is often absurd. Dijkstra respects the cost of the grey ground and pays for it by expanding almost the whole grid. A* expands a fraction of what Dijkstra does and returns the identical path, because its guess at the remaining distance never overestimates &mdash; that property, called admissibility, is exactly what makes the answer still optimal. Draw a wall across the corridor and watch each of them react.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Search</th><th>Frontier</th><th>Cost</th><th>What it guarantees</th></tr></thead>
+          <tbody>
+            <tr><td>Breadth-first</td><td>Queue &mdash; oldest first</td><td><span class="big g">O(V + E)</span></td><td>Fewest <em>edges</em>. Correct only when every edge costs the same, which is the case people forget.</td></tr>
+            <tr><td>Depth-first</td><td>Stack &mdash; newest first</td><td><span class="big g">O(V + E)</span></td><td>Nothing about distance. It gives you reachability, cycle detection, topological order and articulation points.</td></tr>
+            <tr><td>Dijkstra</td><td>Min-heap by distance</td><td><span class="big a">O((V + E) log V)</span></td><td>Cheapest path, for non-negative weights. A negative edge breaks it outright &mdash; the &ldquo;already finalised&rdquo; assumption fails.</td></tr>
+            <tr><td>A*</td><td>Min-heap by distance + heuristic</td><td><span class="big a">O((V + E) log V)</span></td><td>Cheapest path, if the heuristic never overestimates. With a zero heuristic it <em>is</em> Dijkstra.</td></tr>
+            <tr><td>Bellman&ndash;Ford</td><td>No frontier &mdash; V&minus;1 passes over all edges</td><td><span class="big b">O(V&middot;E)</span></td><td>Handles negative weights, and detects a negative cycle. The currency-arbitrage algorithm.</td></tr>
+            <tr><td>Floyd&ndash;Warshall</td><td>None &mdash; a V&times;V matrix</td><td><span class="big b">O(V&#179;)</span></td><td>Every pair at once. Only sane below a few hundred nodes, where its tiny constant beats V runs of Dijkstra.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+<pre class="l2" data-lang="go"><span class="c">// search.go — BFS and Dijkstra, written to show that they are one</span>
+<span class="c">// algorithm with two frontiers.</span>
+
+<span class="c">// BFS: shortest path in EDGES. The queue is what makes it correct --</span>
+<span class="c">// nodes come out in non-decreasing distance order.</span>
+func BFS(g *Graph, src int32) []int32 {
+    dist := make([]int32, len(g.adj))
+    for i := range dist {
+        dist[i] = -1
+    }
+    dist[src] = 0
+    q := []int32{src}
+    for len(q) &gt; 0 {
+        u := q[0]
+        q = q[1:]
+        for _, v := range g.adj[u] {
+            if dist[v] == -1 {                   <span class="c">// mark on ENQUEUE, not on</span>
+                dist[v] = dist[u] + 1            <span class="c">// dequeue, or a node can be</span>
+                q = append(q, v)                 <span class="c">// queued twice</span>
+            }
+        }
+    }
+    return dist
+}
+
+<span class="c">// Dijkstra: same shape, heap instead of queue. The "lazy deletion"</span>
+<span class="c">// variant pushes duplicates and skips stale ones on the way out, which</span>
+<span class="c">// avoids needing decrease-key and is what nearly everyone ships.</span>
+func Dijkstra(g [][]Edge, src int32) []int64 {
+    const inf = math.MaxInt64
+    dist := make([]int64, len(g))
+    for i := range dist {
+        dist[i] = inf
+    }
+    dist[src] = 0
+
+    pq := &amp;NodeHeap{{Node: src, Dist: 0}}
+    for pq.Len() &gt; 0 {
+        cur := heap.Pop(pq).(NodeDist)
+        if cur.Dist &gt; dist[cur.Node] {
+            continue                             <span class="c">// stale entry: already improved</span>
+        }
+        for _, e := range g[cur.Node] {
+            if nd := cur.Dist + int64(e.Weight); nd &lt; dist[e.To] {
+                dist[e.To] = nd
+                heap.Push(pq, NodeDist{Node: e.To, Dist: nd})
+            }
+        }
+    }
+    return dist
+}
+
+<span class="c">// When every weight is 0 or 1, a deque beats the heap: push 0-weight</span>
+<span class="c">// edges on the front and 1-weight on the back. O(V+E), no log factor.</span>
+<span class="c">// This "0-1 BFS" is worth knowing; it comes up constantly in grids.</span></pre>
+
+<pre class="l2" data-lang="py"><span class="c"># search.py — the same two, and the third that people reach for a graph</span>
+<span class="c"># library to avoid writing.</span>
+import heapq
+from collections import deque
+
+def bfs(graph, src):
+    """Fewest EDGES from src. Only correct when all edges cost the same."""
+    dist = {src: 0}
+    q = deque([src])
+    while q:
+        u = q.popleft()
+        for v in graph.get(u, ()):
+            if v not in dist:                    <span class="c"># mark on enqueue</span>
+                dist[v] = dist[u] + 1
+                q.append(v)
+    return dist
+
+def dijkstra(graph, src):
+    """Cheapest path. Non-negative weights only."""
+    dist = {src: 0}
+    pq = [(0, src)]                              <span class="c"># (distance, node) -- tuples compare</span>
+    while pq:
+        d, u = heapq.heappop(pq)
+        if d &gt; dist.get(u, float("inf")):
+            continue                             <span class="c"># stale duplicate: skip it</span>
+        for v, w in graph.get(u, ()):
+            nd = d + w
+            if nd &lt; dist.get(v, float("inf")):
+                dist[v] = nd
+                heapq.heappush(pq, (nd, v))
+    return dist
+
+<span class="c"># A* is dijkstra with one line changed: the heap is keyed by</span>
+<span class="c"># cost-so-far PLUS an estimate of the cost remaining. The estimate must</span>
+<span class="c"># never overestimate, or the answer stops being optimal. On a grid with</span>
+<span class="c"># unit steps, Manhattan distance is the standard admissible heuristic.</span>
+<span class="c">#     heapq.heappush(pq, (nd + h(v), nd, v))</span>
+
+<span class="c"># DFS: write it with an explicit stack. The recursive version is prettier</span>
+<span class="c"># and dies at a depth of 1000.</span>
+def dfs(graph, src):
+    seen, stack = {src}, [src]
+    while stack:
+        u = stack.pop()
+        for v in graph.get(u, ()):
+            if v not in seen:
+                seen.add(v)
+                stack.append(v)
+    return seen</pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Search.java — BFS on primitive arrays, Dijkstra on a PriorityQueue.</span>
+
+int[] bfs(Graph g, int src) {
+    int[] dist = new int[g.size()];
+    Arrays.fill(dist, -1);
+    dist[src] = 0;
+    Deque&lt;Integer&gt; q = new ArrayDeque&lt;&gt;();
+    q.add(src);
+    while (!q.isEmpty()) {
+        int u = q.poll();
+        for (Edge e : g.neighbours(u)) {
+            if (dist[e.to()] == -1) {            <span class="c">// mark on enqueue</span>
+                dist[e.to()] = dist[u] + 1;
+                q.add(e.to());
+            }
+        }
+    }
+    return dist;
+}
+
+long[] dijkstra(Graph g, int src) {
+    long[] dist = new long[g.size()];
+    Arrays.fill(dist, Long.MAX_VALUE);
+    dist[src] = 0;
+
+    <span class="c">// long[]{distance, node} avoids a record allocation per push; the</span>
+    <span class="c">// comparator reads element 0.</span>
+    PriorityQueue&lt;long[]&gt; pq = new PriorityQueue&lt;&gt;(Comparator.comparingLong(a -&gt; a[0]));
+    pq.add(new long[]{0, src});
+
+    while (!pq.isEmpty()) {
+        long[] cur = pq.poll();
+        int u = (int) cur[1];
+        if (cur[0] &gt; dist[u]) continue;          <span class="c">// stale entry</span>
+        for (Edge e : g.neighbours(u)) {
+            long nd = cur[0] + e.weight();
+            if (nd &lt; dist[e.to()]) {
+                dist[e.to()] = nd;
+                pq.add(new long[]{nd, e.to()});  <span class="c">// lazy decrease-key</span>
+            }
+        }
+    }
+    return dist;
+}
+
+<span class="c">// The bug that makes Dijkstra silently wrong: a negative edge weight.</span>
+<span class="c">// The algorithm assumes a popped node is final, and a negative edge can</span>
+<span class="c">// improve it afterwards. There is no error -- just a wrong answer. If</span>
+<span class="c">// weights can be negative you need Bellman-Ford, at O(V*E).</span></pre>
+    </section>
+
+    <section class="topic" id="toposort">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Topological order and cycles: the build-system algorithm</h3>
+        <p class="lede">Given tasks with dependencies, produce an order in which each task comes after everything it needs. This is what a build system, a migration runner, a package manager and a scheduler all do, and the same algorithm that produces the order also proves that no order exists &mdash; because there is a cycle.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 216" role="img" aria-label="Kahn's algorithm: nodes with no remaining incoming edges are emitted, decrementing the in-degree of their dependents, until either everything is emitted or a cycle remains.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">KAHN&rsquo;S ALGORITHM &mdash; EMIT WHATEVER HAS NOTHING LEFT TO WAIT FOR</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="36" width="96" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="68" y="55" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">schema</text>
+            <text x="26" y="80" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">in-degree 0</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="176" y="36" width="96" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="224" y="55" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">seed</text>
+            <text x="182" y="80" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">1 &rarr; 0</text>
+            <rect x="176" y="98" width="96" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="224" y="117" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">index</text>
+            <text x="182" y="142" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">1 &rarr; 0</text>
+            <rect x="332" y="66" width="96" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="380" y="85" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">report</text>
+            <text x="338" y="110" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">2 &rarr; 1 &rarr; 0</text>
+            <path d="M116 51 L172 51 M116 57 L172 108 M272 51 L328 76 M272 113 L328 88" stroke="currentColor" stroke-width="1.3" fill="none"/>
+          </g>
+
+          <text x="470" y="50" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Count how many edges point <tspan font-style="italic">into</tspan> each node. Queue every</text>
+          <text x="470" y="66" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">node whose count is zero; emitting one decrements its</text>
+          <text x="470" y="82" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">dependents, which may free them in turn. O(V + E).</text>
+          <text x="470" y="106" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Nodes freed at the same time have no ordering between</text>
+          <text x="470" y="122" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">them &mdash; which is exactly the set a build system can run</text>
+          <text x="470" y="138" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">in parallel.</text>
+
+          <line x1="20" y1="158" x2="880" y2="158" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <g class="svg-l3">
+            <circle cx="60" cy="188" r="14" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="60" y="192" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">a</text>
+            <circle cx="150" cy="188" r="14" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="150" y="192" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">b</text>
+            <circle cx="240" cy="188" r="14" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="240" y="192" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">c</text>
+            <path d="M74 188 L136 188 M164 188 L226 188 M236 174 Q150 140 64 174" stroke="currentColor" stroke-width="1.3" fill="none"/>
+            <text x="280" y="184" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">None of these three ever reaches in-degree zero, so the queue</text>
+            <text x="280" y="200" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">empties early and the emitted count is short: <tspan font-weight="600">that is the cycle report</tspan>.</text>
+          </g>
+        </svg>
+        <figcaption><b>The failure mode is the feature.</b> If Kahn&rsquo;s algorithm emits fewer nodes than the graph holds, the remainder is exactly the set of nodes involved in or downstream of a cycle &mdash; which is the error message a build tool should print, rather than &ldquo;dependency error&rdquo;. The depth-first variant finds the cycle itself: keep a colour per node (unvisited, in-progress, done) and an edge to an in-progress node <em>is</em> the back edge that closes the loop.</figcaption>
+      </figure>
+
+<pre class="l3" data-lang="go"><span class="c">// topo.go — Kahn's algorithm, with the cycle report as a first-class</span>
+<span class="c">// result rather than a boolean.</span>
+
+func TopoSort(n int, deps [][]int32) ([]int32, error) {
+    indeg := make([]int32, n)
+    for _, vs := range deps {                    <span class="c">// deps[u] = things that need u</span>
+        for _, v := range vs {
+            indeg[v]++
+        }
+    }
+
+    ready := make([]int32, 0, n)
+    for i, d := range indeg {
+        if d == 0 {
+            ready = append(ready, int32(i))
+        }
+    }
+
+    order := make([]int32, 0, n)
+    for len(ready) &gt; 0 {
+        <span class="c">// Everything in `ready` right now is independent: a build system</span>
+        <span class="c">// runs this whole slice in parallel and then re-fills it.</span>
+        u := ready[len(ready)-1]
+        ready = ready[:len(ready)-1]
+        order = append(order, u)
+        for _, v := range deps[u] {
+            if indeg[v]--; indeg[v] == 0 {
+                ready = append(ready, v)
+            }
+        }
+    }
+
+    if len(order) != n {
+        stuck := make([]int32, 0, n-len(order))
+        for i, d := range indeg {
+            if d &gt; 0 {
+                stuck = append(stuck, int32(i))  <span class="c">// in, or downstream of, a cycle</span>
+            }
+        }
+        return nil, fmt.Errorf("dependency cycle involving %v", stuck)
+    }
+    return order, nil
+}</pre>
+
+<pre class="l3" data-lang="py"><span class="c"># topo.py — the standard library has had this since 3.9, and it is the</span>
+<span class="c"># parallel-aware version, not just a flat order.</span>
+from graphlib import CycleError, TopologicalSorter
+
+graph = {"report": {"seed", "index"}, "seed": {"schema"}, "index": {"schema"}}
+
+<span class="c"># The simple form: one valid order.</span>
+order = list(TopologicalSorter(graph).static_order())
+<span class="c"># ['schema', 'seed', 'index', 'report']</span>
+
+<span class="c"># The useful form: get_ready() returns everything runnable RIGHT NOW,</span>
+<span class="c"># which is the set you hand to a thread pool. done() unblocks dependents.</span>
+ts = TopologicalSorter(graph)
+ts.prepare()                                     <span class="c"># raises CycleError here if cyclic</span>
+while ts.is_active():
+    batch = ts.get_ready()                       <span class="c"># a tuple of independent tasks</span>
+    for task in run_in_parallel(batch):
+        ts.done(task)
+
+<span class="c"># Cycle detection by hand, when you want the cycle itself. Three</span>
+<span class="c"># colours: 0 unvisited, 1 on the current path, 2 finished. An edge to a</span>
+<span class="c"># colour-1 node is a back edge, and the stack above it is the cycle.</span>
+def find_cycle(graph):
+    colour, stack = {}, []
+
+    def visit(u):
+        colour[u] = 1
+        stack.append(u)
+        for v in graph.get(u, ()):
+            if colour.get(v) == 1:               <span class="c"># back edge</span>
+                return stack[stack.index(v):] + [v]
+            if colour.get(v, 0) == 0:
+                if (found := visit(v)):
+                    return found
+        colour[u] = 2
+        stack.pop()
+        return None
+
+    return next((c for u in graph if colour.get(u, 0) == 0 and (c := visit(u))), None)</pre>
+
+<pre class="l3" data-lang="java"><span class="c">// Topo.java — Kahn's algorithm with the batch structure exposed, which</span>
+<span class="c">// is what makes it a scheduler rather than just a sort.</span>
+
+static List&lt;List&lt;Integer&gt;&gt; waves(int n, List&lt;List&lt;Integer&gt;&gt; dependents) {
+    int[] indeg = new int[n];
+    for (List&lt;Integer&gt; vs : dependents)
+        for (int v : vs) indeg[v]++;
+
+    Deque&lt;Integer&gt; ready = new ArrayDeque&lt;&gt;();
+    for (int i = 0; i &lt; n; i++) if (indeg[i] == 0) ready.add(i);
+
+    List&lt;List&lt;Integer&gt;&gt; out = new ArrayList&lt;&gt;();
+    int emitted = 0;
+    while (!ready.isEmpty()) {
+        int width = ready.size();                <span class="c">// this wave is independent</span>
+        List&lt;Integer&gt; wave = new ArrayList&lt;&gt;(width);
+        for (int i = 0; i &lt; width; i++) {
+            int u = ready.poll();
+            wave.add(u);
+            emitted++;
+            for (int v : dependents.get(u))
+                if (--indeg[v] == 0) ready.add(v);
+        }
+        out.add(wave);                           <span class="c">// hand each wave to an executor</span>
+    }
+
+    if (emitted != n) {
+        List&lt;Integer&gt; stuck = IntStream.range(0, n).filter(i -&gt; indeg[i] &gt; 0).boxed().toList();
+        throw new IllegalStateException("dependency cycle involving " + stuck);
+    }
+    return out;
+}
+
+<span class="c">// The number of waves is the critical path length: the shortest wall</span>
+<span class="c">// clock the build can achieve with unlimited parallelism. Printing it</span>
+<span class="c">// tells you whether adding machines will help at all.</span></pre>
+    </section>
+
+    <section class="topic" id="mst">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>Minimum spanning trees, and where union-find comes back</h3>
+        <p class="lede">Connect every node using the least total edge weight. Two algorithms solve it, both greedy, and both correct for the same reason &mdash; the cut property, which says that the lightest edge crossing any division of the nodes into two groups must belong to some minimum spanning tree.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">Kruskal</span><span class="b"><b>Sort all edges, keep any that joins two different components.</b> O(E log E), and the component test is exactly union-find. Best when the graph is sparse or the edges already arrive sorted.</span></div>
+        <div><span class="h">Prim</span><span class="b"><b>Grow one tree, always taking the cheapest edge leaving it.</b> O(E log V) with a heap &mdash; structurally identical to Dijkstra, keyed by edge weight instead of path length. Best when the graph is dense.</span></div>
+        <div><span class="h">Where it is used</span><span class="b"><b>Network and circuit layout, clustering</b> (cut the k&minus;1 heaviest edges of the MST and you have k clusters), image segmentation, and approximating the travelling salesman within a factor of two.</span></div>
+        <div><span class="h">What it is not</span><span class="b"><b>Not shortest paths.</b> The MST minimises total weight over the whole tree; the path between two nodes within it can be far worse than their shortest path.</span></div>
+      </div>
+
+<pre class="l1" data-lang="go"><span class="c">// mst.go — Kruskal is four lines once you have the DSU from part three.</span>
+<span class="c">// That is the payoff for having written it.</span>
+
+type WEdge struct {
+    U, V   int32
+    Weight int64
+}
+
+func Kruskal(n int, edges []WEdge) ([]WEdge, int64) {
+    slices.SortFunc(edges, func(a, b WEdge) int {
+        return cmp.Compare(a.Weight, b.Weight)   <span class="c">// the greedy order</span>
+    })
+
+    dsu := NewDSU(n)
+    tree := make([]WEdge, 0, n-1)
+    var total int64
+    for _, e := range edges {
+        if dsu.Union(int(e.U), int(e.V)) {       <span class="c">// false == would close a cycle</span>
+            tree = append(tree, e)
+            total += e.Weight
+            if len(tree) == n-1 {
+                break                            <span class="c">// a spanning tree has exactly n-1</span>
+            }
+        }
+    }
+    return tree, total
+}
+
+<span class="c">// If len(tree) &lt; n-1 when the loop ends, the graph was disconnected and</span>
+<span class="c">// what you have is a minimum spanning FOREST -- one tree per component.</span>
+<span class="c">// That is usually the right answer rather than an error.</span>
+
+<span class="c">// Single-linkage clustering falls out for free: stop early. Running</span>
+<span class="c">// Kruskal until exactly k components remain gives the clustering that</span>
+<span class="c">// maximises the smallest gap between clusters.</span>
+func Cluster(n int, edges []WEdge, k int) *DSU {
+    slices.SortFunc(edges, func(a, b WEdge) int { return cmp.Compare(a.Weight, b.Weight) })
+    dsu := NewDSU(n)
+    for _, e := range edges {
+        if dsu.groups == k {
+            break
+        }
+        dsu.Union(int(e.U), int(e.V))
+    }
+    return dsu
+}</pre>
+
+<pre class="l1" data-lang="py"><span class="c"># mst.py — Prim, which is Dijkstra with one word changed.</span>
+import heapq
+
+def prim(graph: dict[int, list[tuple[int, int]]], start: int = 0):
+    """Minimum spanning tree by growing one component.
+
+    Compare with dijkstra() above: the ONLY difference is that the heap
+    key is the edge weight `w` rather than the accumulated `d + w`.
+    Dijkstra minimises distance from the source; Prim minimises the cost
+    of attaching one more node to the tree.
+    """
+    seen = {start}
+    pq = [(w, start, v) for v, w in graph[start]]
+    heapq.heapify(pq)
+    tree, total = [], 0
+
+    while pq and len(seen) &lt; len(graph):
+        w, u, v = heapq.heappop(pq)
+        if v in seen:
+            continue                             <span class="c"># stale: v joined another way</span>
+        seen.add(v)
+        tree.append((u, v, w))
+        total += w
+        for nxt, nw in graph[v]:
+            if nxt not in seen:
+                heapq.heappush(pq, (nw, v, nxt))
+
+    return tree, total
+
+<span class="c"># Kruskal in Python, using the DSU from part three:</span>
+def kruskal(n: int, edges: list[tuple[int, int, int]]):
+    dsu = DSU(n)
+    tree, total = [], 0
+    for u, v, w in sorted(edges, key=lambda e: e[2]):
+        if dsu.union(u, v):                      <span class="c"># False means it closes a cycle</span>
+            tree.append((u, v, w))
+            total += w
+    return tree, total</pre>
+
+<pre class="l1" data-lang="java"><span class="c">// Mst.java — Kruskal with the Dsu from part three. Note how little code</span>
+<span class="c">// the algorithm itself is: the work is all in the two data structures.</span>
+
+record WEdge(int u, int v, long weight) {}
+
+static List&lt;WEdge&gt; kruskal(int n, List&lt;WEdge&gt; edges) {
+    List&lt;WEdge&gt; sorted = new ArrayList&lt;&gt;(edges);
+    sorted.sort(Comparator.comparingLong(WEdge::weight));
+
+    Dsu dsu = new Dsu(n);
+    List&lt;WEdge&gt; tree = new ArrayList&lt;&gt;(n - 1);
+    for (WEdge e : sorted) {
+        if (dsu.union(e.u(), e.v())) {           <span class="c">// false: both ends already joined</span>
+            tree.add(e);
+            if (tree.size() == n - 1) break;
+        }
+    }
+    return tree;                                 <span class="c">// size &lt; n-1 =&gt; disconnected graph</span>
+}
+
+<span class="c">// Why greedy is provably correct here, which is worth knowing because</span>
+<span class="c">// greedy is usually wrong: the CUT PROPERTY. Split the nodes into any</span>
+<span class="c">// two non-empty groups. The lightest edge crossing that split is in</span>
+<span class="c">// SOME minimum spanning tree -- if a tree omits it, adding it creates a</span>
+<span class="c">// cycle, and removing any other crossing edge from that cycle gives a</span>
+<span class="c">// tree no heavier. Every edge Kruskal accepts is the lightest crossing</span>
+<span class="c">// the cut between its two components, so every acceptance is safe.</span></pre>
+    </section>
+  </div>
+</section>

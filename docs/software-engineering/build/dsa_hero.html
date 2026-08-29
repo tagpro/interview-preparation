@@ -1,0 +1,12 @@
+<header class="hero">
+  <div class="shell">
+    <p class="crumb">Deep dive &nbsp;&middot;&nbsp; every structure and algorithm worth knowing, in Go, Python and Java</p>
+    <h1>Data structures,<br>in motion.</h1>
+    <p class="lede">Most people learn algorithms as a list of names and a table of complexities, which is exactly the form in which they are useless. This page teaches them as machines: what each structure physically is in memory, what each algorithm does step by step, what it costs and when it stops being the right choice. Every diagram here runs &mdash; press play and watch the array partition, the frontier expand, the table fill. Every snippet comes in <b>Go</b>, <b>Python</b> and <b>Java</b>; switch with the control in the bar above.</p>
+    <div class="numbers">
+      <div><span class="v">n log n</span><span class="k">The comparison-sort floor</span><span class="d">Not an engineering limit but a counting argument: n! orderings need at least log&#8322;(n!) yes-or-no answers to tell apart. Every sort you will ever write is fighting for the constant, not the exponent.</span></div>
+      <div><span class="v">~100&times;</span><span class="k">Contiguous vs pointer-chased</span><span class="d">The same n elements, the same O(n) walk. One prefetches perfectly; the other stalls on every hop. Complexity classes are silent about the difference, and your profiler is not.</span></div>
+      <div><span class="v">One set</span><span class="k">Turns O(n&#178;) into O(n)</span><span class="d">The single most common upgrade in real code is not a clever algorithm. It is noticing that an inner loop is asking &ldquo;have I seen this before?&rdquo; and giving it somewhere to remember.</span></div>
+    </div>
+  </div>
+</header>

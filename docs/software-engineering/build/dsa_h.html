@@ -1,0 +1,285 @@
+<section class="part" id="stdlib">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part eight</span>
+      <h2>What the standard library already gives you</h2>
+      <p>Nearly every structure on this page is already implemented, tested against adversarial inputs and tuned for the hardware, in the runtime you are using. The valuable knowledge is not how to write them &mdash; it is knowing which one you are reaching for, what it costs, and which of them your language gets conspicuously wrong.</p>
+    </div>
+
+    <section class="topic" id="containers">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>The same structure, three names</h3>
+        <p class="lede">This is the translation table. The rows are the structures from the rest of the page; the columns are what to type. Where a language has no built-in answer, the honest entry says so &mdash; and those gaps are informative, because they tell you what the language&rsquo;s designers thought you would rarely need.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Structure</th><th>Go</th><th>Python</th><th>Java</th></tr></thead>
+          <tbody>
+            <tr><td>Growable array</td><td><code>[]T</code>, <code>make([]T, 0, n)</code></td><td><code>list</code></td><td><code>ArrayList</code>, or <code>int[]</code> when hot</td></tr>
+            <tr><td>Fixed array of primitives</td><td><code>[N]T</code></td><td><code>array.array</code>, <code>bytes</code>, numpy</td><td><code>int[]</code>, <code>long[]</code>, <code>double[]</code></td></tr>
+            <tr><td>Hash map</td><td><code>map[K]V</code></td><td><code>dict</code></td><td><code>HashMap</code></td></tr>
+            <tr><td>Hash set</td><td><code>map[K]struct{}</code></td><td><code>set</code>, <code>frozenset</code></td><td><code>HashSet</code></td></tr>
+            <tr><td>Insertion-ordered map</td><td>&mdash; keep a key slice</td><td><code>dict</code> &mdash; guaranteed since 3.7</td><td><code>LinkedHashMap</code></td></tr>
+            <tr><td>Sorted map / range queries</td><td>&mdash; sorted slice + <code>slices.BinarySearch</code></td><td>&mdash; <code>bisect</code>, or <code>sortedcontainers</code></td><td><code>TreeMap</code> / <code>NavigableMap</code></td></tr>
+            <tr><td>Stack</td><td><code>[]T</code> with append/pop</td><td><code>list</code> with append/pop</td><td><code>ArrayDeque</code> &mdash; not <code>Stack</code></td></tr>
+            <tr><td>Queue / deque</td><td>&mdash; write a ring, or use a channel</td><td><code>collections.deque</code></td><td><code>ArrayDeque</code></td></tr>
+            <tr><td>Priority queue</td><td><code>container/heap</code> &mdash; you supply storage</td><td><code>heapq</code> on a list</td><td><code>PriorityQueue</code></td></tr>
+            <tr><td>Counter / multiset</td><td><code>map[K]int</code></td><td><code>collections.Counter</code></td><td><code>Map&lt;K,Integer&gt;</code> + <code>merge</code></td></tr>
+            <tr><td>Bitset</td><td><code>math/bits</code>, or <code>[]uint64</code></td><td><code>int</code> &mdash; arbitrary precision</td><td><code>BitSet</code>, <code>EnumSet</code></td></tr>
+            <tr><td>Linked list</td><td><code>container/list</code> &mdash; rarely right</td><td>&mdash; use <code>deque</code></td><td><code>LinkedList</code> &mdash; rarely right</td></tr>
+            <tr><td>LRU cache</td><td><code>hashicorp/golang-lru</code></td><td><code>functools.lru_cache</code></td><td><code>LinkedHashMap</code> with <code>accessOrder</code></td></tr>
+            <tr><td>Concurrent map</td><td><code>sync.Map</code>, or a sharded <code>map</code>+<code>RWMutex</code></td><td><code>dict</code> &mdash; atomic ops only, under the GIL</td><td><code>ConcurrentHashMap</code></td></tr>
+            <tr><td>Immutable snapshot</td><td><code>slices.Clone</code>, <code>maps.Clone</code></td><td><code>tuple</code>, <code>frozenset</code>, <code>types.MappingProxyType</code></td><td><code>List.copyOf</code>, <code>Map.copyOf</code></td></tr>
+            <tr><td>Topological sort</td><td>&mdash; twenty lines</td><td><code>graphlib.TopologicalSorter</code></td><td>&mdash; twenty lines</td></tr>
+            <tr><td>Union-find</td><td colspan="3">&mdash; none of the three has one. It is twenty lines; see part three.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="langnote">Snippets in <b>Go</b>, <b>Python</b> and <b>Java</b> &mdash; switch in the bar, or press <b>g</b> / <b>p</b> / <b>j</b>.</p>
+
+<pre class="l2" data-lang="go"><span class="c">// stdlib.go — the generic packages added in 1.21 and 1.23 replaced most</span>
+<span class="c">// of the hand-written loops people used to write.</span>
+
+slices.Sort(xs)                                  <span class="c">// ordered types</span>
+slices.SortFunc(xs, cmpFn)                       <span class="c">// -1 / 0 / +1</span>
+slices.SortStableFunc(xs, cmpFn)
+i, found := slices.BinarySearch(xs, v)
+slices.Contains(xs, v)                           <span class="c">// O(n) -- know that it is</span>
+slices.Index(xs, v)
+slices.Reverse(xs)
+slices.Max(xs); slices.Min(xs)
+xs = slices.Compact(xs)                          <span class="c">// drop adjacent duplicates</span>
+xs = slices.Insert(xs, i, v)
+xs = slices.Delete(xs, i, j)
+ys := slices.Clone(xs)                           <span class="c">// shallow, but detaches the array</span>
+slices.Equal(xs, ys)
+
+maps.Keys(m)                                     <span class="c">// an iterator (1.23+), not a slice</span>
+slices.Sorted(maps.Keys(m))                      <span class="c">// the deterministic-iteration idiom</span>
+maps.Clone(m); maps.Equal(a, b)
+
+<span class="c">// Iterators (1.23) let you write algorithms that compose without</span>
+<span class="c">// materialising intermediate slices.</span>
+func Filter[T any](s iter.Seq[T], keep func(T) bool) iter.Seq[T] {
+    return func(yield func(T) bool) {
+        for v := range s {
+            if keep(v) &amp;&amp; !yield(v) {
+                return                           <span class="c">// the consumer stopped early</span>
+            }
+        }
+    }
+}
+
+<span class="c">// container/heap and container/list are the two pre-generics holdouts:</span>
+<span class="c">// both use `any` and both need a type assertion on the way out. The</span>
+<span class="c">// heap is still worth using; the list almost never is.</span></pre>
+
+<pre class="l2" data-lang="py"><span class="c"># stdlib.py — the modules that replace hand-written algorithms.</span>
+
+<span class="c"># collections</span>
+from collections import Counter, defaultdict, deque, OrderedDict
+Counter(words).most_common(10)                   <span class="c"># top-k, via a heap</span>
+Counter(a) &amp; Counter(b)                          <span class="c"># multiset intersection</span>
+deque(maxlen=1000)                               <span class="c"># O(1) both ends, ring buffer</span>
+
+<span class="c"># heapq / bisect — the two algorithm modules</span>
+import bisect, heapq
+heapq.nlargest(k, xs, key=...)                   <span class="c"># O(n log k)</span>
+heapq.merge(*sorted_iters)                       <span class="c"># lazy k-way merge</span>
+bisect.insort(sorted_list, v)                    <span class="c"># keep a list sorted</span>
+
+<span class="c"># itertools — the combinatorics, all lazy</span>
+from itertools import accumulate, chain, groupby, islice, pairwise, product
+list(pairwise("abcd"))                           <span class="c"># [('a','b'),('b','c'),('c','d')]</span>
+list(accumulate(xs))                             <span class="c"># prefix sums</span>
+<span class="c"># groupby needs its input SORTED by the same key -- it groups RUNS,</span>
+<span class="c"># not values, and that is the single most common misuse in the module.</span>
+for key, grp in groupby(sorted(rows, key=k), key=k):
+    ...
+
+<span class="c"># functools — memoisation and comparators</span>
+from functools import cache, cmp_to_key, lru_cache, reduce
+
+<span class="c"># graphlib — topological sorting, since 3.9</span>
+from graphlib import TopologicalSorter
+
+<span class="c"># The one to know about but rarely need: array and memoryview give you</span>
+<span class="c"># a flat buffer and a zero-copy view of it, which is how you avoid</span>
+<span class="c"># copying a large bytes object into a slice.</span>
+view = memoryview(buf)[1024:2048]                <span class="c"># no copy at all</span></pre>
+
+<pre class="l2" data-lang="java"><span class="c">// Stdlib.java — the JDK's collection utilities, and which to trust.</span>
+
+List.of(a, b, c);                                <span class="c">// immutable, null-hostile, compact</span>
+Map.of(k1, v1, k2, v2);                          <span class="c">// up to 10 pairs; Map.ofEntries beyond</span>
+List.copyOf(mutable);                            <span class="c">// defensive snapshot</span>
+
+Collections.unmodifiableList(l);                 <span class="c">// a VIEW: the original can still change</span>
+
+Arrays.sort(a);                                  <span class="c">// dual-pivot quicksort (primitives)</span>
+Arrays.parallelSort(a);                          <span class="c">// fork/join above ~8k</span>
+Arrays.fill(a, v);
+Arrays.binarySearch(a, v);                       <span class="c">// negative encodes the insertion point</span>
+Arrays.stream(a).sum();                          <span class="c">// IntStream: no boxing</span>
+
+<span class="c">// Streams: excellent for expressing the pipeline, and worth measuring</span>
+<span class="c">// before putting in a hot loop -- a plain for loop over an int[] is</span>
+<span class="c">// usually faster than the equivalent stream, sometimes by a lot.</span>
+Map&lt;Dept, List&lt;User&gt;&gt; byDept = users.stream()
+        .collect(Collectors.groupingBy(User::dept));
+Map&lt;Dept, Long&gt; counts = users.stream()
+        .collect(Collectors.groupingBy(User::dept, Collectors.counting()));
+
+<span class="c">// The utility that saves the most code, and the one most often missed:</span>
+map.merge(key, 1, Integer::sum);                 <span class="c">// count</span>
+map.computeIfAbsent(key, k -&gt; new ArrayList&lt;&gt;()).add(v);   <span class="c">// group</span>
+map.compute(key, (k, v) -&gt; v == null ? init : update(v));
+
+<span class="c">// Across threads: ConcurrentHashMap, and its atomic compute methods.</span>
+<span class="c">// Never Collections.synchronizedMap, which serialises every call and</span>
+<span class="c">// still needs external locking for check-then-act.</span>
+concurrent.computeIfAbsent(key, k -&gt; expensive(k));   <span class="c">// atomic, per key</span></pre>
+    </section>
+
+    <section class="topic" id="pitfalls">
+      <div class="topic-head">
+        <span class="kicker">DSA &middot; xx</span>
+        <h3>The mistakes each language invites</h3>
+        <p class="lede">Every runtime has a small set of data-structure errors that its own design makes easy. They are not exotic; they are the ones that reach production, survive review, and are eventually found by a profiler or an incident. Here they are, per language, with the fix.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Language</th><th>The mistake</th><th>What it costs, and the fix</th></tr></thead>
+          <tbody>
+            <tr><td>Go</td><td>Sub-slicing a large buffer and keeping the small result</td><td>The whole backing array stays reachable. A 10-byte slice of a 100 MB read holds 100 MB. Fix: <code>slices.Clone</code>.</td></tr>
+            <tr><td>Go</td><td><code>append</code> to a slice a caller also holds</td><td>Whether the write is visible depends on spare capacity, so the bug is intermittent. Fix: three-index slicing <code>xs[a:b:b]</code>, or document that append is the caller&rsquo;s job.</td></tr>
+            <tr><td>Go</td><td>Assuming a map ever releases memory</td><td>Maps never shrink. Fix: rebuild into a fresh map when the live set is a small fraction of the peak.</td></tr>
+            <tr><td>Python</td><td><code>in</code> on a list inside a loop</td><td>Silent O(n&#178;). Fix: build a <code>set</code> once, before the loop.</td></tr>
+            <tr><td>Python</td><td><code>list.pop(0)</code> or <code>insert(0, ...)</code> as a queue</td><td>Silent O(n&#178;). Fix: <code>collections.deque</code>.</td></tr>
+            <tr><td>Python</td><td>String concatenation in a loop</td><td>Quadratic copying. Fix: collect into a list and <code>"".join(parts)</code>.</td></tr>
+            <tr><td>Python</td><td>A mutable default argument, or <code>[[0]*n]*m</code></td><td>Shared state across calls or rows. Fix: <code>None</code> plus a check, and a comprehension for the grid.</td></tr>
+            <tr><td>Java</td><td><code>hashCode</code> and <code>equals</code> disagreeing, or a mutable key</td><td>Entries become unreachable and un-removable &mdash; a leak plus a correctness bug. Fix: use a <code>record</code>.</td></tr>
+            <tr><td>Java</td><td>Iterating a <code>PriorityQueue</code> and expecting sorted order</td><td>It is heap order, which looks sorted for small inputs and is not. Fix: repeated <code>poll()</code>, or sort a copy.</td></tr>
+            <tr><td>Java</td><td>A comparator built from subtraction</td><td><code>a - b</code> overflows for large or negative values, and Timsort throws &ldquo;violates its general contract&rdquo;. Fix: <code>Comparator.comparingInt</code>.</td></tr>
+            <tr><td>Java</td><td><code>LinkedList</code>, <code>Vector</code>, <code>Stack</code>, <code>Hashtable</code></td><td>All four are worse versions of something else. Fix: <code>ArrayList</code>, <code>ArrayDeque</code>, <code>HashMap</code>.</td></tr>
+            <tr><td>All three</td><td>Sorting to get the top ten</td><td>O(n log n) where O(n log k) would do, and it buffers everything. Fix: a bounded heap.</td></tr>
+            <tr><td>All three</td><td>Recursing to a depth the input controls</td><td>Stack exhaustion, which is a crash rather than an exception. Fix: an explicit stack, or a hard depth limit.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+<pre class="l3" data-lang="go"><span class="c">// pitfalls.go — the three that cause real incidents, and their fixes.</span>
+
+<span class="c">// 1. The slice that pins a hundred megabytes.</span>
+func ExtractIDBad(r io.Reader) []byte {
+    data, _ := io.ReadAll(r)                     <span class="c">// 100 MB</span>
+    return data[10:42]                           <span class="c">// 32 bytes; the 100 MB stays alive</span>
+}
+
+func ExtractID(r io.Reader) []byte {
+    data, _ := io.ReadAll(r)
+    return slices.Clone(data[10:42])             <span class="c">// 32 bytes, and only 32</span>
+}
+
+<span class="c">// 2. The loop variable that used to be shared. Fixed in Go 1.22 -- each</span>
+<span class="c">// iteration now gets its own variable -- but the same shape still bites</span>
+<span class="c">// when you take the address of a range value over a slice of structs.</span>
+for _, item := range items {
+    out = append(out, &amp;item)                     <span class="c">// 1.22+: fine. Before: all same</span>
+}
+
+<span class="c">// 3. Growing a map forever. A map that peaked at 10 million keys keeps</span>
+<span class="c">// its buckets after every key is deleted.</span>
+if len(cache) &lt; cap(keys)/4 {                    <span class="c">// live set is a quarter of peak</span>
+    fresh := make(map[string]Entry, len(cache))
+    maps.Copy(fresh, cache)
+    cache = fresh                                <span class="c">// the old buckets become garbage</span>
+}
+
+<span class="c">// 4. Not a leak, but the most common performance bug: no capacity hint.</span>
+<span class="c">//    var out []Row               -&gt; ~log2(n) reallocations and copies</span>
+<span class="c">//    out := make([]Row, 0, n)    -&gt; one allocation</span></pre>
+
+<pre class="l3" data-lang="py"><span class="c"># pitfalls.py — the quadratic loops that look linear.</span>
+
+<span class="c"># 1. Membership on a list. This is O(n*m) and reads as if it were O(n).</span>
+missing = [x for x in candidates if x not in known_list]     <span class="c"># slow</span>
+known = set(known_list)                                      <span class="c"># once, O(m)</span>
+missing = [x for x in candidates if x not in known]          <span class="c"># O(n)</span>
+
+<span class="c"># 2. A list used as a queue.</span>
+while queue:
+    item = queue.pop(0)                          <span class="c"># O(n) each: shifts everything</span>
+<span class="c"># from collections import deque; queue = deque(...); queue.popleft()</span>
+
+<span class="c"># 3. String building.</span>
+out = ""
+for row in rows:
+    out += render(row)                           <span class="c"># O(n^2) copying</span>
+out = "".join(render(row) for row in rows)       <span class="c"># O(n)</span>
+
+<span class="c"># 4. The mutable default: evaluated ONCE, at definition time, and then</span>
+<span class="c"># shared by every call that does not pass one.</span>
+def add(item, bucket=[]):                        <span class="c"># wrong</span>
+    bucket.append(item)
+    return bucket
+
+def add(item, bucket=None):                      <span class="c"># right</span>
+    if bucket is None:
+        bucket = []
+    bucket.append(item)
+    return bucket
+
+<span class="c"># 5. Mutating a list while iterating it. The iterator holds an index,</span>
+<span class="c"># so a removal makes it skip the next element -- silently.</span>
+for x in list(xs):                               <span class="c"># iterate a copy, or</span>
+    if drop(x):
+        xs.remove(x)
+xs = [x for x in xs if not drop(x)]              <span class="c"># better: one pass, no removal</span></pre>
+
+<pre class="l3" data-lang="java"><span class="c">// Pitfalls.java — the ones that survive code review.</span>
+
+<span class="c">// 1. A mutable key. After the set() the entry is unreachable AND</span>
+<span class="c">// un-removable: it hashes to a different bin than the one it is in.</span>
+Map&lt;Point, String&gt; map = new HashMap&lt;&gt;();
+Point p = new Point(1, 2);
+map.put(p, "a");
+p.setX(9);                                       <span class="c">// the entry is now lost forever</span>
+map.get(p);                                      <span class="c">// null</span>
+map.remove(p);                                   <span class="c">// does nothing; the memory stays</span>
+<span class="c">// Fix: record Point(int x, int y) {} -- immutable, equals and hashCode free</span>
+
+<span class="c">// 2. Comparator by subtraction. Fine until the values are large.</span>
+Comparator&lt;Item&gt; broken = (a, b) -&gt; a.id() - b.id();
+Comparator&lt;Item&gt; fixed = Comparator.comparingInt(Item::id);
+
+<span class="c">// 3. Removing while iterating. Fail-fast, so at least it throws.</span>
+for (String s : list) if (drop(s)) list.remove(s);   <span class="c">// ConcurrentModification</span>
+list.removeIf(this::drop);                           <span class="c">// one pass, correct</span>
+
+<span class="c">// 4. Boxing in a hot loop. Every ++ unboxes, adds, and boxes again --</span>
+<span class="c">// an allocation per iteration above the Integer cache of 127.</span>
+Map&lt;String, Integer&gt; counts = new HashMap&lt;&gt;();
+counts.merge(key, 1, Integer::sum);              <span class="c">// still boxes, but once per call</span>
+<span class="c">// For a fixed key space, int[] indexed by an enum ordinal boxes never.</span>
+
+<span class="c">// 5. Arrays.asList is a fixed-size VIEW over the array, not a copy.</span>
+List&lt;String&gt; view = Arrays.asList(array);
+view.add("x");                                   <span class="c">// UnsupportedOperationException</span>
+List&lt;String&gt; real = new ArrayList&lt;&gt;(Arrays.asList(array));
+
+<span class="c">// 6. Integer.parseInt in a stream over millions of rows: the exception</span>
+<span class="c">// path fills in a stack trace, which is thousands of times more</span>
+<span class="c">// expensive than the parse. Validate before parsing on hot paths.</span></pre>
+
+      <div class="callout">
+        <h4>The order to think in</h4>
+        <p>When something is slow, work down this list rather than reaching for the clever structure first. <b>One:</b> is there an accidental quadratic &mdash; a membership test, a removal, or a string concatenation inside a loop? That is the majority of real cases and the fix is usually one line. <b>Two:</b> is the work being repeated &mdash; would a cache, a prefix sum or a memo remove it? <b>Three:</b> is the data laid out badly &mdash; boxed values, pointer chasing, a map where an array would do? <b>Four, and only then:</b> is a different algorithm needed? Most performance work never gets past step one, and the engineers who look fastest are usually the ones who recognise it there.</p>
+      </div>
+    </section>
+  </div>
+</section>
