@@ -1,6 +1,6 @@
 # The Backend Ladder
 
-Eight long-form HTML pages on backend engineering, served by GitHub Pages at
+Nine long-form HTML pages on backend engineering, served by GitHub Pages at
 `study.jaspreet.info/software-engineering/`, plus the toolchain that builds them
 in `build/`.
 
@@ -23,17 +23,17 @@ means adding a card to `../index.html` by hand.
 
 ## What is source and what is generated
 
-The eight `build/*.html` **pages** are the source of truth for their prose and
-markup. Five of them are also assembled from fragments (`build_py.py`,
-`build_java.py`, `build_aws.py`, `build_dsa.py` read `py_*.html`, `java_*.html`,
-`aws_*.html`, `dsa_*.html`; `build_go.py` rebuilds `pillar-b-go.html` from
-itself). The three pillar pages have no fragments -- they *are* the source.
+The nine `build/*.html` **pages** are the source of truth for their prose and
+markup. Six of them are also assembled from fragments (`build_py.py`,
+`build_java.py`, `build_aws.py`, `build_dsa.py`, `build_ai.py` read `py_*.html`,
+`java_*.html`, `aws_*.html`, `dsa_*.html`, `ai_*.html`; `build_go.py` rebuilds
+`pillar-b-go.html` from itself). The three pillar pages have no fragments -- they *are* the source.
 
 The cross-link rail every page carries is generated from `series.py`, which is
-the one list of pages in the series. `series_sync.py` writes it into all eight,
+the one list of pages in the series. `series_sync.py` writes it into all nine,
 including the three that have no build script.
 
-The eight files at the top of this directory are output. Editing them is always
+The nine files at the top of this directory are output. Editing them is always
 wrong: the next `site_build.mjs` overwrites them.
 
 ## Building
@@ -42,7 +42,7 @@ wrong: the next `site_build.mjs` overwrites them.
     npm install                       # once
     pip install -r requirements.txt   # pymupdf, for the print checks only
     python3 build_go.py && python3 build_py.py && python3 build_java.py
-    python3 build_aws.py && python3 build_dsa.py
+    python3 build_aws.py && python3 build_dsa.py && python3 build_ai.py
     python3 series_sync.py            # the cross-link rail, from series.py
     node hl_inject.mjs                # syntax highlighting
     node print_inject.mjs             # print stylesheet
@@ -64,6 +64,7 @@ Run what the change touches; run all of them before publishing.
     node hl_verify_dim.mjs            # no text that used to be dimmed lost it
     node audit2.mjs                   # SVG geometry -- must print TOTAL: 0
     node verify_gloss.mjs             # glossary wraps, misplaced: 0
+    python3 esc_pre.py --check ai_*.html   # no bare < or > inside a code block
     node verify_aws.mjs               # the Go/Python switch covers every pair
     python3 series_sync.py --check    # no page's rail has drifted from series.py
     node site_check.mjs ..            # the built site: links, passes, structure
@@ -102,12 +103,23 @@ document.
   URLs because they are also published as artifacts; `site_build.mjs` maps them
   to local filenames and fails if one is unrecognised. Adding a page means one
   entry in `series.py`, one run of `series_sync.py`, one entry in `PAGES` in
-  `site_build.mjs`, `hl_detect.mjs` and `gloss_inject.py`, and one card in
-  `../index.html`.
-- **Nothing on the algorithms page autoplays, and that is load-bearing.** Its
-  eleven figures are precomputed traces with a fixed opening frame, so the
-  printed page does not depend on when Chrome took the snapshot -- which is what
-  lets `print_same.py` compare two renders at all. A figure that started itself
-  would also be noise beside the paragraph explaining it.
+  `site_build.mjs`, `hl_detect.mjs`, `gloss_inject.py` and `verify_gloss.mjs`,
+  and one card in `../index.html`.
+- **Nothing on the interactive pages autoplays, and that is load-bearing.** The
+  twenty-six figures on the algorithms and AI pages are precomputed traces with
+  a fixed opening frame, or calculators whose knobs start at fixed values, so
+  the printed page does not depend on when Chrome took the snapshot -- which is
+  what lets `print_same.py` compare two renders at all. A figure that started
+  itself would also be noise beside the paragraph explaining it.
+- **The player and the figure chrome live in `demo_ui.py`, once.** Both
+  interactive pages import it; each supplies only its own stage CSS and its own
+  demos. It also generates the language switch, which is why the two pages can
+  offer different language sets (`lang-go|py|java` under `ladder-lang`,
+  `ai-py|ts|go` under `ai-lang`) without a second copy of the behaviour.
+- **Code fragments are written with bare `<`, `>` and `&`, and `esc_pre.py`
+  escapes them.** A bare `<` inside a `<pre>` is a tag to every regex-based pass
+  downstream; the highlighter silently loses the text after it. The pass is
+  idempotent and `--check` fails the build if a fragment was edited without
+  re-running it.
 - **`build/` is served too.** It sits inside the Pages directory, so anything
   added there is publicly fetchable. Keep credentials out of it.

@@ -1,0 +1,12 @@
+<header class="hero">
+  <div class="shell">
+    <p class="crumb">Deep dive &nbsp;&middot;&nbsp; the concepts an AI engineer is hired for, with every figure running</p>
+    <h1>Prompt to<br>production.</h1>
+    <p class="lede">You do not need a research background to be an AI engineer. You need to know what a model is doing well enough to predict how it will fail, and then apply ordinary engineering to the failure. That is the whole job, and it is mostly a job you already know how to do &mdash; caches, budgets, retries, queues, measurement &mdash; wrapped around one component that is probabilistic and expensive. This page walks the arc from a single token to a system on a budget. Every section states <b>the problem</b> first, then the mechanism, then what to actually say when someone asks. Every diagram runs: drag the sliders, step the loop, watch the recall fall. Snippets come in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>; switch in the bar above.</p>
+    <div class="numbers">
+      <div><span class="v">Every turn</span><span class="k">is a fresh request</span><span class="d">The model remembers nothing between calls. The system prompt, every tool definition, the whole conversation and every retrieved document are re-sent and re-charged on each one &mdash; which is why an agent&rsquo;s bill grows with the square of its conversation, not with its length.</span></div>
+      <div><span class="v">Two suspects</span><span class="k">for every wrong answer</span><span class="d">Either the right passage was never retrieved, or it was retrieved and ignored. The fixes are opposite &mdash; index and ranking versus prompt and model &mdash; so the first job of an evaluation is to tell you which one you have.</span></div>
+      <div><span class="v">KV cache</span><span class="k">sets your concurrency</span><span class="d">Weights are a constant you pay once. The per-user memory &mdash; two bytes, times layers, times key/value heads, times head dimension, per token &mdash; is what decides how many people you can serve at once, and it is the number nobody thinks about until the server falls over.</span></div>
+    </div>
+  </div>
+</header>

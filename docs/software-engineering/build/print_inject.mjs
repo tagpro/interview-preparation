@@ -114,6 +114,71 @@ const DSA = `
   }
 `;
 
+const AI = `
+  /* the controls, and the two lines that only make sense on screen */
+  .demo-ctl, figure.demo .nojs { display: none !important; }
+  figure.demo { break-inside: avoid; }
+  .demo-stage { overflow: visible; padding: 10pt 12pt; }
+  .demo-head { padding: 7pt 12pt; }
+  .demo-read { padding: 6pt 12pt; font-size: 7.4pt; min-height: 0; }
+  figure.demo figcaption { padding: 0 12pt 10pt; }
+  .demo-legend, .stack-key { font-size: 6.6pt; margin-top: 8pt; }
+
+  /* The knob panel is the whole control surface on this page's calculators.
+     Printed it would be a row of dead sliders, so it goes -- but the stage
+     underneath still shows the figure at the settings it opened with. */
+  .knobs { display: none !important; }
+
+  /* keep the fills: without them every figure on the page is blank paper */
+  .tok, .mat td, .dist .d .b, .dist .d .b span, .stack, .stack i, .stack-key i,
+  .cell, .cm td, .tl .lane u, .hist .h i, .hist .cut, .docv .ck, .docv .hit,
+  .demo-stage svg, .demo-legend i, .msg, .langbar {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .hist { height: 86pt; }
+  .tl .lane u { width: 11px; height: 11px; }
+  .mat td { width: 24px; height: 20px; font-size: 6pt; }
+  .mat th { font-size: 6pt; padding: 1px 3px; }
+
+  /* On screen several stages reverse white text out of a filled shape. On
+     paper that is the one thing that cannot be checked for contrast, so the
+     fill becomes an outline and every character stays dark on white. */
+  .demo-stage svg .node.on circle, .demo-stage svg .node.on rect,
+  .demo-stage svg .node.ok circle, .demo-stage svg .node.ok rect,
+  .demo-stage svg .node.hot circle, .demo-stage svg .node.hot rect { fill: none; stroke-width: 2.4; }
+  .demo-stage svg .node.on text, .demo-stage svg .node.ok text,
+  .demo-stage svg .node.hot text { fill: var(--ink); }
+
+  /* auto-fit grids, pinned the way the rest of the print sheet pins them */
+  .growth { grid-template-columns: 1fr 1fr; gap: 14pt; }
+  .trio { grid-template-columns: repeat(3, 1fr); gap: 10pt; }
+  .svc { grid-template-columns: repeat(3, 1fr); }
+  .svc div { border-right: 1px solid var(--line); }
+
+  /* which of the three languages this copy carries */
+  .langnote { display: none; }
+  .hero .lede::after {
+    display: block; margin-top: 14pt; padding-top: 9pt; border-top: 1px solid var(--line);
+    font-family: "IBM Plex Mono", monospace; font-size: 8pt; letter-spacing: 0.05em;
+    color: var(--ink-soft);
+  }
+  :root.ai-py .hero .lede::after {
+    content: "This copy carries the Python snippets. Switch with the control in the bar and print again for TypeScript or Go.";
+  }
+  :root.ai-ts .hero .lede::after {
+    content: "This copy carries the TypeScript snippets. Switch with the control in the bar and print again for Python or Go.";
+  }
+  :root.ai-go .hero .lede::after {
+    content: "This copy carries the Go snippets. Switch with the control in the bar and print again for Python or TypeScript.";
+  }
+  .hero .lede::before {
+    display: block; margin-top: 14pt; padding-top: 9pt; border-top: 1px solid var(--line);
+    font-family: "IBM Plex Mono", monospace; font-size: 8pt; letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    content: "The figures below are interactive on screen; printed, each one shows its opening state.";
+  }
+`;
+
 // The three passes all splice a block in ahead of the next marker, and each one
 // leaves its own idea of the blank line before it. Left alone they leapfrog and
 // the file grows a newline per full run. Normalising the gap here -- in all
@@ -126,7 +191,10 @@ for (const page of PAGES) {
   let s = fs.readFileSync(page, 'utf8');
 
   // Per-page additions go inside the same @media print block, before its brace.
-  const extra = page === 'aws-deep-dive.html' ? AWS : page === 'dsa.html' ? DSA : '';
+  const extra = page === 'aws-deep-dive.html' ? AWS
+    : page === 'dsa.html' ? DSA
+    : page === 'ai.html' ? AI
+    : '';
   const sheet = base.replace(/\n\}\n$/, extra + '}').replace(/\n+$/, '');
   const css = [OPEN, '<style>', sheet, '</style>', CLOSE, ''].join('\n');
 

@@ -1,0 +1,749 @@
+<section class="part" id="model">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part one</span>
+      <h2>What the model is actually doing</h2>
+      <p>Four mechanisms, and you can stop there. A language model turns text into integers, turns integers into directions in a large space, lets every direction read every other one, and then draws a single next integer from a probability distribution. Everything later in this page &mdash; why retrieval works, why prompts are fragile, why serving is a memory problem &mdash; falls out of these four. You do not need the calculus. You do need to be able to say what each step consumes and what it produces.</p>
+    </div>
+
+    <section class="topic" id="tokens">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Text is not what it reads</h3>
+        <p class="lede">The model never sees characters or words. It sees a list of integers, produced by a vocabulary of fifty to two hundred thousand fragments learned from data. Every limit you will hit &mdash; the context window, the rate limit, the invoice &mdash; is denominated in those fragments, so the first habit to build is counting them instead of counting words.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">A prompt that works in English silently costs three times as much in Japanese, a customer ID gets shattered into six fragments the model cannot reason about, and a &ldquo;4,000 word&rdquo; document turns out not to fit.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Byte-pair encoding starts from bytes and repeatedly merges the commonest adjacent pair. Frequent words end up as one token; rare ones shatter; the leading space belongs to the word <em>after</em> it.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;I never estimate tokens from word count. I count them with the provider&rsquo;s own tokenizer endpoint, because the ratio moves with language and with content &mdash; code and identifiers are far worse than prose.&rdquo;</span></div>
+      </div>
+
+      <figure class="demo" data-demo="tokens">
+        <div class="demo-head"><span class="demo-title">Tokenizer &middot; type anything</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>The alternating tint marks the boundaries; the middle dot is a leading space, which belongs to the token after it.</b> This is a rule-based stand-in, not a real learned vocabulary &mdash; shipping one would be a megabyte &mdash; but the three behaviours it reproduces are the ones that matter: a common word is one token, an unusual word shatters, and non-English text costs several tokens per character. Try the log line: identifiers and hex are where budgets go to die.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Content</th><th>Roughly</th><th>Why it matters</th></tr></thead>
+          <tbody>
+            <tr><td>English prose</td><td><span class="big g">~4 characters</span> per token</td><td>The number everyone quotes. It is only true for this one case.</td></tr>
+            <tr><td>Code</td><td><span class="big a">~3 characters</span></td><td>Punctuation and indentation are tokens. A repository summary is bigger than it looks.</td></tr>
+            <tr><td>Identifiers, hashes, UUIDs</td><td><span class="big b">~1&ndash;2 characters</span></td><td>Unmergeable strings shatter. A log line can cost more tokens than a paragraph.</td></tr>
+            <tr><td>Non-Latin scripts</td><td><span class="big b">1&ndash;3 tokens</span> per character</td><td>The same request in another language can cost several times more, silently.</td></tr>
+            <tr><td>Numbers</td><td>groups of up to 3 digits</td><td>Part of why arithmetic on long numbers is unreliable: the model does not see the number.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Count, do not guess</h4>
+          <ul>
+            <li><strong>Tokens are the unit of everything.</strong> Context limits, rate limits and price are all per token, in and out separately.</li>
+            <li><strong>Output tokens cost several times input tokens.</strong> A prompt that asks for a shorter answer is a real optimisation.</li>
+            <li>Use the provider&rsquo;s counting endpoint. A tokenizer from a different vendor gives a wrong answer for this model.</li>
+            <li>Watch the ratio on your own data before you promise anyone a cost.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Design around the vocabulary</h4>
+          <ul>
+            <li><strong>Do not paste raw JSON</strong> when a compact table would do. Keys and braces repeat on every request and are re-charged every time.</li>
+            <li><strong>Truncate at a token boundary you chose</strong>, not at a character count that cuts a word in half.</li>
+            <li><strong>Budget in advance.</strong> Decide what fraction of the window belongs to instructions, retrieval and answer, and enforce it in code.</li>
+            <li>Log the token counts your application actually sends. It is the cheapest observability you will ever add.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Where tokenization leaks</h4>
+          <ul>
+            <li><strong>Tokenization explains several famous failures.</strong> Counting letters in a word, reversing a string, and arithmetic on long digits are all hard because the model does not see the pieces you see.</li>
+            <li><strong>A tokenizer change re-baselines every number you have.</strong> Model upgrades can move token counts by a third; re-measure cost and context fit after one.</li>
+            <li><strong>Rare-token prompts are an attack surface</strong> and a cost surface at once: unusual byte sequences both cost more and behave less predictably.</li>
+            <li>If a field must be reasoned about &mdash; a date, an amount &mdash; give it to the model in a form that tokenizes cleanly.</li>
+          </ul>
+        </article>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b> &mdash; switch in the bar, or press <b>p</b> / <b>t</b> / <b>g</b>.</p>
+
+<pre class="l2" data-lang="py"># budget.py — count tokens with the model's own tokenizer, then enforce a budget.
+# Never estimate from len(text) / 4: that ratio is for English prose and nothing else.
+from anthropic import Anthropic
+
+client = Anthropic()
+MODEL = "claude-opus-5"
+
+
+def count(text: str) -&gt; int:
+    """Exact token count for this model. Cheap, and it is the only honest number."""
+    return client.messages.count_tokens(
+        model=MODEL,
+        messages=[{"role": "user", "content": text}],
+    ).input_tokens
+
+
+def fit(chunks: list[str], budget: int) -&gt; list[str]:
+    """Take chunks in priority order until the budget is spent.
+
+    Truncating the *last* chunk is tempting and almost always wrong: half a
+    document reads as a complete one to the model, and it will answer from it.
+    """
+    kept, spent = [], 0
+    for c in chunks:
+        n = count(c)
+        if spent + n &gt; budget:
+            break
+        kept.append(c)
+        spent += n
+    return kept
+
+
+if __name__ == "__main__":
+    for label, sample in [
+        ("prose", "The quick brown fox jumps over the lazy dog."),
+        ("code", "def cosine(a, b): return dot(a, b) / (norm(a) * norm(b))"),
+        ("log", "2026-08-30T14:22:09Z ERR svc=checkout trace_id=9f3b2a71c4"),
+    ]:
+        n = count(sample)
+        print(f"{label:&gt;6}  {len(sample):&gt;3} chars  {n:&gt;3} tokens  {len(sample)/n:.1f} chars/token")
+
+# prose    44 chars   11 tokens  4.0 chars/token
+# code     56 chars   21 tokens  2.7 chars/token
+# log      58 chars   30 tokens  1.9 chars/token   &lt;- the same budget, half the content
+</pre>
+
+<pre class="l2" data-lang="ts">// budget.ts — the same idea on the product side, where the input is user text
+// and the failure you are guarding against is a 400 at the worst moment.
+import Anthropic from "@anthropic-ai/sdk";
+
+const client = new Anthropic();
+const MODEL = "claude-opus-5";
+
+export async function count(text: string): Promise&lt;number&gt; {
+  const res = await client.messages.countTokens({
+    model: MODEL,
+    messages: [{ role: "user", content: text }],
+  });
+  return res.input_tokens;
+}
+
+/** Keep chunks in priority order until the budget is spent. */
+export async function fit(chunks: string[], budget: number): Promise&lt;string[]&gt; {
+  const kept: string[] = [];
+  let spent = 0;
+  for (const c of chunks) {
+    const n = await count(c);
+    if (spent + n &gt; budget) break;
+    kept.push(c);
+    spent += n;
+  }
+  return kept;
+}
+
+// A local pre-filter so you are not paying a network round trip to reject
+// something obviously enormous. It is deliberately pessimistic: 2 characters
+// per token is roughly the worst case (identifiers, CJK), so it never lets
+// through something the real count would reject.
+export const definitelyTooBig = (text: string, budget: number) =&gt;
+  text.length / 2 &gt; budget;
+</pre>
+
+<pre class="l2" data-lang="go">// budget.go — the service edge. Reject early, with a number the caller can act
+// on, instead of forwarding a request you already know the model will refuse.
+package prompt
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/anthropics/anthropic-sdk-go"
+)
+
+const model = "claude-opus-5"
+
+type Budget struct {
+	Client anthropic.Client
+	Window int // tokens the model accepts
+	Answer int // tokens reserved for the reply, not the prompt
+}
+
+// Check returns the prompt's token count, or an error the caller can surface
+// verbatim. The count endpoint is a separate call: cheap, but not free, so at
+// the edge you would cache it by content hash.
+func (b Budget) Check(ctx context.Context, text string) (int, error) {
+	res, err := b.Client.Messages.CountTokens(ctx, anthropic.MessageCountTokensParams{
+		Model: model,
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(text)),
+		},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("count tokens: %w", err)
+	}
+	n := int(res.InputTokens)
+	if limit := b.Window - b.Answer; n &gt; limit {
+		return n, fmt.Errorf("prompt is %d tokens, limit is %d: shorten it or retrieve less", n, limit)
+	}
+	return n, nil
+}
+</pre>
+    </section>
+
+    <section class="topic" id="embed">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Meaning as a direction</h3>
+        <p class="lede">An embedding turns a piece of text into a fixed-length list of numbers positioned so that things which mean similar things point in similar directions. That one property &mdash; and it is a property of the training, not of arithmetic &mdash; is what makes semantic search, clustering, deduplication and recommendation the same problem with different names.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">Keyword search cannot find &ldquo;how long before the money comes back&rdquo; in a document that says &ldquo;refunds are issued within 14 business days&rdquo;. There is not one word in common.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">A separate, much smaller model maps text to a vector. Similarity is the cosine of the angle between two vectors &mdash; which reads direction and is blind to length.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;Embeddings are model-specific. You cannot mix vectors from two models in one index, and changing the model means reindexing everything &mdash; which is a migration, not a config change.&rdquo;</span></div>
+      </div>
+
+      <figure class="demo" data-demo="embed">
+        <div class="demo-head"><span class="demo-title">Twenty words as vectors &middot; pick a query</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Two dimensions instead of a thousand, with the words placed by hand, so the geometry is visible.</b> Ask for <em>puppy</em>: it scores a perfect 1.000 against <em>dog</em>, because they sit on the same ray from the origin and cosine cannot see length. Then switch to Euclidean distance and watch the ranking change. Real embedding models are usually normalised to unit length precisely so the two agree &mdash; but knowing why they can disagree is the point.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Choice</th><th>What it decides</th><th>Rule of thumb</th></tr></thead>
+          <tbody>
+            <tr><td>Dimensions</td><td>Index size and query cost, linearly</td><td>768&ndash;1536 is the usual range. Some models let you truncate the vector and lose little; measure before you assume.</td></tr>
+            <tr><td>Metric</td><td>What &ldquo;near&rdquo; means</td><td>Use whatever the model was trained with, almost always cosine. On unit-normalised vectors, cosine, dot product and Euclidean give the same ranking.</td></tr>
+            <tr><td>Symmetric vs asymmetric</td><td>Whether a short query can match a long passage</td><td>Retrieval models are trained asymmetrically and often want a prefix on the query. Read the model card; it is free accuracy.</td></tr>
+            <tr><td>Multilingual</td><td>Whether the same idea in two languages lands together</td><td>Only if the model was trained for it. Otherwise translations are far apart.</td></tr>
+            <tr><td>Storage</td><td>Money</td><td>float32 at 1536 dimensions is 6&nbsp;KB a vector: a million chunks is 6&nbsp;GB before any index overhead. Quantising to int8 costs a point or two of recall.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>The shape of it</h4>
+          <ul>
+            <li><strong>One vector per chunk of text</strong>, computed once at index time and stored.</li>
+            <li><strong>A query becomes a vector too</strong>, with the same model, then you find the nearest stored ones.</li>
+            <li><strong>Cosine similarity runs from -1 to 1</strong>; in practice, for text, almost everything lands between 0 and 1.</li>
+            <li>An absolute score is nearly meaningless. Only the ranking is.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Operating an index</h4>
+          <ul>
+            <li><strong>Normalise once at write time</strong> and the dot product becomes cosine for free.</li>
+            <li><strong>Store the model name and version</strong> alongside every vector. You will need it the day you upgrade.</li>
+            <li><strong>Batch your embedding calls.</strong> One at a time is the difference between an hour and a day on a first index build.</li>
+            <li>Never threshold on a raw score without calibrating it against your own labelled examples first.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Where it stops working</h4>
+          <ul>
+            <li><strong>Negation is nearly invisible</strong> to embeddings. &ldquo;Refunds are available&rdquo; and &ldquo;refunds are not available&rdquo; sit almost on top of each other.</li>
+            <li><strong>Rare identifiers are worse than useless</strong>: an invoice number embeds to noise, which is the whole argument for keeping a keyword index alongside.</li>
+            <li><strong>Re-embedding is a migration.</strong> Plan for a dual-write window and a backfill, not a flag.</li>
+            <li>Matryoshka-style models let you cut a vector short and trade a little recall for a lot of memory &mdash; verify the claim on your data.</li>
+          </ul>
+        </article>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># embed.py — the arithmetic, with nothing hidden. Normalise once, then a dot
+# product is a cosine and the whole search is one matrix multiply.
+import numpy as np
+
+
+def normalise(v: np.ndarray) -&gt; np.ndarray:
+    """Unit-length rows. Do this at write time, never at query time."""
+    return v / np.linalg.norm(v, axis=-1, keepdims=True)
+
+
+def search(query: np.ndarray, index: np.ndarray, k: int = 5) -&gt; list[tuple[int, float]]:
+    """Exact top-k. index is (n, d) and already normalised.
+
+    For a few hundred thousand vectors this is genuinely fast enough, and it is
+    exact — reach for an approximate index when you have measured that you need
+    one, not before.
+    """
+    scores = index @ normalise(query)          # (n,) cosine similarities
+    top = np.argpartition(-scores, k)[:k]      # O(n), not a full sort
+    top = top[np.argsort(-scores[top])]
+    return [(int(i), float(scores[i])) for i in top]
+
+
+# The failure the next section is about, in three lines:
+a = normalise(np.array([0.9, 0.4, 0.1]))
+b = normalise(np.array([1.8, 0.8, 0.2]))       # exactly twice a
+print(float(a @ b))                            # 1.0 — cosine cannot see length
+
+# And the one embeddings cannot fix on their own:
+#   "refunds are available"  vs  "refunds are not available"
+#   cosine ~0.94. One word flips the meaning and barely moves the vector.
+</pre>
+
+<pre class="l2" data-lang="ts">// embed.ts — a typed wrapper around whichever embedding provider you use, with
+// the two things people forget: batching, and recording the model version.
+export type Vector = Float32Array;
+
+export interface Embedded {
+  id: string;
+  text: string;
+  vector: Vector;
+  model: string; // stored per row: the day you upgrade, you will need it
+}
+
+const BATCH = 96; // provider limits vary; one call per chunk is the slow way
+
+export async function embedAll(
+  rows: { id: string; text: string }[],
+  embed: (texts: string[]) =&gt; Promise&lt;number[][]&gt;,
+  model: string,
+): Promise&lt;Embedded[]&gt; {
+  const out: Embedded[] = [];
+  for (let i = 0; i &lt; rows.length; i += BATCH) {
+    const slice = rows.slice(i, i + BATCH);
+    const vectors = await embed(slice.map((r) =&gt; r.text));
+    slice.forEach((r, j) =&gt; {
+      out.push({ ...r, vector: unit(vectors[j]), model });
+    });
+  }
+  return out;
+}
+
+function unit(v: number[]): Vector {
+  let sum = 0;
+  for (const x of v) sum += x * x;
+  const n = Math.sqrt(sum) || 1;
+  return Float32Array.from(v, (x) =&gt; x / n);
+}
+
+/** On unit vectors this is the cosine. Keep the invariant, keep it cheap. */
+export function similarity(a: Vector, b: Vector): number {
+  let s = 0;
+  for (let i = 0; i &lt; a.length; i++) s += a[i] * b[i];
+  return s;
+}
+</pre>
+
+<pre class="l3" data-lang="go">// embed.go — brute-force search that is fast enough far longer than people
+// expect. 200k vectors at 1024 dimensions is ~200M multiply-adds: a few tens of
+// milliseconds across a handful of cores, with exact results and no index to
+// keep in sync. Measure before you take on an ANN index's operational cost.
+package vec
+
+import (
+	"container/heap"
+	"runtime"
+	"sync"
+)
+
+type Hit struct {
+	ID    int
+	Score float32
+}
+
+// Search returns the k nearest rows to q. index is row-major (n x dim) and
+// every row, plus q, is already unit length, so a dot product is the cosine.
+func Search(index []float32, dim int, q []float32, k int) []Hit {
+	n := len(index) / dim
+	workers := runtime.GOMAXPROCS(0)
+	parts := make([][]Hit, workers)
+
+	var wg sync.WaitGroup
+	for w := 0; w &lt; workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			local := &amp;minHeap{}
+			for i := w; i &lt; n; i += workers {
+				var s float32
+				row := index[i*dim : (i+1)*dim]
+				for j, x := range row {
+					s += x * q[j]
+				}
+				// keep only k: the heap is why this does not allocate per row
+				if local.Len() &lt; k {
+					heap.Push(local, Hit{i, s})
+				} else if s &gt; (*local)[0].Score {
+					(*local)[0] = Hit{i, s}
+					heap.Fix(local, 0)
+				}
+			}
+			parts[w] = *local
+		}(w)
+	}
+	wg.Wait()
+
+	merged := &amp;minHeap{}
+	for _, p := range parts {
+		for _, h := range p {
+			if merged.Len() &lt; k {
+				heap.Push(merged, h)
+			} else if h.Score &gt; (*merged)[0].Score {
+				(*merged)[0] = h
+				heap.Fix(merged, 0)
+			}
+		}
+	}
+	out := make([]Hit, merged.Len())
+	for i := len(out) - 1; i &gt;= 0; i-- {
+		out[i] = heap.Pop(merged).(Hit)
+	}
+	return out
+}
+
+type minHeap []Hit
+
+func (h minHeap) Len() int            { return len(h) }
+func (h minHeap) Less(i, j int) bool  { return h[i].Score &lt; h[j].Score }
+func (h minHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *minHeap) Push(x any)         { *h = append(*h, x.(Hit)) }
+func (h *minHeap) Pop() any           { old := *h; n := len(old); x := old[n-1]; *h = old[:n-1]; return x }
+</pre>
+    </section>
+
+    <section class="topic" id="attention">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>How each token reads the rest</h3>
+        <p class="lede">Attention is one line of arithmetic. Every token emits a query, every token emits a key, and the dot product of a query with a key &mdash; scaled, then softmaxed into a set of weights that sum to one &mdash; decides how much of each token&rsquo;s value the reader takes. Repeat that with dozens of independent heads per layer and dozens of layers, and you have the whole architecture.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">To resolve &ldquo;it&rdquo; in <em>the cat sat on the mat because it was warm</em>, a model has to look back at a specific earlier word. A fixed-size recurrent state cannot reliably carry which one.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">softmax(QK<sup>T</sup> / sqrt(d))&middot;V. Every token compares itself against every other and takes a weighted average. Cost is quadratic in sequence length, which is the origin of every context-length problem.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;Attention is all-to-all, so compute grows with the square of the sequence and the KV cache grows linearly. Those two facts explain most serving decisions I would make.&rdquo;</span></div>
+      </div>
+
+      <figure class="demo" data-demo="attention">
+        <div class="demo-head"><span class="demo-title">Attention weights &middot; step through the queries</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Each row is one token reading the sentence; the numbers are percentages and each row sums to 100.</b> The three heads are hand-built to imitate three that really are found in trained models: one that looks a single token back, one that resolves what a pronoun refers to, and one that dumps its unused mass on the first token &mdash; a real, named phenomenon called the attention sink. Turn the causal mask off and everything above the diagonal lights up: that is the difference between a model that generates and one that only embeds.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Variant</th><th>What it changes</th><th>Why anyone did it</th></tr></thead>
+          <tbody>
+            <tr><td>Multi-head (MHA)</td><td>Every query head has its own key/value head</td><td>The original. Largest KV cache, and the reason long contexts were once impossible to serve.</td></tr>
+            <tr><td>Grouped-query (GQA)</td><td>Several query heads share one key/value head</td><td>The current default. Eight query heads per KV head cuts the cache eightfold for a barely measurable quality cost.</td></tr>
+            <tr><td>Multi-query (MQA)</td><td>One key/value head for all of them</td><td>The extreme case: smallest cache, most quality risk.</td></tr>
+            <tr><td>FlashAttention</td><td>Nothing mathematically</td><td>Never writes the full n&times;n matrix to memory. Same answer, a fraction of the memory traffic. It is a kernel, not a model change.</td></tr>
+            <tr><td>RoPE</td><td>How position enters</td><td>Rotates queries and keys by an angle proportional to position, so relative distance falls out of the dot product. Also what gets stretched when a model&rsquo;s context is extended.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>The one-sentence version</h4>
+          <ul>
+            <li><strong>Every token looks at every other token</strong> and takes a weighted average of what it finds.</li>
+            <li><strong>The weights sum to one.</strong> Attention distributes a fixed budget; giving more to one token means giving less to another.</li>
+            <li><strong>Causal masking</strong> stops a token seeing the future, which is what makes next-token training possible.</li>
+            <li>Heads are independent and specialise; layers compose them.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>The consequences you will feel</h4>
+          <ul>
+            <li><strong>Quadratic compute, linear memory.</strong> Doubling the prompt quadruples prefill work and doubles the cache.</li>
+            <li><strong>Prefill and decode are different workloads.</strong> Prefill is compute-bound over the whole prompt; decode is memory-bound over one token at a time.</li>
+            <li><strong>The KV cache is the reason a long conversation gets expensive in memory</strong> even when the model is small.</li>
+            <li>&ldquo;Lost in the middle&rdquo; is empirical, not architectural: facts placed mid-context are recalled less reliably than facts at either end.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What the papers argue about</h4>
+          <ul>
+            <li><strong>Sinks are load-bearing.</strong> Evicting the first few tokens from a cache breaks generation badly, which is why streaming attention schemes pin them.</li>
+            <li><strong>Context extension is interpolation</strong> of the positional rotation, and it degrades unless the model is tuned for the new range. A big advertised window is not automatically a usable one.</li>
+            <li><strong>Latent attention</strong> compresses keys and values into a low-rank space and can cut cache size by an order of magnitude over MHA.</li>
+            <li>Sparse and sliding-window attention trade guaranteed reach for cost; know which one a model you serve actually uses.</li>
+          </ul>
+        </article>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l3" data-lang="py"># attention.py — the whole mechanism in twenty lines, no framework.
+# Reading this once is worth more than reading three explanations of it.
+import numpy as np
+
+
+def softmax(x: np.ndarray) -&gt; np.ndarray:
+    x = x - x.max(axis=-1, keepdims=True)   # subtract the max: overflow is real
+    e = np.exp(x)
+    return e / e.sum(axis=-1, keepdims=True)
+
+
+def attention(x: np.ndarray, wq, wk, wv, causal: bool = True) -&gt; np.ndarray:
+    """x is (n, d_model). One head. Returns (n, d_head)."""
+    q, k, v = x @ wq, x @ wk, x @ wv          # (n, d_head) each
+    d = q.shape[-1]
+
+    # Why the sqrt: without it the dot products grow with d, softmax saturates,
+    # and the gradients vanish. It is a variance fix, not a decoration.
+    scores = q @ k.T / np.sqrt(d)             # (n, n)
+
+    if causal:
+        n = scores.shape[0]
+        mask = np.triu(np.ones((n, n), dtype=bool), k=1)
+        scores = np.where(mask, -np.inf, scores)
+
+    weights = softmax(scores)                 # each row sums to 1
+    return weights @ v
+
+
+if __name__ == "__main__":
+    rng = np.random.default_rng(0)
+    n, d_model, d_head = 11, 64, 16
+    x = rng.normal(size=(n, d_model))
+    ws = [rng.normal(size=(d_model, d_head)) * 0.1 for _ in range(3)]
+    out = attention(x, *ws)
+    print(out.shape)                          # (11, 16)
+
+# The two numbers that follow from this and drive every serving decision:
+#   scores is n x n            -&gt; prefill compute is quadratic in prompt length
+#   k and v are cached per token -&gt; memory is linear in tokens x layers x kv_heads
+</pre>
+
+<pre class="l1" data-lang="ts">// context.ts — you will not implement attention in a product, but you will
+// constantly reason about its two costs. This is that arithmetic, typed.
+
+export interface Shape {
+  layers: number;
+  kvHeads: number; // 8 for a grouped-query model, 32+ for multi-head
+  headDim: number; // 128 on most current models
+}
+
+/** Bytes of KV cache one token of one sequence occupies, at fp16. */
+export function kvBytesPerToken(s: Shape): number {
+  // 2 for K and V, 2 for fp16
+  return 2 * s.layers * s.kvHeads * s.headDim * 2;
+}
+
+/** What a conversation costs you in GPU memory, which is not the same
+ *  question as what it costs you in tokens. */
+export function kvGigabytes(s: Shape, tokens: number, concurrent: number): number {
+  return (kvBytesPerToken(s) * tokens * concurrent) / 1024 ** 3;
+}
+
+const llama8b: Shape = { layers: 32, kvHeads: 8, headDim: 128 };
+const sameButMHA: Shape = { layers: 32, kvHeads: 32, headDim: 128 };
+
+console.log(kvBytesPerToken(llama8b)); // 131072 = 128 KB per token
+console.log(kvGigabytes(llama8b, 8192, 32).toFixed(1)); // 32.0 GB
+console.log(kvGigabytes(sameButMHA, 8192, 32).toFixed(1)); // 128.0 GB
+
+// Same model size, same context, four times the memory. Grouped-query
+// attention is not a research detail; it is the difference between 32
+// concurrent users and 8 on the same card.
+</pre>
+
+<pre class="l2" data-lang="go">// prefill.go — why a service should care that prefill and decode differ.
+// Prefill processes the whole prompt in one pass: compute-bound, and quadratic.
+// Decode emits one token at a time: memory-bound, and linear. Time-to-first-
+// token is dominated by the first, everything after it by the second.
+package serve
+
+import "time"
+
+type Model struct {
+	PrefillTokensPerSec float64 // throughput on a full prompt
+	DecodeTokensPerSec  float64 // per sequence, once it is generating
+}
+
+// Estimate splits the wait into the two parts a user actually perceives.
+// Streaming exists because these are different numbers: you can show the
+// answer as it is produced rather than after the sum of both.
+func (m Model) Estimate(promptTokens, outputTokens int) (ttft, total time.Duration) {
+	ttft = time.Duration(float64(promptTokens) / m.PrefillTokensPerSec * float64(time.Second))
+	gen := time.Duration(float64(outputTokens) / m.DecodeTokensPerSec * float64(time.Second))
+	return ttft, ttft + gen
+}
+
+// A 20k-token prompt with a 300-token answer, on numbers in the right
+// order of magnitude for a large model on one card:
+//
+//	m := Model{PrefillTokensPerSec: 12000, DecodeTokensPerSec: 55}
+//	ttft, total := m.Estimate(20000, 300)   // 1.67s, 7.12s
+//
+// Halving the prompt halves the wait before anything appears. Halving the
+// answer halves everything after it. They are separate levers, and users
+// notice the first one far more.
+</pre>
+    </section>
+
+    <section class="topic" id="sampling">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Choosing the next token</h3>
+        <p class="lede">The model&rsquo;s output is not a word. It is a score for every token in the vocabulary, turned into a probability distribution, from which exactly one token is drawn. Then the whole thing runs again with that token appended. Temperature, top-p and top-k are three different ways of interfering with that draw, and the usual mental model &mdash; &ldquo;temperature is creativity&rdquo; &mdash; gets the mechanism backwards.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">The same prompt gives a different answer each time, an extraction task occasionally invents a field, and someone suggests &ldquo;turning the temperature up for more creative writing&rdquo; without being able to say what that does.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Logits are divided by the temperature before softmax. Below one, the distribution sharpens; above one it flattens. Top-k and top-p then discard the tail before the draw.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;Temperature does not add ideas. It redistributes probability the model already assigned. If the right answer has low probability, no sampling setting will reliably produce it.&rdquo;</span></div>
+      </div>
+
+      <figure class="demo" data-demo="sampling">
+        <div class="demo-head"><span class="demo-title">Next-token distribution &middot; after &ldquo;The capital of France is&rdquo;</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Bars are the probability after temperature; the percentage on the right is what it becomes after the tail is cut and the rest renormalised.</b> Push the temperature to 2 and watch <em>banana</em> become reachable &mdash; that is what &ldquo;more creative&rdquo; actually means. Pull it to 0.05 and the distribution collapses onto one token, which is greedy decoding under another name. Top-p adapts to confidence: when the model is sure it keeps one or two candidates, when it is unsure it keeps many, which is why it is usually the better knob.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Task</th><th>Setting</th><th>Reasoning</th></tr></thead>
+          <tbody>
+            <tr><td>Extraction, classification, routing</td><td>Temperature <span class="big g">0</span></td><td>You want the same input to give the same output. Any variation here is a bug you will spend a week reproducing.</td></tr>
+            <tr><td>Code and structured output</td><td><span class="big g">0&ndash;0.3</span></td><td>There is usually one right shape. Variation buys nothing and costs parse failures.</td></tr>
+            <tr><td>Summaries, chat, explanation</td><td><span class="big a">~0.7&ndash;1.0</span></td><td>The default. Enough variety to avoid stilted repetition, not enough to wander.</td></tr>
+            <tr><td>Brainstorming, many candidates</td><td><span class="big b">1.0+</span>, or several samples at 0.8</td><td>Sampling n times at a moderate temperature usually beats one sample at a high one.</td></tr>
+            <tr><td>Anything you will evaluate</td><td>Pin it and record it</td><td>An eval run at a different temperature from production measures a different system.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>Temperature zero is not determinism</h4>
+        <p>Greedy decoding removes the sampling randomness, and that is all it removes. Batching changes the order of floating-point reductions, mixture-of-experts routing depends on which requests share a batch, and hardware kernels are chosen at runtime &mdash; so the same prompt can still produce different text. If you need reproducibility, pin the model version, cache the response, and store what was actually returned. Do not build a test suite that assumes byte-equality from the API.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># sampling.py — the three knobs, implemented, so their order is unambiguous.
+# Temperature reshapes; top-k and top-p cut; then you draw. Every library does
+# it in this order, and the order matters.
+import numpy as np
+
+
+def sample(logits: np.ndarray, temperature: float = 1.0,
+           top_k: int = 0, top_p: float = 1.0, rng=None) -&gt; int:
+    rng = rng or np.random.default_rng()
+
+    if temperature &lt;= 0:                       # greedy: no draw at all
+        return int(np.argmax(logits))
+
+    logits = logits / temperature              # 1. reshape
+    order = np.argsort(-logits)
+    probs = np.exp(logits - logits.max())
+    probs /= probs.sum()
+
+    keep = np.ones(len(logits), dtype=bool)
+    if top_k:                                  # 2a. keep the k best
+        keep[order[top_k:]] = False
+    if top_p &lt; 1.0:                            # 2b. keep the smallest set
+        cum = np.cumsum(probs[order])          #     whose mass reaches top_p
+        cut = int(np.searchsorted(cum, top_p) + 1)
+        keep[order[cut:]] = False
+
+    probs = np.where(keep, probs, 0.0)
+    probs /= probs.sum()                       # 3. renormalise, then draw
+    return int(rng.choice(len(probs), p=probs))
+
+
+if __name__ == "__main__":
+    rng = np.random.default_rng(0)
+    logits = np.array([9.2, 4.1, 3.2, 3.0, 2.6, 1.9, 0.4, -2.1])
+    for t in (0.2, 0.8, 1.5):
+        draws = [sample(logits, temperature=t, rng=rng) for _ in range(2000)]
+        print(f"T={t}  distinct tokens drawn: {len(set(draws))}")
+
+# T=0.2  distinct tokens drawn: 2
+# T=0.8  distinct tokens drawn: 6
+# T=1.5  distinct tokens drawn: 8    &lt;- the last one is the nonsense token
+</pre>
+
+<pre class="l2" data-lang="ts">// route.ts — sampling settings belong to the task, not to the application.
+// Putting one temperature in a config file and using it everywhere is the
+// commonest way an otherwise good system becomes flaky.
+import Anthropic from "@anthropic-ai/sdk";
+
+const client = new Anthropic();
+
+type Task = "extract" | "classify" | "summarise" | "chat";
+
+// One place, reviewed like any other policy. Every call site names a task.
+const SETTINGS: Record&lt;Task, { temperature: number; max_tokens: number }&gt; = {
+  extract: { temperature: 0, max_tokens: 1024 },
+  classify: { temperature: 0, max_tokens: 256 },
+  summarise: { temperature: 0.4, max_tokens: 2048 },
+  chat: { temperature: 0.8, max_tokens: 16000 },
+};
+
+export async function run(task: Task, system: string, user: string) {
+  const cfg = SETTINGS[task];
+  const response = await client.messages.create({
+    model: "claude-opus-5",
+    max_tokens: cfg.max_tokens,
+    temperature: cfg.temperature,
+    system,
+    messages: [{ role: "user", content: user }],
+  });
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock =&gt; b.type === "text")
+    .map((b) =&gt; b.text)
+    .join("");
+  // Log what was actually used, not what you think was used. When an eval
+  // disagrees with production this is the first thing you will want.
+  return { text, task, ...cfg, usage: response.usage };
+}
+</pre>
+
+<pre class="l1" data-lang="go">// entropy.go — one number worth logging on every response: how uncertain the
+// model was. Where a provider exposes per-token log-probabilities, the mean
+// negative log-probability of the tokens it chose is a usable confidence
+// signal — cheap to compute, and a good trigger for routing to a human.
+package sampling
+
+import "math"
+
+// Perplexity of a completion, from the log-probabilities of the tokens the
+// model actually emitted. Lower means the model found its own answer
+// unsurprising; a spike is the closest thing to a "not sure" flag you get.
+func Perplexity(logProbs []float64) float64 {
+	if len(logProbs) == 0 {
+		return math.NaN()
+	}
+	var sum float64
+	for _, lp := range logProbs {
+		sum += lp
+	}
+	return math.Exp(-sum / float64(len(logProbs)))
+}
+
+// Escalate is the whole pattern: a threshold, calibrated on labelled examples,
+// not guessed. Route the uncertain tail to a bigger model or a person, and you
+// buy most of the accuracy of the expensive path at a fraction of the cost.
+func Escalate(logProbs []float64, threshold float64) bool {
+	return Perplexity(logProbs) &gt; threshold
+}
+</pre>
+    </section>
+  </div>
+</section>

@@ -1,0 +1,710 @@
+<section class="part" id="evals">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part five</span>
+      <h2>Proving it works</h2>
+      <p>This is the part that separates people who have shipped an AI feature from people who have demoed one, and it is the part interviewers probe hardest. A model has no compiler, no type system and no stack trace. If you cannot answer &ldquo;is today&rsquo;s version better than yesterday&rsquo;s&rdquo; with a number, you are not engineering, you are redecorating. Four topics: why, the metrics that survive contact with reality, using a model as the grader, and measuring a retrieval system in the two halves that can fail independently.</p>
+    </div>
+
+    <section class="topic" id="whyeval">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>You cannot ship what you cannot measure</h3>
+        <p class="lede">A prompt change that fixes the case in front of you breaks two you cannot see, and nothing in the system tells you. The fix is not sophisticated: a set of real inputs with known-good outputs, run on every change, with the failures becoming new cases. It is a regression suite. It just happens to be graded fuzzily.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">Every change is judged by trying three prompts by hand. Quality is a feeling. Nobody can say whether the model upgrade last week helped or hurt.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">A golden set: real inputs, expected outputs or graded criteria, versioned in the repository. Run it on every prompt, model or retrieval change and compare against the recorded baseline.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;I would not ship without an eval set, and I would build it from real production failures rather than invented examples. Every incident becomes a test case; that is the flywheel.&rdquo;</span></div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Layer</th><th>What it catches</th><th>When it runs</th></tr></thead>
+          <tbody>
+            <tr><td>Unit-style assertions</td><td>Schema violations, forbidden phrases, missing citations, length</td><td>Every request, in production. Cheap, deterministic, catches most real breakage.</td></tr>
+            <tr><td>Golden set, offline</td><td>Regression on known cases when anything changes</td><td>In CI, on every prompt or model change. This is the one people skip.</td></tr>
+            <tr><td>Model-graded rubric</td><td>Quality dimensions no assertion can express</td><td>Nightly, or on a release candidate. Needs its own validation.</td></tr>
+            <tr><td>Human review</td><td>Everything the above miss, and the ground truth for the graders</td><td>On a sample, continuously. The most expensive and the most trustworthy.</td></tr>
+            <tr><td>Online metrics</td><td>What users actually do &mdash; thumbs, escalation, task completion</td><td>Always. The only measurement of the thing you actually care about.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Start with twenty cases</h4>
+          <ul>
+            <li><strong>Twenty real examples beat two hundred invented ones.</strong> Pull them from logs, including the awkward inputs.</li>
+            <li><strong>Write down the expected behaviour</strong>, even when it is not an exact string. &ldquo;Must refuse&rdquo; and &ldquo;must cite a source&rdquo; are testable.</li>
+            <li><strong>Record the score before you change anything.</strong> Without a baseline there is no comparison.</li>
+            <li>Keep it in the repository, next to the prompt it grades.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Make it a gate</h4>
+          <ul>
+            <li><strong>Run it in CI</strong> and fail the build on a regression past a threshold you agreed in advance.</li>
+            <li><strong>Score per category</strong>, not just overall. An average hides that one class of input got much worse.</li>
+            <li><strong>Every production failure becomes a case.</strong> This is the discipline that makes the set valuable over time.</li>
+            <li>Pin temperature, model version and prompt fingerprint in every run, and store them with the results.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Trust the measurement</h4>
+          <ul>
+            <li><strong>Report a confidence interval.</strong> With 40 cases, a five-point move is noise. Sample size is the first question to ask of any eval result.</li>
+            <li><strong>Watch for leakage:</strong> a case used to tune the prompt is no longer a test of it. Keep a held-out set you never look at.</li>
+            <li><strong>The same grader must run offline and online</strong>, or your pre-release and post-release numbers are not comparable.</li>
+            <li>Cheap-to-run beats comprehensive. An eval that takes an hour is an eval nobody runs before merging.</li>
+          </ul>
+        </article>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># eval.py — a golden set as an ordinary pytest suite. The point is that it is
+# ordinary: cases in a file, assertions in code, a threshold in CI. Nothing
+# here needs a framework.
+import json
+from pathlib import Path
+import pytest
+
+CASES = json.loads(Path("evals/support.jsonl").read_text().strip().replace("\n", ",").join("[]"))
+
+
+def score(case: dict, output: str) -&gt; float:
+    """Graded assertions, not exact match. Exact match on generated text is a
+    test that fails on a synonym, so nobody keeps it for long."""
+    checks = []
+    if "must_contain" in case:
+        checks.append(all(s.lower() in output.lower() for s in case["must_contain"]))
+    if "must_not_contain" in case:
+        checks.append(not any(s.lower() in output.lower() for s in case["must_not_contain"]))
+    if case.get("must_refuse"):
+        checks.append("i don't have that information" in output.lower())
+    if case.get("must_cite"):
+        checks.append("[" in output and "]" in output)
+    return sum(checks) / len(checks) if checks else 0.0
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda c: c["id"])
+def test_case(case, system_under_test):
+    output = system_under_test(case["question"])
+    assert score(case, output) == 1.0, f"{case['id']}: {output[:200]}"
+
+
+def test_no_regression(system_under_test, baseline):
+    """The gate. A per-case failure is a bug report; this is the release check.
+
+    The threshold is agreed in advance and written down, so that the argument
+    about whether to ship happens once, in the calm, and not during a release.
+    """
+    scores = [score(c, system_under_test(c["question"])) for c in CASES]
+    mean = sum(scores) / len(scores)
+    assert mean &gt;= baseline["mean"] - 0.02, (
+        f"regression: {mean:.3f} against a baseline of {baseline['mean']:.3f} "
+        f"over {len(CASES)} cases"
+    )
+</pre>
+
+<pre class="l2" data-lang="ts">// interval.ts — the number nobody reports and everybody needs. With forty
+// cases, "we went from 82% to 87%" is very likely noise, and shipping on it is
+// how a team convinces itself a prompt change worked.
+
+/** Wilson score interval: honest at small n, where the naive normal
+ *  approximation is not. */
+export function wilson(successes: number, n: number, z = 1.96): [number, number] {
+  if (n === 0) return [0, 1];
+  const p = successes / n;
+  const denom = 1 + (z * z) / n;
+  const centre = p + (z * z) / (2 * n);
+  const spread = z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n));
+  return [(centre - spread) / denom, (centre + spread) / denom];
+}
+
+export function report(name: string, successes: number, n: number): string {
+  const [lo, hi] = wilson(successes, n);
+  const pct = (x: number) =&gt; (x * 100).toFixed(1);
+  return `${name}: ${pct(successes / n)}% (95% CI ${pct(lo)}–${pct(hi)}, n=${n})`;
+}
+
+/** Do two runs actually differ? Non-overlapping intervals is a crude test and
+ *  a good habit; for a real decision, McNemar's test on the paired cases. */
+export function distinguishable(a: [number, number], b: [number, number]): boolean {
+  return a[1] &lt; b[0] || b[1] &lt; a[0];
+}
+
+// report("baseline", 33, 40)  -&gt; baseline: 82.5% (95% CI 68.1–91.3, n=40)
+// report("candidate", 35, 40) -&gt; candidate: 87.5% (95% CI 73.9–94.5, n=40)
+// The intervals overlap almost entirely. That is not an improvement yet;
+// it is a reason to collect more cases.
+</pre>
+
+<pre class="l1" data-lang="go">// online.go — the cheapest eval layer, and the one that runs on every single
+// request: assertions on the output, recorded as metrics. It catches the
+// breakage that matters most, immediately, and it costs nothing.
+package eval
+
+import "strings"
+
+type Check struct {
+	Name string
+	Fail func(output string, cited []string) bool
+}
+
+// Deliberately boring. Each of these has caught a real production bug in some
+// system somewhere, and none of them needs a model to run.
+var Checks = []Check{
+	{"empty", func(o string, _ []string) bool { return strings.TrimSpace(o) == "" }},
+	{"truncated", func(o string, _ []string) bool {
+		t := strings.TrimSpace(o)
+		return t != "" &amp;&amp; !strings.ContainsAny(t[len(t)-1:], ".!?\"')]}`")
+	}},
+	{"uncited", func(o string, cited []string) bool {
+		return len(cited) == 0 &amp;&amp; !strings.Contains(strings.ToLower(o), "don't have")
+	}},
+	{"leaked-prompt", func(o string, _ []string) bool {
+		return strings.Contains(o, "You are an accounts assistant")
+	}},
+	{"apology-loop", func(o string, _ []string) bool {
+		return strings.Count(strings.ToLower(o), "i apologize") &gt; 2
+	}},
+}
+
+// Observe returns the names of every check that fired. Emit them as a counter
+// labelled by name: a step change in any one of them after a deploy is the
+// fastest quality signal you will get, and it arrives in minutes rather than
+// waiting for the nightly eval.
+func Observe(output string, cited []string) []string {
+	var fired []string
+	for _, c := range Checks {
+		if c.Fail(output, cited) {
+			fired = append(fired, c.Name)
+		}
+	}
+	return fired
+}
+</pre>
+    </section>
+
+    <section class="topic" id="metrics">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>A threshold, and the four numbers it decides</h3>
+        <p class="lede">Any component that produces a score and a cut-off &mdash; a safety filter, a router, a relevance judge, a confidence gate &mdash; is a classifier, and the classical metrics apply exactly. This is also the part of an AI interview most likely to be a machine-learning interview in disguise, so it is worth being fluent rather than approximately right.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">The moderation filter reports 97% accuracy. It catches four of the thirty genuinely harmful messages in ten thousand, and a model that approved everything would have scored 99.7%.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Precision is how often a firing is right; recall is how much of what should fire does. Moving the threshold trades one for the other and cannot improve both.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;I would not report accuracy on an imbalanced problem. I would pick the threshold from the cost of the two errors &mdash; a missed violation and a wrongly blocked user are not equally bad &mdash; and report precision and recall at it.&rdquo;</span></div>
+      </div>
+
+      <figure class="demo" data-demo="threshold">
+        <div class="demo-head"><span class="demo-title">Move the line &middot; watch the four numbers</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Two overlapping score distributions and one threshold; every metric on this page is a ratio of the four cells beside it.</b> Drag the prevalence down to 3% and read the last sentence of the readout: accuracy becomes a number that a model doing nothing at all would beat. Then drag <em>how separable</em> down and watch every metric collapse together &mdash; when the distributions overlap, no threshold saves you, and the answer is a better model or a better feature, not better tuning.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Metric</th><th>Definition</th><th>When to reach for it</th></tr></thead>
+          <tbody>
+            <tr><td>Precision</td><td>TP / (TP + FP)</td><td>False alarms are expensive: blocking a legitimate user, escalating a fine ticket.</td></tr>
+            <tr><td>Recall</td><td>TP / (TP + FN)</td><td>Misses are expensive: an undetected safety violation, a missed fraud case.</td></tr>
+            <tr><td>F1</td><td>Harmonic mean of the two</td><td>A single number when the two errors cost about the same. They usually do not.</td></tr>
+            <tr><td>ROC-AUC</td><td>Area under the true-positive against false-positive curve</td><td>Comparing <em>models</em> independently of threshold. Flattering on imbalanced data.</td></tr>
+            <tr><td>PR-AUC</td><td>Area under precision against recall</td><td>The honest one when positives are rare. Prefer it to ROC-AUC below about 5% prevalence.</td></tr>
+            <tr><td>Accuracy</td><td>(TP + TN) / everything</td><td>Balanced classes only. On rare events it is actively misleading.</td></tr>
+            <tr><td>Recall@k, MRR, nDCG</td><td>Ranking quality at a cut-off</td><td>Retrieval. The next topic but one.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>Choosing the threshold is a business decision, not a technical one</h4>
+        <p>There is no &ldquo;correct&rdquo; operating point on the curve. There is a point where the expected cost of your two errors is lowest, and computing it requires someone to say what a false positive and a false negative are worth. That conversation is uncomfortable and it is the job. If nobody will put numbers on it, pick the threshold that satisfies the constraint you <em>can</em> state &mdash; &ldquo;at most 1% of legitimate users blocked&rdquo; &mdash; and report the recall you get for it. That framing turns an unanswerable question into an answerable one, and interviewers notice.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># threshold.py — pick the operating point from the cost of the two errors,
+# not from whichever number looks best in a slide.
+import numpy as np
+
+
+def confusion(scores: np.ndarray, labels: np.ndarray, cut: float) -&gt; tuple[int, int, int, int]:
+    fired = scores &gt;= cut
+    tp = int(np.sum(fired &amp; (labels == 1)))
+    fp = int(np.sum(fired &amp; (labels == 0)))
+    fn = int(np.sum(~fired &amp; (labels == 1)))
+    tn = int(np.sum(~fired &amp; (labels == 0)))
+    return tp, fp, fn, tn
+
+
+def best_threshold(scores, labels, cost_fp: float, cost_fn: float) -&gt; dict:
+    """Minimise expected cost. cost_fp is what a false alarm costs you —
+    a blocked customer, a wasted escalation. cost_fn is what a miss costs —
+    a safety incident, a fraud loss. If nobody will give you these two numbers,
+    that is the conversation to have before writing any more code."""
+    best = None
+    for cut in np.unique(scores):
+        tp, fp, fn, tn = confusion(scores, labels, cut)
+        cost = fp * cost_fp + fn * cost_fn
+        if best is None or cost &lt; best["cost"]:
+            best = {
+                "cut": float(cut), "cost": cost,
+                "precision": tp / max(1, tp + fp),
+                "recall": tp / max(1, tp + fn),
+            }
+    return best
+
+
+def at_constraint(scores, labels, max_false_positive_rate: float) -&gt; dict:
+    """The version you can compute when nobody will name a cost: satisfy the
+    constraint you can state, and report the recall it buys."""
+    negatives = scores[labels == 0]
+    cut = float(np.quantile(negatives, 1 - max_false_positive_rate))
+    tp, fp, fn, tn = confusion(scores, labels, cut)
+    return {"cut": cut, "recall": tp / max(1, tp + fn), "precision": tp / max(1, tp + fp)}
+</pre>
+
+<pre class="l2" data-lang="ts">// metrics.ts — the four cells and everything derived from them, with the two
+// traps written into the code: accuracy on imbalanced data, and a metric
+// reported without its sample size.
+
+export interface Confusion {
+  tp: number;
+  fp: number;
+  fn: number;
+  tn: number;
+}
+
+export function derive(c: Confusion) {
+  const n = c.tp + c.fp + c.fn + c.tn;
+  const precision = c.tp / (c.tp + c.fp || 1);
+  const recall = c.tp / (c.tp + c.fn || 1);
+  const prevalence = (c.tp + c.fn) / (n || 1);
+
+  return {
+    n,
+    precision,
+    recall,
+    f1: (2 * precision * recall) / (precision + recall || 1),
+    accuracy: (c.tp + c.tn) / (n || 1),
+    prevalence,
+    // The baseline any model must beat: always predicting the majority class.
+    // Report it beside accuracy and the trap becomes impossible to fall into.
+    majorityBaseline: Math.max(prevalence, 1 - prevalence),
+    // Specificity matters when the negatives are the users you must not annoy.
+    specificity: c.tn / (c.tn + c.fp || 1),
+  };
+}
+
+export function summarise(c: Confusion): string {
+  const m = derive(c);
+  const pct = (x: number) =&gt; `${(x * 100).toFixed(1)}%`;
+  const warning =
+    m.accuracy &lt;= m.majorityBaseline
+      ? ` — WORSE than always saying no (${pct(m.majorityBaseline)})`
+      : "";
+  return (
+    `n=${m.n} prevalence=${pct(m.prevalence)}  ` +
+    `precision=${pct(m.precision)} recall=${pct(m.recall)} F1=${m.f1.toFixed(3)}  ` +
+    `accuracy=${pct(m.accuracy)}${warning}`
+  );
+}
+</pre>
+
+<pre class="l1" data-lang="go">// gate.go — a threshold in production is a config value, and config values
+// drift. This is the smallest thing that keeps one honest: the threshold, the
+// metrics measured at it, and the date it was last calibrated, together.
+package classify
+
+import (
+	"fmt"
+	"time"
+)
+
+type Gate struct {
+	Name       string
+	Threshold  float64
+	Precision  float64 // measured at this threshold, on a labelled sample
+	Recall     float64
+	SampleSize int
+	Calibrated time.Time
+}
+
+// Stale flags a gate whose numbers are old enough to be fiction. Score
+// distributions move when the model, the prompt or the traffic changes, and a
+// threshold tuned six months ago is a number nobody has checked since.
+func (g Gate) Stale(maxAge time.Duration) bool {
+	return time.Since(g.Calibrated) &gt; maxAge
+}
+
+func (g Gate) String() string {
+	return fmt.Sprintf("%s: fires at %.3f (P=%.1f%% R=%.1f%% on n=%d, calibrated %s)",
+		g.Name, g.Threshold, g.Precision*100, g.Recall*100, g.SampleSize,
+		g.Calibrated.Format("2006-01-02"))
+}
+
+// Decide is deliberately trivial. All the engineering is in the fields above:
+// a threshold without measured precision and recall beside it is a magic
+// number, and magic numbers in a safety path are how incidents happen.
+func (g Gate) Decide(score float64) bool { return score &gt;= g.Threshold }
+</pre>
+    </section>
+
+    <section class="topic" id="judge">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Using a model as the grader</h3>
+        <p class="lede">Most of what you want to measure &mdash; is this summary faithful, is this tone right, did it actually answer &mdash; cannot be expressed as an assertion. A model can grade it, at a fraction of the cost of a human, at a scale humans cannot reach. The catch is that the judge is a model too, with its own biases, and a judge you have not validated is a number that feels like measurement.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">There is no string to assert on. &ldquo;Is this answer grounded in the sources&rdquo; is a real question with no regular expression.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">A second model call with a rubric and a small discrete scale, returning a structured verdict. Validated against human labels before it is trusted, and re-validated when anything changes.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;I validate the judge against a few hundred human labels and quote the agreement rate. Below about 80% it is not a measurement, it is a vibe with a decimal point.&rdquo;</span></div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Bias</th><th>What it does</th><th>Mitigation</th></tr></thead>
+          <tbody>
+            <tr><td>Position</td><td>In a pairwise comparison, the first option wins more often</td><td>Run both orders and keep only the consistent verdicts. The inconsistent ones are genuine ties.</td></tr>
+            <tr><td>Verbosity</td><td>Longer answers score higher regardless of quality</td><td>Say explicitly that length is not a criterion; check the score-against-length correlation.</td></tr>
+            <tr><td>Self-preference</td><td>A judge favours text from its own model family</td><td>Use a different model as judge where you can, and keep humans on a sample.</td></tr>
+            <tr><td>Scale compression</td><td>Everything scores 4 out of 5</td><td>Use two or three levels with concrete anchors, not a 1&ndash;10 scale nobody can define.</td></tr>
+            <tr><td>Leniency</td><td>The judge agrees with anything plausible</td><td>Ask for the evidence first and the verdict second, and force a citation of the offending span.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <h4>Validate the judge before you trust the judge</h4>
+        <p>Label two or three hundred examples by hand. Run the judge on the same examples. Report the agreement, and Cohen&rsquo;s kappa rather than raw agreement, because on a skewed set two graders that always say &ldquo;pass&rdquo; agree 95% of the time while sharing no information at all. Aim for roughly 0.6&ndash;0.8 kappa before the judge is allowed to gate anything. Then keep a human sample running: the judge is a model, and it will move under you when the model version does.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># judge.py — a grader with a rubric, a small scale, and evidence before
+# verdict. Asking for the reasoning first is not decoration: a verdict emitted
+# before the evidence is a verdict the evidence was written to justify.
+import json
+from anthropic import Anthropic
+
+client = Anthropic()
+
+RUBRIC = """You are grading whether an ANSWER is fully supported by the SOURCES.
+
+Grade on exactly three levels:
+- "supported": every factual claim appears in the sources.
+- "partly": the main claim is supported but some detail is not.
+- "unsupported": a material claim does not appear in the sources.
+
+Length, style and helpfulness are NOT criteria. A short answer that is
+supported outranks a long one that is not.
+
+First quote the single claim you are least able to support, verbatim from the
+answer. Then give the grade."""
+
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "weakest_claim": {"type": "string"},
+        "grade": {"type": "string", "enum": ["supported", "partly", "unsupported"]},
+    },
+    "required": ["weakest_claim", "grade"],
+    "additionalProperties": False,
+}
+
+
+def grade(sources: list[str], answer: str) -&gt; dict:
+    body = "SOURCES:\n" + "\n\n".join(sources) + f"\n\nANSWER:\n{answer}"
+    response = client.messages.create(
+        model="claude-opus-5",
+        max_tokens=1024,
+        temperature=0,                 # a grader that varies is not a grader
+        system=RUBRIC,
+        messages=[{"role": "user", "content": body}],
+        output_config={"format": {"type": "json_schema", "schema": SCHEMA}},
+    )
+    return json.loads(next(b.text for b in response.content if b.type == "text"))
+</pre>
+
+<pre class="l2" data-lang="ts">// validate.ts — the step that makes a judge a measurement: agreement with
+// human labels, reported as kappa. Raw agreement on a skewed set is close to
+// meaningless, and kappa is the correction for exactly that.
+
+export type Grade = "supported" | "partly" | "unsupported";
+
+export function cohensKappa(human: Grade[], judge: Grade[]): number {
+  if (human.length !== judge.length || human.length === 0) throw new Error("length mismatch");
+  const n = human.length;
+  const labels: Grade[] = ["supported", "partly", "unsupported"];
+
+  let agree = 0;
+  for (let i = 0; i &lt; n; i++) if (human[i] === judge[i]) agree++;
+  const observed = agree / n;
+
+  // Expected agreement by chance, from each grader's own marginal rates.
+  let expected = 0;
+  for (const l of labels) {
+    const ph = human.filter((g) =&gt; g === l).length / n;
+    const pj = judge.filter((g) =&gt; g === l).length / n;
+    expected += ph * pj;
+  }
+  return (observed - expected) / (1 - expected || 1);
+}
+
+export function verdict(human: Grade[], judge: Grade[]): string {
+  const k = cohensKappa(human, judge);
+  const agree = human.filter((h, i) =&gt; h === judge[i]).length / human.length;
+  const usable =
+    k &gt;= 0.6 ? "usable as a gate" : k &gt;= 0.4 ? "usable as a signal only" : "not usable";
+  return `agreement ${(agree * 100).toFixed(1)}%, kappa ${k.toFixed(2)} — ${usable} (n=${human.length})`;
+}
+
+// agreement 91.0%, kappa 0.34 — not usable
+// Ninety-one percent sounds excellent. The judge and the humans both say
+// "supported" most of the time, and beyond that they share almost nothing.
+</pre>
+
+<pre class="l3" data-lang="go">// pairwise.go — position bias, handled. In a head-to-head comparison the
+// option presented first wins more often than it should, so run both orders
+// and keep only the verdicts that survive the swap. The rest are ties, and
+// calling them ties is more honest than picking whichever came first.
+package judge
+
+import "context"
+
+type Verdict string
+
+const (
+	AWins Verdict = "a"
+	BWins Verdict = "b"
+	Tie   Verdict = "tie"
+)
+
+type Compare func(ctx context.Context, first, second string) (Verdict, error)
+
+// Consistent asks twice, with the candidates swapped, and only reports a
+// winner when both runs agree. Typically 10-25% of comparisons disagree with
+// themselves; treating those as ties is the whole correction.
+func Consistent(ctx context.Context, cmp Compare, a, b string) (Verdict, error) {
+	forward, err := cmp(ctx, a, b)
+	if err != nil {
+		return Tie, err
+	}
+	reverse, err := cmp(ctx, b, a)
+	if err != nil {
+		return Tie, err
+	}
+
+	// In the reversed run the labels are mirrored: "a wins" there means b won.
+	switch {
+	case forward == AWins &amp;&amp; reverse == BWins:
+		return AWins, nil
+	case forward == BWins &amp;&amp; reverse == AWins:
+		return BWins, nil
+	default:
+		return Tie, nil
+	}
+}
+
+// FlipRate is worth logging on its own: how often the judge contradicts itself
+// under a swap. A rising flip rate means the judge has stopped discriminating,
+// usually because the two systems being compared have converged.
+func FlipRate(results []struct{ Forward, Reverse Verdict }) float64 {
+	if len(results) == 0 {
+		return 0
+	}
+	var flips int
+	for _, r := range results {
+		if !(r.Forward == AWins &amp;&amp; r.Reverse == BWins) &amp;&amp; !(r.Forward == BWins &amp;&amp; r.Reverse == AWins) {
+			flips++
+		}
+	}
+	return float64(flips) / float64(len(results))
+}
+</pre>
+    </section>
+
+    <section class="topic" id="ragevals">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Measuring the two halves separately</h3>
+        <p class="lede">A retrieval system has two components that fail independently, and one end-to-end score tells you nothing about which one broke. Measure the retriever with ranking metrics against known-relevant documents, measure the generator with groundedness against the passages it was actually given, and you can point at the half that regressed.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">End-to-end accuracy fell from 78% to 71% after a release that touched the chunker, the embedding model and the prompt. Which one?</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Retrieval metrics &mdash; recall@k, MRR, nDCG &mdash; need relevance labels but no model call. Generation metrics &mdash; groundedness, answer relevance &mdash; are graded against the passages that were retrieved, whatever they were.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;Recall@k on the retriever, groundedness on the generator, and end-to-end on top. Three numbers, and the first two tell you which sprint to plan.&rdquo;</span></div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Metric</th><th>Half</th><th>What it answers</th></tr></thead>
+          <tbody>
+            <tr><td>Recall@k</td><td>Retrieval</td><td>Did the answering passage make the top k at all? The ceiling on everything downstream.</td></tr>
+            <tr><td>MRR</td><td>Retrieval</td><td>How high did the first relevant one land? Sensitive to the top of the list, which is where the model looks.</td></tr>
+            <tr><td>nDCG@k</td><td>Retrieval</td><td>Graded relevance with position discounting. The right metric when relevance is not binary.</td></tr>
+            <tr><td>Context precision</td><td>Retrieval</td><td>What fraction of what you sent was actually relevant? Low precision distracts the model measurably.</td></tr>
+            <tr><td>Groundedness</td><td>Generation</td><td>Is every claim supported by the passages provided? The direct measure of hallucination.</td></tr>
+            <tr><td>Answer relevance</td><td>Generation</td><td>Did it answer the question that was asked, rather than a nearby one?</td></tr>
+            <tr><td>Refusal correctness</td><td>Generation</td><td>Does it decline when the passages genuinely do not contain the answer? Almost nobody measures this, and it is where trust is won.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># ranking.py — the three retrieval metrics, implemented, because the
+# definitions are short and the differences between them matter.
+import math
+
+
+def recall_at_k(retrieved: list[str], relevant: set[str], k: int) -&gt; float:
+    """Did the answering passage make the cut? This is the ceiling: nothing
+    downstream can recover a document that was never retrieved."""
+    if not relevant:
+        return 1.0
+    return len(set(retrieved[:k]) &amp; relevant) / len(relevant)
+
+
+def mrr(retrieved: list[str], relevant: set[str]) -&gt; float:
+    """Reciprocal rank of the first relevant hit. Rewards putting the right
+    answer first, which matters because the model reads the top of the list
+    most carefully."""
+    for i, doc in enumerate(retrieved, start=1):
+        if doc in relevant:
+            return 1.0 / i
+    return 0.0
+
+
+def ndcg_at_k(retrieved: list[str], grades: dict[str, float], k: int) -&gt; float:
+    """Graded relevance, discounted by position. Use it when relevance is not
+    binary — 'exactly answers it' should outrank 'mentions the topic'."""
+    def dcg(order):
+        return sum((2 ** grades.get(d, 0.0) - 1) / math.log2(i + 2)
+                   for i, d in enumerate(order[:k]))
+    ideal = sorted(grades, key=grades.get, reverse=True)
+    best = dcg(ideal)
+    return dcg(retrieved) / best if best else 0.0
+
+
+def report(cases: list[dict], k: int = 6) -&gt; dict:
+    """Run it on every retrieval change. It needs no model call, so it is fast
+    enough to sit in CI — which is why it is the metric you will actually run."""
+    return {
+        f"recall@{k}": sum(recall_at_k(c["retrieved"], set(c["relevant"]), k) for c in cases) / len(cases),
+        "mrr": sum(mrr(c["retrieved"], set(c["relevant"])) for c in cases) / len(cases),
+        f"ndcg@{k}": sum(ndcg_at_k(c["retrieved"], c["grades"], k) for c in cases) / len(cases),
+    }
+</pre>
+
+<pre class="l2" data-lang="ts">// scorecard.ts — three numbers, side by side, because the interesting signal
+// is which one moved. An end-to-end score that fell tells you something is
+// wrong; this tells you where.
+
+export interface Case {
+  question: string;
+  relevant: string[];   // human-labelled, the ground truth for retrieval
+  retrieved: string[];  // what the system actually fetched
+  answer: string;
+  grounded: boolean;    // from the judge, against the passages actually used
+  correct: boolean;     // from the judge or a human, end to end
+}
+
+export interface Scorecard {
+  recallAtK: number;    // ceiling — can the generator possibly succeed?
+  grounded: number;     // given what it got, did it stay honest?
+  endToEnd: number;     // what the user experiences
+  headroom: number;     // recall minus end-to-end: what better generation could win
+}
+
+export function score(cases: Case[], k = 6): Scorecard {
+  const mean = (f: (c: Case) =&gt; number) =&gt; cases.reduce((s, c) =&gt; s + f(c), 0) / cases.length;
+
+  const recallAtK = mean((c) =&gt;
+    c.relevant.length === 0
+      ? 1
+      : c.retrieved.slice(0, k).filter((d) =&gt; c.relevant.includes(d)).length / c.relevant.length,
+  );
+  const grounded = mean((c) =&gt; (c.grounded ? 1 : 0));
+  const endToEnd = mean((c) =&gt; (c.correct ? 1 : 0));
+
+  // The diagnosis, as a number. Large headroom means the passages are there
+  // and the generator is wasting them: work on the prompt, the model, or on
+  // sending fewer and better passages. Small headroom with low recall means
+  // the answer never arrived: work on chunking, the index and the ranking.
+  return { recallAtK, grounded, endToEnd, headroom: recallAtK - endToEnd };
+}
+</pre>
+
+<pre class="l1" data-lang="go">// refusal.go — the metric almost nobody tracks, and the one that decides
+// whether people trust the system: does it decline when it should?
+// It needs a deliberately built set of questions your corpus cannot answer.
+package eval
+
+type RefusalCase struct {
+	Question   string
+	Answerable bool // does the corpus actually contain this?
+	Refused    bool // did the system decline?
+}
+
+type RefusalStats struct {
+	CorrectRefusals   int // unanswerable, and it said so — the good case
+	Hallucinations    int // unanswerable, and it answered anyway — the bad one
+	OverRefusals      int // answerable, and it declined — the annoying one
+	CorrectAnswers    int
+}
+
+func Score(cases []RefusalCase) RefusalStats {
+	var s RefusalStats
+	for _, c := range cases {
+		switch {
+		case !c.Answerable &amp;&amp; c.Refused:
+			s.CorrectRefusals++
+		case !c.Answerable &amp;&amp; !c.Refused:
+			s.Hallucinations++
+		case c.Answerable &amp;&amp; c.Refused:
+			s.OverRefusals++
+		default:
+			s.CorrectAnswers++
+		}
+	}
+	return s
+}
+
+// The two rates trade against each other exactly like precision and recall,
+// and prompting for caution moves both. Track them together or you will fix
+// one and ship the other: a system that never refuses invents answers, and a
+// system that always refuses is useless in a different way.
+func (s RefusalStats) HallucinationRate() float64 {
+	n := s.Hallucinations + s.CorrectRefusals
+	if n == 0 {
+		return 0
+	}
+	return float64(s.Hallucinations) / float64(n)
+}
+
+func (s RefusalStats) OverRefusalRate() float64 {
+	n := s.OverRefusals + s.CorrectAnswers
+	if n == 0 {
+		return 0
+	}
+	return float64(s.OverRefusals) / float64(n)
+}
+</pre>
+    </section>
+  </div>
+</section>

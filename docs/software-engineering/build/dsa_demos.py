@@ -18,141 +18,9 @@ depend on when Chrome happened to take the snapshot.
 Everything is drawn as DOM or SVG, never a canvas, so it prints.
 """
 
-P1 = r"""
-<script>
-(function () {
-  "use strict";
+import demo_ui
 
-  /* ==================================================================
-     The player
-     ================================================================== */
-
-  var REG = {};
-  function reg(name, factory) { REG[name] = factory; }
-
-  function el(tag, cls, txt) {
-    var e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (txt != null) e.textContent = txt;
-    return e;
-  }
-  function btn(label, title) {
-    var b = el("button", null, label);
-    b.type = "button";
-    if (title) b.title = title;
-    return b;
-  }
-  function sel(options, value) {
-    var s = document.createElement("select");
-    options.forEach(function (o) {
-      var op = document.createElement("option");
-      op.value = o[0]; op.textContent = o[1];
-      if (o[0] === value) op.selected = true;
-      s.appendChild(op);
-    });
-    return s;
-  }
-  function commas(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
-
-  var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  function mount(fig) {
-    var factory = REG[fig.getAttribute("data-demo")];
-    if (!factory) return;
-    var stage = fig.querySelector(".demo-stage");
-    var read = fig.querySelector(".demo-read");
-    var ctl = fig.querySelector(".demo-ctl");
-    if (!stage || !ctl) return;
-    ctl.innerHTML = "";
-    stage.innerHTML = "";
-
-    var frames = null, at = 0, timer = 0, playing = false, demo;
-    var play, prev, next;
-
-    var api = {
-      fig: fig, stage: stage, read: read, ctl: ctl,
-      speed: 130,
-      /* readout line under the stage */
-      say: function (html) { if (read) read.innerHTML = html; },
-      /* recompute the trace after a control changed */
-      rebuild: function (keepAt) {
-        stop();
-        frames = demo.frames ? demo.frames() : null;
-        at = !frames ? 0
-           : keepAt ? Math.min(at, frames.length - 1)
-           : demo.start ? Math.min(Math.max(0, demo.start(frames)), frames.length - 1)
-           : 0;
-        paint();
-      },
-      at: function () { return at; },
-      total: function () { return frames ? frames.length : 0; },
-      /* controls the demo owns, added left of the transport */
-      add: function (node) { ctl.appendChild(node); return node; },
-      button: btn, select: sel, el: el, commas: commas
-    };
-
-    demo = factory(api);
-
-    if (demo.frames) {
-      var seg = el("div", "seg nav");
-      prev = btn("◀", "Step back (left arrow)");
-      play = btn("Play", "Play or pause (space)");
-      next = btn("▶", "Step forward (right arrow)");
-      seg.appendChild(prev); seg.appendChild(play); seg.appendChild(next);
-      ctl.appendChild(seg);
-      var reset = btn("Reset");
-      ctl.appendChild(reset);
-
-      prev.addEventListener("click", function () { stop(); go(at - 1); });
-      next.addEventListener("click", function () { stop(); go(at + 1); });
-      reset.addEventListener("click", function () { stop(); go(0); });
-      play.addEventListener("click", function () { playing ? stop() : start(); });
-
-      fig.addEventListener("keydown", function (e) {
-        var tag = (e.target.tagName || "").toLowerCase();
-        if (tag === "input" || tag === "select" || tag === "textarea") return;
-        if (e.key === "ArrowRight") { stop(); go(at + 1); e.preventDefault(); }
-        else if (e.key === "ArrowLeft") { stop(); go(at - 1); e.preventDefault(); }
-        else if (e.key === " " || e.key === "Spacebar") {
-          if (e.target.tagName === "BUTTON") return;   /* let the button take it */
-          playing ? stop() : start(); e.preventDefault();
-        }
-      });
-    }
-
-    function go(i) {
-      if (!frames || !frames.length) return;
-      at = Math.max(0, Math.min(frames.length - 1, i));
-      paint();
-    }
-    function paint() {
-      if (frames) {
-        demo.render(frames[at], at, frames.length);
-        if (prev) prev.disabled = at === 0;
-        if (next) next.disabled = at === frames.length - 1;
-      } else {
-        demo.render();
-      }
-    }
-    function start() {
-      if (!frames) return;
-      if (at >= frames.length - 1) at = 0;
-      playing = true; play.textContent = "Pause"; play.setAttribute("aria-pressed", "true");
-      timer = setInterval(function () {
-        if (at >= frames.length - 1) { stop(); return; }
-        go(at + 1);
-      }, REDUCED ? Math.max(api.speed, 320) : api.speed);
-    }
-    function stop() {
-      playing = false;
-      if (play) { play.textContent = "Play"; play.setAttribute("aria-pressed", "false"); }
-      clearInterval(timer); timer = 0;
-    }
-
-    api.rebuild();
-  }
-
-  /* ==================================================================
+P1 = r"""  /* ==================================================================
      1. How fast the cost grows
      ================================================================== */
 
@@ -1300,18 +1168,8 @@ P3 = r"""
     };
   });
 
-  /* ---------- boot ---------- */
-  function boot() {
-    Array.prototype.forEach.call(document.querySelectorAll("figure.demo[data-demo]"), function (f) {
-      f.tabIndex = 0;                    /* so the arrow keys and space reach it */
-      try { mount(f); }
-      catch (e) { if (window.console) console.error("demo " + f.getAttribute("data-demo"), e); }
-    });
-  }
-  if (document.readyState === "complete") boot();
-  else window.addEventListener("load", boot);
-})();
-</script>
 """
 
-JS = P1 + P2 + P3
+# The player and the boot loop are shared with the AI page; only the demos
+# between them are this page's.
+JS = demo_ui.PLAYER_JS + P1 + P2 + P3 + demo_ui.BOOT_JS

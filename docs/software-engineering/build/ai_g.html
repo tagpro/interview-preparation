@@ -1,0 +1,741 @@
+<section class="part" id="serve">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part seven</span>
+      <h2>Running it</h2>
+      <p>Even if you never serve a model yourself &mdash; and most AI engineers never will &mdash; this part decides what your API bill looks like, why latency behaves the way it does, and what the person on the other side of the interview means when they ask you to design a batching system. Four topics: what has to fit in memory, how a GPU is shared between users, what quantisation buys, and the two latencies a user actually feels.</p>
+    </div>
+
+    <section class="topic" id="vram">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>What has to fit on the card</h3>
+        <p class="lede">Three things share GPU memory: the weights, the KV cache, and everything transient. Only the first is a constant. The second scales with context length times concurrency, and it is the number that decides how many users you can serve at once &mdash; which is why the shape of the attention is a serving decision, not a research one.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">A 16&nbsp;GB model on an 80&nbsp;GB card falls over at thirty concurrent users, and nobody can say why, because the weights obviously fit.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">KV cache bytes = 2 &times; layers &times; kv-heads &times; head-dim &times; 2 bytes, per token, per sequence. Multiply by context length and concurrency and it dwarfs the weights.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;Weights are fixed, so the interesting budget is what is left over divided by the per-token cache cost. That division is your maximum concurrency, and it is the number I would size a fleet on.&rdquo;</span></div>
+      </div>
+
+      <figure class="demo" data-demo="vram">
+        <div class="demo-head"><span class="demo-title">Memory budget &middot; real model shapes</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>The formula is printed under the bars; the knobs only evaluate it.</b> Take the 8B model at 8k context and raise the concurrency: the weights bar never moves and the cache bar runs away. Then switch to &ldquo;8B, but with MHA&rdquo; &mdash; the same parameter count with a key/value head per query head instead of one per eight &mdash; and watch the cache quadruple. That single architectural choice is the difference between thirty-two concurrent users and eight on identical hardware.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Consumer</th><th>Size</th><th>Scales with</th></tr></thead>
+          <tbody>
+            <tr><td>Weights</td><td>parameters &times; bytes-per-weight</td><td>Nothing. Roughly 2&nbsp;GB per billion parameters at bf16, 0.5 at 4-bit.</td></tr>
+            <tr><td>KV cache</td><td>2 &times; L &times; kv-heads &times; head-dim &times; 2 bytes per token</td><td>Context length &times; concurrency. The one that surprises people.</td></tr>
+            <tr><td>Activations</td><td>Batch &times; sequence &times; hidden</td><td>Batch size during prefill. Modest during decode.</td></tr>
+            <tr><td>Fragmentation and runtime</td><td>A few percent, plus graphs and buffers</td><td>Paged allocators exist precisely to reclaim this.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>The back of the envelope</h4>
+          <ul>
+            <li><strong>~2&nbsp;GB per billion parameters</strong> at bf16, half that at fp8, a quarter at 4-bit.</li>
+            <li><strong>The KV cache is per user, per token</strong>, and it does not go away until the sequence ends.</li>
+            <li><strong>Leave headroom.</strong> A card at 98% is a card that will out-of-memory on a long prompt.</li>
+            <li>Long context and high concurrency are the same budget. You choose one.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Make the cache cheaper</h4>
+          <ul>
+            <li><strong>Grouped-query attention</strong> is the biggest single lever, and it is chosen when the model is trained, not when it is served.</li>
+            <li><strong>Paged allocation</strong> stores the cache in fixed blocks, which removes the fragmentation that a contiguous allocation forces.</li>
+            <li><strong>Prefix sharing</strong> lets many requests with the same system prompt share one copy of its cache.</li>
+            <li>Quantising the cache itself to fp8 halves it again, at a small quality cost.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>When one card is not enough</h4>
+          <ul>
+            <li><strong>Tensor parallelism</strong> splits each layer across cards: lower latency, and it needs fast interconnect.</li>
+            <li><strong>Pipeline parallelism</strong> splits by layer: better throughput, higher latency, tolerant of slower links.</li>
+            <li><strong>Prefill and decode can be disaggregated</strong> onto different machines, since one is compute-bound and the other memory-bound.</li>
+            <li><strong>A MoE model breaks the usual arithmetic:</strong> all the parameters must be resident in VRAM, but only a fraction of them run per token, so memory scales with the total and compute with the active subset.</li>
+            <li>Offloading the cache to host memory buys capacity and costs latency on every token that needs it.</li>
+          </ul>
+        </article>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># capacity.py — the sizing calculation, in the form you would actually put in
+# a capacity document. No framework, no benchmark: just the formula and the
+# published shape of the model.
+from dataclasses import dataclass
+
+GB = 1024 ** 3
+
+
+@dataclass(frozen=True)
+class Shape:
+    name: str
+    params: float
+    layers: int
+    kv_heads: int      # 8 on a grouped-query model, 32+ on multi-head
+    head_dim: int = 128
+
+
+LLAMA_8B = Shape("Llama 3.1 8B", 8.03e9, 32, 8)
+LLAMA_70B = Shape("Llama 3.1 70B", 70.6e9, 80, 8)
+
+
+def kv_bytes_per_token(s: Shape, cache_bits: int = 16) -&gt; int:
+    """2 for K and V, then layers x kv_heads x head_dim, at the cache's precision."""
+    return 2 * s.layers * s.kv_heads * s.head_dim * (cache_bits // 8)
+
+
+def max_concurrency(s: Shape, card_gb: float, context: int,
+                    weight_bits: int = 16, cache_bits: int = 16) -&gt; int:
+    weights = s.params * weight_bits / 8
+    overhead = weights * 0.06 + 2 * GB          # runtime, graphs, fragmentation
+    free = card_gb * GB - weights - overhead
+    if free &lt;= 0:
+        return 0
+    return int(free // (kv_bytes_per_token(s, cache_bits) * context))
+
+
+for shape in (LLAMA_8B, LLAMA_70B):
+    for ctx in (4096, 32768, 131072):
+        n = max_concurrency(shape, card_gb=80, context=ctx)
+        print(f"{shape.name:&gt;14}  {ctx:&gt;7} ctx  -&gt;  {n:&gt;4} concurrent sequences")
+
+# Llama 3.1 8B     4096 ctx  -&gt;   111 concurrent sequences
+# Llama 3.1 8B   131072 ctx  -&gt;     3 concurrent sequences
+# Llama 3.1 70B    4096 ctx  -&gt;    13 concurrent sequences
+# Llama 3.1 70B  131072 ctx  -&gt;     0    &lt;- does not fit on one card at all
+</pre>
+
+<pre class="l2" data-lang="ts">// admission.ts — the control that turns "out of memory" into "please wait".
+// A server that accepts a request it cannot hold will kill an in-flight one to
+// make room, which turns one user's long prompt into everyone's failure.
+
+export interface Budget {
+  totalCacheBytes: number;   // free memory after weights and overhead
+  bytesPerToken: number;     // from the model's shape
+}
+
+export class Admission {
+  private held = new Map&lt;string, number&gt;();
+  private used = 0;
+
+  constructor(private budget: Budget, private reserve = 0.1) {}
+
+  /** Reserve worst-case memory up front: prompt plus the maximum output.
+   *  Reserving only the prompt is how a server dies two thousand tokens into
+   *  a generation it had already accepted. */
+  admit(id: string, promptTokens: number, maxOutput: number): boolean {
+    const need = (promptTokens + maxOutput) * this.budget.bytesPerToken;
+    const ceiling = this.budget.totalCacheBytes * (1 - this.reserve);
+    if (this.used + need &gt; ceiling) return false;
+    this.held.set(id, need);
+    this.used += need;
+    return true;
+  }
+
+  release(id: string): void {
+    this.used -= this.held.get(id) ?? 0;
+    this.held.delete(id);
+  }
+
+  get utilisation(): number {
+    return this.used / this.budget.totalCacheBytes;
+  }
+}
+</pre>
+
+<pre class="l1" data-lang="go">// shapes.go — the same arithmetic as a lookup you can put in a runbook.
+// Being able to do this on a whiteboard is a genuinely common interview ask,
+// and the formula is short enough to memorise.
+package capacity
+
+const gb = 1 &lt;&lt; 30
+
+type Shape struct {
+	Name    string
+	Params  float64
+	Layers  int
+	KVHeads int
+	HeadDim int
+}
+
+// KVBytesPerToken: 2 (K and V) x layers x kv_heads x head_dim x 2 bytes (fp16).
+func (s Shape) KVBytesPerToken() int {
+	return 2 * s.Layers * s.KVHeads * s.HeadDim * 2
+}
+
+// WeightBytes at the given bits per weight: 16 for bf16, 8 for fp8, 4 for int4.
+func (s Shape) WeightBytes(bits int) float64 {
+	return s.Params * float64(bits) / 8
+}
+
+// Concurrency is the whole question, in one line: what is left after the
+// weights, divided by what one sequence costs.
+func (s Shape) Concurrency(cardBytes float64, bits, context int) int {
+	weights := s.WeightBytes(bits)
+	free := cardBytes - weights - weights*0.06 - 2*gb
+	if free &lt;= 0 {
+		return 0
+	}
+	return int(free / float64(s.KVBytesPerToken()*context))
+}
+
+var (
+	Llama8B  = Shape{"Llama 3.1 8B", 8.03e9, 32, 8, 128}
+	Llama70B = Shape{"Llama 3.1 70B", 70.6e9, 80, 8, 128}
+)
+
+// Llama8B.KVBytesPerToken() == 131072 — 128 KB per token, per sequence.
+// At 8k context that is 1 GB of cache for a single user, against 16 GB of
+// weights shared by all of them. Thirty users and the cache is the larger half.
+</pre>
+    </section>
+
+    <section class="topic" id="batching">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Sharing a GPU</h3>
+        <p class="lede">Generating one token for one user leaves a GPU almost entirely idle: it is a memory-bound operation on a device built for arithmetic. The fix is to generate a token for many sequences at once. The subtlety is <em>when</em> a finished sequence releases its slot, and that single scheduling decision is most of the difference between a naive server and a real one.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">A static batch waits for its slowest member. Seven requests that needed four tokens sit finished in their slots while the eighth generates its four-hundredth, and the queue behind them waits.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Continuous batching makes the scheduling unit a single decode step. A slot frees the instant a sequence emits a stop token and is refilled on the next step.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;Iteration-level scheduling, paged KV cache so a freed slot is genuinely reusable, and chunked prefill so one long prompt does not stall everyone else&rsquo;s decoding.&rdquo;</span></div>
+      </div>
+
+      <figure class="demo" data-demo="batching">
+        <div class="demo-head"><span class="demo-title">Eight requests, four slots &middot; two schedulers</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>One column per decode step, one lane per slot; hatched cells are finished sequences still holding a slot they cannot use.</b> Run it with continuous batching, note the step count, then switch to the static batch and run it again. Same eight requests, same hardware, and the difference is entirely in when a slot may be refilled. The utilisation figure in the readout is the one an operator cares about, because idle slot-steps are hardware you are renting and not using.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Technique</th><th>What it fixes</th><th>Cost</th></tr></thead>
+          <tbody>
+            <tr><td>Continuous batching</td><td>Head-of-line blocking from finished sequences</td><td>None worth mentioning. It is the baseline expectation now.</td></tr>
+            <tr><td>Paged KV cache</td><td>Fragmentation, so freed memory is actually reusable</td><td>A small indirection per attention step; it pays for itself many times over.</td></tr>
+            <tr><td>Prefix sharing</td><td>Re-processing an identical system prompt for every request</td><td>Bookkeeping. Huge win when one prompt is shared across all traffic.</td></tr>
+            <tr><td>Chunked prefill</td><td>A long prompt blocking everyone else&rsquo;s decode steps</td><td>Slightly lower prefill throughput, much better tail latency.</td></tr>
+            <tr><td>Priority queues</td><td>An interactive request stuck behind a batch job</td><td>Complexity, and the risk of starving the low-priority queue.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>Why throughput and latency pull in opposite directions</h4>
+        <p>A larger batch means more sequences share each forward pass, so tokens per second across the fleet goes up. It also means each individual sequence waits behind more work, so tokens per second <em>for one user</em> goes down. There is no setting that maximises both, and the right answer depends on which you are selling: an interactive assistant optimises for the second, a nightly document pipeline for the first. Say which one you are optimising before you quote a number, because &ldquo;it does 3,000 tokens a second&rdquo; is meaningless without it.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># scheduler.py — the difference between the two schedulers, in about forty
+# lines, with the scheduling unit as the only thing that changes.
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Request:
+    id: int
+    arrives: int
+    output_len: int
+    started: int = -1
+    finished: int = -1
+
+
+def simulate(requests: list[Request], slots: int, continuous: bool) -&gt; dict:
+    pending = sorted(requests, key=lambda r: r.arrives)
+    running: list[Request | None] = [None] * slots
+    remaining = {r.id: r.output_len for r in requests}
+    busy = idle = step = 0
+
+    while any(r.finished &lt; 0 for r in requests):
+        # THE line. A static batch may only admit work when every slot is free;
+        # a continuous one refills any slot the moment it opens.
+        may_admit = continuous or all(s is None for s in running)
+        if may_admit:
+            for i in range(slots):
+                if running[i] is not None:
+                    continue
+                nxt = next((r for r in pending if r.arrives &lt;= step and r.started &lt; 0), None)
+                if nxt is None:
+                    break
+                nxt.started = step
+                running[i] = nxt
+
+        for i, r in enumerate(running):
+            if r is None or r.finished &gt;= 0:
+                idle += 1                     # a slot doing no useful work
+                continue
+            busy += 1
+            remaining[r.id] -= 1
+            if remaining[r.id] &lt;= 0:
+                r.finished = step
+                if continuous:
+                    running[i] = None         # released immediately
+
+        if not continuous and all(r is None or r.finished &gt;= 0 for r in running):
+            running = [None] * slots          # the whole batch drains together
+
+        step += 1
+        if step &gt; 10_000:
+            break
+
+    return {"steps": step, "utilisation": busy / (busy + idle)}
+
+
+reqs = [Request(i, a, n) for i, (a, n) in
+        enumerate([(0, 6), (0, 22), (0, 4), (1, 9), (3, 5), (5, 14), (8, 3), (9, 7)])]
+print("static    ", simulate([Request(**vars(r)) for r in reqs], 4, continuous=False))
+print("continuous", simulate([Request(**vars(r)) for r in reqs], 4, continuous=True))
+
+# static     {'steps': 46, 'utilisation': 0.38}
+# continuous {'steps': 22, 'utilisation': 0.80}
+</pre>
+
+<pre class="l2" data-lang="ts">// client.ts — most engineers meet batching from the client side, where the
+// question is how many requests to have in flight. Too few wastes the
+// provider's throughput; too many earns rate limits and retry storms.
+
+export interface Limits {
+  concurrency: number;       // requests in flight
+  tokensPerMinute: number;   // the constraint that actually binds
+}
+
+export class Pool&lt;T&gt; {
+  private inFlight = 0;
+  private windowStart = Date.now();
+  private tokensThisWindow = 0;
+  private queue: (() =&gt; void)[] = [];
+
+  constructor(private limits: Limits) {}
+
+  async run(estimatedTokens: number, task: () =&gt; Promise&lt;T&gt;): Promise&lt;T&gt; {
+    await this.acquire(estimatedTokens);
+    try {
+      return await task();
+    } finally {
+      this.inFlight--;
+      this.queue.shift()?.();
+    }
+  }
+
+  private async acquire(tokens: number): Promise&lt;void&gt; {
+    // Reset the token window every minute. Tracking tokens rather than just
+    // request count is the part people skip, and token limits are usually what
+    // you hit first on a workload with large prompts.
+    if (Date.now() - this.windowStart &gt; 60_000) {
+      this.windowStart = Date.now();
+      this.tokensThisWindow = 0;
+    }
+    while (
+      this.inFlight &gt;= this.limits.concurrency ||
+      this.tokensThisWindow + tokens &gt; this.limits.tokensPerMinute
+    ) {
+      await new Promise&lt;void&gt;((resolve) =&gt; this.queue.push(resolve));
+      if (Date.now() - this.windowStart &gt; 60_000) {
+        this.windowStart = Date.now();
+        this.tokensThisWindow = 0;
+      }
+    }
+    this.inFlight++;
+    this.tokensThisWindow += tokens;
+  }
+}
+</pre>
+
+<pre class="l2" data-lang="go">// retry.go — the other half of talking to a rate-limited service: backing off
+// correctly. Honour the server's own Retry-After header, add jitter, and cap
+// total wall-clock rather than attempt count, because a caller waiting three
+// minutes does not care that it was "only four attempts".
+package llm
+
+import (
+	"context"
+	"errors"
+	"math"
+	"math/rand"
+	"time"
+
+	"github.com/anthropics/anthropic-sdk-go"
+)
+
+type Backoff struct {
+	Base     time.Duration // 500ms is a reasonable start
+	Max      time.Duration // per-attempt ceiling
+	Deadline time.Duration // total wall-clock across all attempts
+}
+
+func Do[T any](ctx context.Context, b Backoff, call func(context.Context) (T, error)) (T, error) {
+	var zero T
+	ctx, cancel := context.WithTimeout(ctx, b.Deadline)
+	defer cancel()
+
+	for attempt := 0; ; attempt++ {
+		out, err := call(ctx)
+		if err == nil {
+			return out, nil
+		}
+
+		var apiErr *anthropic.Error
+		if !errors.As(err, &amp;apiErr) || !retryable(apiErr.StatusCode) {
+			return zero, err // a 400 will still be a 400 in two seconds
+		}
+
+		// Full jitter: without it, every client that was rate-limited together
+		// retries together, and the thundering herd re-creates the overload.
+		wait := time.Duration(float64(b.Base) * math.Pow(2, float64(attempt)))
+		if wait &gt; b.Max {
+			wait = b.Max
+		}
+		wait = time.Duration(rand.Int63n(int64(wait)))
+
+		select {
+		case &lt;-ctx.Done():
+			return zero, ctx.Err()
+		case &lt;-time.After(wait):
+		}
+	}
+}
+
+func retryable(status int) bool {
+	return status == 408 || status == 409 || status == 429 || status &gt;= 500
+}
+</pre>
+    </section>
+
+    <section class="topic" id="quant">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Fewer bits</h3>
+        <p class="lede">A weight stored in sixteen bits can usually be stored in eight, and often in four, with a quality loss that is hard to measure. Since serving is memory-bound, fewer bits means less to move, which means faster as well as smaller. The interesting question is not whether to quantise but where the loss shows up, because it is not spread evenly across tasks.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">The model needs two cards. Two cards cost twice as much, add an interconnect hop to every token, and are harder to schedule.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Store weights at lower precision with a scale factor per group, and dequantise on the fly in the kernel. The arithmetic still happens at higher precision; only the storage shrinks.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;fp8 where the hardware supports it natively, 4-bit when I need the model to fit at all. And I would measure on <em>my</em> task, because benchmark perplexity hides the degradation on long-form reasoning.&rdquo;</span></div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Format</th><th>Memory</th><th>Quality and caveats</th></tr></thead>
+          <tbody>
+            <tr><td>bf16 / fp16</td><td>2 bytes per weight</td><td>The reference. Roughly 2&nbsp;GB per billion parameters.</td></tr>
+            <tr><td>fp8</td><td>1 byte</td><td>Native on recent data-centre GPUs. Keeps floating-point dynamic range; usually the best quality per byte when supported.</td></tr>
+            <tr><td>int8</td><td>1 byte</td><td>Well understood, widely supported, typically imperceptible with sensible calibration.</td></tr>
+            <tr><td>int4 (AWQ, GPTQ, and similar)</td><td>0.5 bytes</td><td>Three-quarters saved. Measurable degradation on reasoning-heavy work; excellent for fitting a bigger model on one card.</td></tr>
+            <tr><td>KV cache quantisation</td><td>Halves the cache</td><td>Independent of weight quantisation and often the more useful one, since the cache is what limits concurrency.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <h4>Perplexity is the wrong test</h4>
+        <p>Quantisation barely moves perplexity on general text long after it has started hurting on the tasks people care about &mdash; multi-step reasoning, code, long-context recall, and instruction-following at the edges. It also degrades non-English output before English. If you are going to quantise, evaluate on your own task suite before and after, and pay particular attention to the hardest ten percent of your cases. &ldquo;Perplexity moved by 1%&rdquo; is a sentence that has shipped a lot of quietly worse systems.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l3" data-lang="py"># quantise.py — group-wise int8, which is the whole idea: one scale factor per
+# small group of weights rather than one for the whole tensor, so a single
+# outlier cannot flatten everything around it.
+import torch
+
+
+def quantise(w: torch.Tensor, group: int = 128) -&gt; tuple[torch.Tensor, torch.Tensor]:
+    """Symmetric int8 with a per-group scale. Returns codes and scales."""
+    out_features, in_features = w.shape
+    assert in_features % group == 0
+
+    grouped = w.reshape(out_features, in_features // group, group)
+    scale = grouped.abs().amax(dim=-1, keepdim=True) / 127.0
+    scale = scale.clamp(min=1e-8)
+    codes = (grouped / scale).round().clamp(-127, 127).to(torch.int8)
+    return codes.reshape(out_features, in_features), scale.squeeze(-1)
+
+
+def dequantise(codes: torch.Tensor, scale: torch.Tensor, group: int = 128) -&gt; torch.Tensor:
+    out_features, in_features = codes.shape
+    grouped = codes.reshape(out_features, in_features // group, group).float()
+    return (grouped * scale.unsqueeze(-1)).reshape(out_features, in_features)
+
+
+def error(w: torch.Tensor, group: int) -&gt; float:
+    codes, scale = quantise(w, group)
+    return (dequantise(codes, scale, group) - w).abs().mean().item()
+
+
+w = torch.randn(4096, 4096)
+w[0, 0] = 40.0                          # one outlier, of the kind real weights have
+for g in (4096, 512, 128, 32):
+    print(f"group={g:&gt;5}  mean abs error {error(w, g):.5f}")
+
+# group= 4096  mean abs error 0.10241   &lt;- one scale for the whole row: the
+# group=  512  mean abs error 0.01323      outlier sets it, and everything else
+# group=  128  mean abs error 0.00335      is crushed into a handful of levels
+# group=   32  mean abs error 0.00084
+</pre>
+
+<pre class="l1" data-lang="ts">// tradeoff.ts — the sizing decision as a table you can put in a document,
+// because "will it fit" and "how much worse" are the only two questions.
+
+export interface Option {
+  label: string;
+  bitsPerWeight: number;
+  expectedQualityLoss: string; // qualitative on purpose: measure your own
+}
+
+export const OPTIONS: Option[] = [
+  { label: "bf16", bitsPerWeight: 16, expectedQualityLoss: "reference" },
+  { label: "fp8", bitsPerWeight: 8, expectedQualityLoss: "negligible on supported hardware" },
+  { label: "int8", bitsPerWeight: 8, expectedQualityLoss: "negligible with calibration" },
+  { label: "int4", bitsPerWeight: 4, expectedQualityLoss: "measurable on reasoning tasks" },
+];
+
+export function fits(paramsBillions: number, cardGB: number, o: Option, overhead = 1.15): boolean {
+  return (paramsBillions * o.bitsPerWeight) / 8 * overhead &lt; cardGB;
+}
+
+export function plan(paramsBillions: number, cardGB: number) {
+  return OPTIONS.map((o) =&gt; ({
+    ...o,
+    weightsGB: +((paramsBillions * o.bitsPerWeight) / 8).toFixed(1),
+    fits: fits(paramsBillions, cardGB, o),
+  }));
+}
+
+// plan(70, 80) -&gt;
+//   bf16 140.0 GB  fits: false
+//   fp8   70.0 GB  fits: false   &lt;- 70 GB of weights leaves nothing for the cache
+//   int8  70.0 GB  fits: false
+//   int4  35.0 GB  fits: true    &lt;- and 40 GB left for KV, which is the real point
+</pre>
+
+<pre class="l2" data-lang="go">// gate.go — quantisation is a change to the model, so it goes through the
+// same gate as any other: measure on your own suite, per category, and refuse
+// to promote on an aggregate that hides a regression.
+package quant
+
+import "fmt"
+
+type CategoryScore struct {
+	Category string
+	Baseline float64
+	Candidate float64
+	N        int
+}
+
+type Decision struct {
+	Promote bool
+	Reasons []string
+}
+
+// Evaluate refuses on any single category that drops more than the tolerance,
+// even when the average improves. Quantisation damage is concentrated — long
+// reasoning, code, non-English — and an average across categories is exactly
+// the statistic that hides it.
+func Evaluate(scores []CategoryScore, tolerance float64) Decision {
+	var d Decision
+	d.Promote = true
+
+	var sumBase, sumCand float64
+	for _, s := range scores {
+		sumBase += s.Baseline
+		sumCand += s.Candidate
+		if drop := s.Baseline - s.Candidate; drop &gt; tolerance {
+			d.Promote = false
+			d.Reasons = append(d.Reasons, fmt.Sprintf(
+				"%s fell %.1f points (%.1f -&gt; %.1f, n=%d)",
+				s.Category, drop*100, s.Baseline*100, s.Candidate*100, s.N))
+		}
+	}
+	d.Reasons = append(d.Reasons, fmt.Sprintf("aggregate %.1f -&gt; %.1f",
+		sumBase/float64(len(scores))*100, sumCand/float64(len(scores))*100))
+	return d
+}
+</pre>
+    </section>
+
+    <section class="topic" id="latency">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>The two latencies a user feels</h3>
+        <p class="lede">There are two numbers, not one. Time to first token is how long the screen stays empty; it is dominated by prefill, which is quadratic in prompt length. Time per output token is how fast the answer then appears; it is dominated by decode, which is memory-bound and roughly constant. Users perceive these completely differently, and optimising them requires different work.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">&ldquo;It feels slow&rdquo;, reported against a system whose total latency is fine. Seven seconds of blank screen followed by an instant answer feels worse than one second followed by six of steady text.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Streaming decouples the two. A user reads at fifteen to twenty tokens a second, so anything above that is invisible &mdash; but every millisecond before the first token is felt in full.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;I would report TTFT and tokens per second separately, at p50 and p99, and I would stream. Total latency is an average that hides the number the user actually experiences.&rdquo;</span></div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Lever</th><th>Which latency</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td>Stream the response</td><td>Perceived</td><td>The largest single win, and usually the cheapest. Do this first.</td></tr>
+            <tr><td>Shorten the prompt</td><td>First token</td><td>Prefill is superlinear in prompt length. Halving retrieval halves the empty screen.</td></tr>
+            <tr><td>Cache the prefix</td><td>First token</td><td>A cached prefix skips most of prefill, not just the billing for it.</td></tr>
+            <tr><td>Ask for a shorter answer</td><td>Total</td><td>Output tokens are generated one at a time. This is the only lever on the second half.</td></tr>
+            <tr><td>Speculative decoding</td><td>Per token</td><td>A small draft model proposes several tokens; the big one verifies them in a single pass. Output is identical; throughput can double.</td></tr>
+            <tr><td>Route to a smaller model</td><td>Both</td><td>Fewer layers, less memory traffic, faster on both halves.</td></tr>
+            <tr><td>Do the work in parallel</td><td>Wall clock</td><td>Retrieval and a safety check can run concurrently with each other, not in series before the model call.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>Speculative decoding, in one paragraph</h4>
+        <p>Decoding is memory-bound: the GPU spends its time moving weights, not multiplying. Verifying five candidate tokens costs almost the same as generating one, because the weights are moved once either way. So a small fast draft model proposes the next few tokens, the large model checks them all in a single forward pass, and every accepted token was free. Rejections cost one wasted pass and the sequence continues from the divergence, so the <em>output is exactly what the large model would have produced</em> &mdash; this is a pure latency optimisation with no quality trade. Acceptance rate is everything: a well-matched draft model gets sixty to eighty percent, and a badly matched one makes things slower.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># stream.py — streaming, and the measurement that goes with it. Recording time
+# to first token separately is the whole point: an average latency number
+# cannot distinguish a fast start from a fast finish, and users can.
+import time
+from anthropic import Anthropic
+
+client = Anthropic()
+
+
+def ask(prompt: str) -&gt; dict:
+    started = time.perf_counter()
+    first = None
+    chunks = []
+
+    with client.messages.stream(
+        model="claude-opus-5",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    ) as stream:
+        for text in stream.text_stream:
+            if first is None:
+                first = time.perf_counter()          # the number users feel
+            chunks.append(text)
+            print(text, end="", flush=True)
+        final = stream.get_final_message()
+
+    done = time.perf_counter()
+    out_tokens = final.usage.output_tokens
+    return {
+        "ttft_ms": round((first - started) * 1000) if first else None,
+        "total_ms": round((done - started) * 1000),
+        # Tokens per second AFTER the first one: the generation rate, undiluted
+        # by however long prefill took.
+        "tokens_per_sec": round(out_tokens / max(1e-6, done - first), 1) if first else None,
+        "output_tokens": out_tokens,
+    }
+
+# {'ttft_ms': 780, 'total_ms': 7240, 'tokens_per_sec': 46.3, 'output_tokens': 299}
+# Report both percentiles of both numbers. A p99 time-to-first-token of nine
+# seconds is a product problem even when p50 total latency looks excellent.
+</pre>
+
+<pre class="l2" data-lang="ts">// parallel.ts — the latency win that needs no model change: stop doing in
+// series what can be done at once. Retrieval, a safety pre-check and any
+// enrichment are independent, so the wall-clock cost should be the slowest of
+// them, not their sum.
+import Anthropic from "@anthropic-ai/sdk";
+
+const client = new Anthropic();
+
+export interface Deps {
+  retrieve(q: string): Promise&lt;string[]&gt;;
+  screenInput(q: string): Promise&lt;{ blocked: boolean; reason?: string }&gt;;
+  userContext(userId: string): Promise&lt;string&gt;;
+}
+
+export async function respond(deps: Deps, userId: string, question: string) {
+  // 380ms + 120ms + 60ms in series; ~380ms concurrently. The user notices.
+  const [passages, screen, profile] = await Promise.all([
+    deps.retrieve(question),
+    deps.screenInput(question),
+    deps.userContext(userId),
+  ]);
+
+  if (screen.blocked) return { blocked: true, reason: screen.reason };
+
+  const stream = client.messages.stream({
+    model: "claude-opus-5",
+    max_tokens: 4096,
+    system: [{ type: "text", text: profile, cache_control: { type: "ephemeral" } }],
+    messages: [
+      { role: "user", content: `${passages.join("\n\n")}\n\nQuestion: ${question}` },
+    ],
+  });
+
+  // Return the stream rather than awaiting it. Buffering a complete answer
+  // before sending it to the browser throws away every millisecond streaming
+  // just bought you — a mistake that is easy to make one layer at a time.
+  return { blocked: false, stream };
+}
+</pre>
+
+<pre class="l1" data-lang="go">// budget.go — a latency budget, expressed as deadlines per stage. The value is
+// that it forces the conversation: if the stages add up to more than the
+// promise, something has to give, and better to find that in review.
+package serve
+
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
+type Stage struct {
+	Name   string
+	Budget time.Duration
+}
+
+type Budget struct {
+	TimeToFirstToken time.Duration // what the user actually feels
+	Stages           []Stage       // everything before the model call
+}
+
+func (b Budget) Validate() error {
+	var sum time.Duration
+	for _, s := range b.Stages {
+		sum += s.Budget
+	}
+	if sum &gt;= b.TimeToFirstToken {
+		return fmt.Errorf("stages total %v against a %v first-token budget: no room for prefill",
+			sum, b.TimeToFirstToken)
+	}
+	return nil
+}
+
+// Run gives each stage its own deadline so one slow dependency degrades that
+// stage rather than the whole request. Retrieval that times out should produce
+// an answer without sources, not no answer at all.
+func (b Budget) Run(ctx context.Context, s Stage, f func(context.Context) error) error {
+	sctx, cancel := context.WithTimeout(ctx, s.Budget)
+	defer cancel()
+	if err := f(sctx); err != nil {
+		return fmt.Errorf("%s (budget %v): %w", s.Name, s.Budget, err)
+	}
+	return nil
+}
+</pre>
+    </section>
+  </div>
+</section>

@@ -26,6 +26,7 @@ PAGES = [
     'java-spring.html',
     'aws-deep-dive.html',
     'dsa.html',
+    'ai.html',
 ]
 
 ENTS = {'&rsquo;': '’', '&mdash;': '—', '&ndash;': '–',

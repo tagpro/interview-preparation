@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 const base='file:///tmp/claude-0/-home-user-itineraries/743066b5-f723-51f2-b6f0-b1bc64e095c2/scratchpad/';
 const files=['backend-go-ladder.html','pillar-a-foundations.html','pillar-b-go.html',
              'pillar-c-cloud.html','python-foundations.html','java-spring.html','aws-deep-dive.html',
-             'dsa.html'];
+             'dsa.html', 'ai.html'];
 const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium'});
 for(const f of files){
   const p=await b.newPage({viewport:{width:1440,height:900}});

@@ -1,7 +1,8 @@
 // Language detection for the series' <pre> blocks.
 //
-// The blocks carry no language marker -- only class="l1|l2|l3" and, on the AWS
-// page, data-lang="go|py|java". Everything else is inferred from content. Shared by
+// The blocks carry no language marker -- only class="l1|l2|l3" and, on the AWS,
+// algorithms and AI pages, a data-lang attribute naming the pane. Everything
+// else is inferred from content. Shared by
 // hl_inject.mjs and hl_report.mjs so detection has exactly one implementation.
 
 import { createHash } from 'node:crypto';
@@ -9,7 +10,7 @@ import { createHash } from 'node:crypto';
 export const PAGES = [
   'backend-go-ladder.html', 'pillar-a-foundations.html', 'pillar-b-go.html',
   'pillar-c-cloud.html', 'python-foundations.html', 'java-spring.html',
-  'aws-deep-dive.html', 'dsa.html',
+  'aws-deep-dive.html', 'dsa.html', 'ai.html',
 ];
 
 const ENT = { '&lt;': '<', '&gt;': '>', '&amp;': '&', '&quot;': '"', '&#39;': "'",
@@ -95,6 +96,12 @@ export function detect(body, attrs, page) {
     has(/\b(?:List|Map|Optional|Stream|ArrayList|HashMap)\s*<[^>]*>\s+\w/) ||
     has(/\bThread\.ofVirtual\b/) ||
     has(/^\s*(?:int|long|double|boolean|char|float|byte|short|var|final)\s+\w+\s*=.*;\s*(?:\/\/.*)?$/m);
+  const tsish = has(/^\s*(?:export\s+)?(?:interface|type)\s+\w+\s*[={<]/m) ||
+    has(/^\s*export\s+(?:const|function|class|async|default)\b/m) ||
+    has(/\b(?:const|let)\s+\w+\s*:\s*[A-Za-z{[]/) ||
+    has(/:\s*(?:string|number|boolean|void|unknown|Promise<)/) ||
+    has(/\bconsole\.(?:log|warn|error)\(/) || has(/\bawait\s+\w/) ||
+    has(/=>\s*[{(]/) || has(/\bJSON\.(?:parse|stringify)\(/);
   const pyish = has(/^\s*(?:async\s+)?def\s+\w+.*:\s*(?:#.*)?$/m) ||
     has(/^\s*class\s+\w+.*:\s*(?:#.*)?$/m) ||
     has(/^\s*(?:from\s+[\w.]+\s+)?import\s+\w/m) || has(/\bself\b/) || has(/\bf["']/) ||
@@ -104,15 +111,15 @@ export function detect(body, attrs, page) {
     has(/\.(?:append|join|items|keys|values|get)\(/) ||
     has(/^\s*(?:try|except|finally|elif|else):/m);
 
-  // The AWS and algorithms pages state the pane language on the element.
+  // The AWS, algorithms and AI pages state the pane language on the element.
   // Trust it -- unless the body plainly disagrees and plainly agrees with a
   // different one, which catches a snippet filed under the wrong pane.
-  const dl = /data-lang="(go|py|java)"/.exec(attrs || '');
+  const dl = /data-lang="(go|py|java|ts)"/.exec(attrs || '');
   if (dl) {
-    const want = { go: 'go', py: 'python', java: 'java' }[dl[1]];
-    const looks = { go: goish, python: pyish, java: javaish };
+    const want = { go: 'go', py: 'python', java: 'java', ts: 'ts' }[dl[1]];
+    const looks = { go: goish, python: pyish, java: javaish, ts: tsish && !goish && !javaish };
     if (looks[want]) return want;
-    for (const alt of ['go', 'python', 'java']) if (looks[alt]) return alt;
+    for (const alt of ['go', 'python', 'java', 'ts']) if (looks[alt]) return alt;
     return want;
   }
 
@@ -145,7 +152,7 @@ export function detect(body, attrs, page) {
   if (count(/^\s*[\w.-]+:\s*(?:$|[^\s:].*)$/gm) / n > 0.5 && !has(/[;{}]/)) return 'yaml';
   if (count(/^\s*(?:export\s+)?[A-Z][A-Z0-9_]*=/gm) / n > 0.5) return 'env';
 
-  if (dl) return dl[1] === 'go' ? 'go' : 'python';
+  if (dl) return { go: 'go', py: 'python', java: 'java', ts: 'ts' }[dl[1]] || 'python';
   if (page && PAGE_DEFAULT[page]) return PAGE_DEFAULT[page];
   return 'plaintext';
 }

@@ -1,0 +1,699 @@
+<section class="part" id="adapt">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part six</span>
+      <h2>Changing the model itself</h2>
+      <p>Most people reach for fine-tuning far too early and then discover it did not fix what they thought it would. The honest framing is a ladder: prompting is free and instant, retrieval adds knowledge that changes, and training changes <em>behaviour</em>. Knowing which rung a problem belongs on is worth more in an interview than knowing any hyperparameter &mdash; but the arithmetic of low-rank adaptation is worth knowing too, because it is the reason this is affordable at all.</p>
+    </div>
+
+    <section class="topic" id="whentune">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Prompt, retrieve, or train</h3>
+        <p class="lede">These three do different jobs and are not substitutes. Prompting sets behaviour for one request. Retrieval supplies facts that change. Fine-tuning changes what the model does by default, permanently, at the cost of a training run and a deployment. Reaching for the third to solve a problem belonging to the second is the commonest expensive mistake in this field.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">&ldquo;The model does not know our product, so we should fine-tune it on our documentation.&rdquo; Three weeks and a GPU bill later it still gets last month&rsquo;s pricing wrong.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Training moves weights, which encode behaviour and style far more reliably than they encode retrievable facts &mdash; and weights cannot be updated when a fact changes.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;Knowledge that changes goes in retrieval. Behaviour that must be consistent goes in the weights. If I need both &mdash; and I usually do &mdash; I do both, and I fine-tune last.&rdquo;</span></div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Symptom</th><th>Right lever</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td>Does not know a fact about your domain</td><td><b>Retrieval</b></td><td>Facts change. Weights do not, without another training run.</td></tr>
+            <tr><td>Must cite a source</td><td><b>Retrieval</b></td><td>You can only cite what you selected. A fine-tuned model has no source to point at.</td></tr>
+            <tr><td>Wrong tone, format or structure</td><td><b>Prompt, then fine-tune</b></td><td>Try the prompt first; it is free. Fine-tune when the behaviour must hold over thousands of calls without a long instruction.</td></tr>
+            <tr><td>Needs a specialised skill or reasoning pattern</td><td><b>Fine-tune</b></td><td>Examples teach a shape that description cannot.</td></tr>
+            <tr><td>Too slow or too expensive</td><td><b>Distil, then fine-tune the small model</b></td><td>Generate training data with the large model, train a small one to imitate it on your narrow task.</td></tr>
+            <tr><td>Inconsistent across similar inputs</td><td><b>Prompt and settings first</b></td><td>Temperature, examples and a schema fix most of this at no cost.</td></tr>
+            <tr><td>Output format keeps breaking</td><td><b>Constrained decoding</b></td><td>Not a training problem at all. See part two.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>What fine-tuning actually costs, beyond the GPUs</h4>
+        <p>A dataset somebody has to build and curate, and which decides the result more than any hyperparameter. An evaluation set built <em>before</em> training, or you cannot tell whether it worked. A second deployment path, with its own versioning, rollback and monitoring. A commitment: the base model will improve, and your tuned version will not, until you retrain. And a real risk of catastrophic forgetting &mdash; a model tuned hard on one narrow task gets worse at everything else, including instruction-following you were relying on. None of that is a reason not to do it. All of it is a reason to be sure the prompt and the retrieval have been exhausted first.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l1" data-lang="py"># decide.py — the decision, written down, because it is the one that gets made
+# in a meeting on a feeling and regretted in a quarter.
+from dataclasses import dataclass
+from enum import Enum
+
+
+class Lever(str, Enum):
+    PROMPT = "prompt"
+    RETRIEVE = "retrieval"
+    FINETUNE = "fine-tune"
+    DISTIL = "distil to a smaller model"
+    CONSTRAIN = "constrained decoding"
+
+
+@dataclass
+class Symptom:
+    knowledge_changes: bool     # does the missing information change over time?
+    needs_citation: bool
+    behaviour_not_knowledge: bool
+    format_only: bool
+    too_expensive: bool
+    prompt_exhausted: bool      # be honest about this one
+
+
+def lever(s: Symptom) -&gt; Lever:
+    if s.format_only:
+        return Lever.CONSTRAIN          # a schema, not a training run
+    if s.needs_citation or s.knowledge_changes:
+        return Lever.RETRIEVE           # weights cannot cite and cannot be edited
+    if s.too_expensive and s.prompt_exhausted:
+        return Lever.DISTIL
+    if s.behaviour_not_knowledge and s.prompt_exhausted:
+        return Lever.FINETUNE
+    return Lever.PROMPT                 # the default, and usually the answer
+
+
+# The honest version of `prompt_exhausted` is not "we tried a few things".
+# It is: there is an eval set, a baseline number, at least a dozen recorded
+# prompt variants, and the curve has flattened. Anything less and the answer
+# to "should we fine-tune" is "not yet".
+</pre>
+
+<pre class="l2" data-lang="ts">// data.ts — the part of fine-tuning that decides the outcome, and the part
+// that gets skipped: building and checking the dataset. A thousand clean,
+// consistent examples beat fifty thousand scraped ones, every time.
+
+export interface Example {
+  messages: { role: "system" | "user" | "assistant"; content: string }[];
+  source: "human" | "production" | "synthetic";
+}
+
+export interface Report {
+  total: number;
+  duplicates: number;
+  inconsistentSystem: number;
+  tooLong: number;
+  singleLabelDominance: number; // fraction taken by the commonest output
+}
+
+export function audit(examples: Example[], maxTokens = 8000, count = (s: string) =&gt; s.length / 4): Report {
+  const seen = new Set&lt;string&gt;();
+  const systems = new Set&lt;string&gt;();
+  const outputs = new Map&lt;string, number&gt;();
+  let duplicates = 0, tooLong = 0;
+
+  for (const ex of examples) {
+    const key = JSON.stringify(ex.messages);
+    if (seen.has(key)) duplicates++;
+    seen.add(key);
+
+    const sys = ex.messages.find((m) =&gt; m.role === "system")?.content ?? "";
+    systems.add(sys);
+
+    const total = ex.messages.reduce((s, m) =&gt; s + count(m.content), 0);
+    if (total &gt; maxTokens) tooLong++;
+
+    const out = ex.messages.at(-1)?.content ?? "";
+    outputs.set(out, (outputs.get(out) ?? 0) + 1);
+  }
+
+  const commonest = Math.max(0, ...outputs.values());
+  return {
+    total: examples.length,
+    duplicates,
+    // The system prompt must be the SAME one you will use at inference. This
+    // check catches the mistake that quietly wastes a whole training run.
+    inconsistentSystem: systems.size,
+    tooLong,
+    singleLabelDominance: commonest / examples.length,
+  };
+}
+</pre>
+
+<pre class="l1" data-lang="go">// route.go — model tiering, which is the cheap version of the same decision.
+// Before training anything, check whether a smaller model already handles most
+// of the traffic: it usually does, and it costs a config change.
+package route
+
+type Tier int
+
+const (
+	Small Tier = iota // classification, routing, extraction, short summaries
+	Large             // reasoning, long synthesis, anything user-facing and hard
+)
+
+type Request struct {
+	Task           string
+	InputTokens    int
+	NeedsReasoning bool
+	UserFacing     bool
+}
+
+// Pick is deliberately readable rather than clever. The value is not in the
+// rules; it is in having the rules written in one place where someone can
+// argue with them, and in logging which tier served each request so you can
+// measure whether the small one is good enough.
+func Pick(r Request) Tier {
+	switch {
+	case r.NeedsReasoning:
+		return Large
+	case r.Task == "classify" || r.Task == "route" || r.Task == "extract":
+		return Small
+	case r.InputTokens &gt; 50_000 &amp;&amp; r.UserFacing:
+		return Large
+	default:
+		return Small
+	}
+}
+
+// The measurement that justifies the routing: run a sample through both tiers
+// and have the judge compare. If the small model wins or ties on 90% of the
+// traffic it serves, the routing is sound; if not, move the boundary.
+type Comparison struct {
+	Task      string
+	SmallWins int
+	Ties      int
+	LargeWins int
+}
+
+func (c Comparison) SmallIsEnough() bool {
+	total := c.SmallWins + c.Ties + c.LargeWins
+	return total &gt; 0 &amp;&amp; float64(c.SmallWins+c.Ties)/float64(total) &gt;= 0.9
+}
+</pre>
+    </section>
+
+    <section class="topic" id="sft">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Supervised fine-tuning</h3>
+        <p class="lede">Show the model a few thousand examples of the input it will see and the output you want, and continue training on them. That is all supervised fine-tuning is. The technique is well understood and the difficulty is entirely in the dataset: consistent, representative, and identical in format to what production will send.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">The behaviour you want takes six hundred tokens of instruction to describe, and it still drifts on the awkward cases. Every request pays for those tokens.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Continue next-token training on your examples, at a small learning rate, computing the loss only over the assistant&rsquo;s tokens so the model learns to produce them rather than to produce your inputs.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;A thousand consistent examples beat fifty thousand scraped ones. I would spend the first week on the dataset and the eval set, and the training run would be the easy part.&rdquo;</span></div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Decision</th><th>Reasonable default</th><th>Failure it prevents</th></tr></thead>
+          <tbody>
+            <tr><td>Dataset size</td><td>500&ndash;5,000 examples for a narrow behaviour</td><td>Under a few hundred, you are mostly adding noise.</td></tr>
+            <tr><td>Consistency</td><td>One format, one system prompt, one style</td><td>Contradictory examples teach the average of two behaviours, which is neither.</td></tr>
+            <tr><td>Epochs</td><td>1&ndash;3</td><td>More and it memorises. Watch validation loss and stop when it turns.</td></tr>
+            <tr><td>Learning rate</td><td>Small; 1e-4 to 2e-4 for adapters</td><td>Too high wrecks the base model&rsquo;s general ability in a few hundred steps.</td></tr>
+            <tr><td>Loss masking</td><td>Only over completion tokens</td><td>Training on the prompt teaches the model to generate your inputs.</td></tr>
+            <tr><td>Held-out split</td><td>10&ndash;20%, drawn before any tuning</td><td>Without it you are measuring memorisation.</td></tr>
+            <tr><td>Mixing in general data</td><td>A small fraction of general instruction data</td><td>Catastrophic forgetting: a narrowly tuned model that has lost the ability to follow an instruction it was not trained on.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <h4>The format at training must match the format at inference</h4>
+        <p>If you train with one system prompt and serve with another, you have trained for a distribution you will never see. The same applies to the chat template, to whether examples include the tool definitions, and to how documents are delimited. This is the single most common reason a fine-tune &ldquo;did not work&rdquo;: not the hyperparameters, not the data volume, but a formatting mismatch between the training set and the production call. Assert on it in the training pipeline.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># prepare.py — dataset preparation with the checks that matter, before any GPU
+# is booked. Every one of these has been the reason a training run was wasted.
+import json
+from collections import Counter
+from pathlib import Path
+
+SYSTEM = "You classify support tickets into one of five queues."   # the SAME string production sends
+
+
+def load(path: Path) -&gt; list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def check(rows: list[dict]) -&gt; list[str]:
+    problems = []
+
+    systems = {r["messages"][0]["content"] for r in rows if r["messages"][0]["role"] == "system"}
+    if systems != {SYSTEM}:
+        # The classic wasted run: trained under one system prompt, served under
+        # another, and the model has learned a distribution it never sees.
+        problems.append(f"{len(systems)} distinct system prompts; production sends exactly one")
+
+    outputs = Counter(r["messages"][-1]["content"].strip() for r in rows)
+    top, n = outputs.most_common(1)[0]
+    if n / len(rows) &gt; 0.6:
+        problems.append(f"{n / len(rows):.0%} of examples output {top!r}: the model will learn to always say it")
+
+    keys = Counter(json.dumps(r["messages"]) for r in rows)
+    dupes = sum(c - 1 for c in keys.values() if c &gt; 1)
+    if dupes:
+        problems.append(f"{dupes} duplicate examples: they will be over-weighted")
+
+    if len(rows) &lt; 300:
+        problems.append(f"only {len(rows)} examples: below ~300 this is usually noise")
+
+    return problems
+
+
+def split(rows: list[dict], holdout: float = 0.15) -&gt; tuple[list[dict], list[dict]]:
+    """Split BEFORE any tuning, by a stable hash of the input rather than at
+    random, so re-running the pipeline does not silently move examples across
+    the boundary and leak the test set into training."""
+    import hashlib
+    def bucket(r):
+        h = hashlib.sha256(json.dumps(r["messages"][:-1]).encode()).hexdigest()
+        return int(h[:8], 16) / 0xFFFFFFFF
+    train = [r for r in rows if bucket(r) &gt;= holdout]
+    test = [r for r in rows if bucket(r) &lt; holdout]
+    return train, test
+
+
+if __name__ == "__main__":
+    rows = load(Path("data/tickets.jsonl"))
+    for problem in check(rows):
+        print("WARN:", problem)
+    train, test = split(rows)
+    print(f"{len(train)} train / {len(test)} held out")
+</pre>
+
+<pre class="l2" data-lang="ts">// harness.ts — the eval harness you build BEFORE training, not after. Without
+// a recorded baseline from the base model, a tuned model's score is a number
+// with nothing to compare it to.
+
+export interface Candidate {
+  name: string;                     // "base", "lora-r16-e2", ...
+  run: (input: string) =&gt; Promise&lt;string&gt;;
+}
+
+export interface Row {
+  input: string;
+  expected: string;
+  category: string;
+}
+
+export interface Result {
+  name: string;
+  overall: number;
+  byCategory: Record&lt;string, number&gt;;
+}
+
+export async function compare(candidates: Candidate[], rows: Row[]): Promise&lt;Result[]&gt; {
+  const out: Result[] = [];
+  for (const c of candidates) {
+    const hits: Record&lt;string, [number, number]&gt; = {};
+    for (const r of rows) {
+      const got = (await c.run(r.input)).trim();
+      const ok = got === r.expected ? 1 : 0;
+      const [h, n] = hits[r.category] ?? [0, 0];
+      hits[r.category] = [h + ok, n + 1];
+    }
+    const byCategory = Object.fromEntries(
+      Object.entries(hits).map(([k, [h, n]]) =&gt; [k, h / n]),
+    );
+    const totals = Object.values(hits).reduce((a, [h, n]) =&gt; [a[0] + h, a[1] + n], [0, 0]);
+    out.push({ name: c.name, overall: totals[0] / totals[1], byCategory });
+  }
+  return out;
+}
+
+// Per-category is the point. A tuned model that gains three points overall
+// while losing eleven on the rarest and most expensive category is a
+// regression wearing an improvement's clothes, and the overall number hides it.
+</pre>
+
+<pre class="l1" data-lang="go">// versions.go — a fine-tuned model is a deployment artefact, and it needs the
+// same discipline as any other: an identity, a provenance, and a way back.
+package model
+
+import "time"
+
+type Version struct {
+	ID           string    // the served model identifier
+	Base         string    // what it was tuned from
+	DatasetHash  string    // exactly which examples produced it
+	TrainedAt    time.Time
+	EvalScore    float64   // on the held-out set, at training time
+	Rollback     string    // the version to fall back to
+}
+
+// The three questions you will be asked during an incident, and the reason
+// each field above exists: what is serving, what was it trained on, and what
+// do we go back to. A fine-tuned model without a recorded dataset hash is a
+// binary nobody can rebuild.
+type Registry struct {
+	Active   Version
+	History  []Version
+}
+
+func (r *Registry) Promote(v Version) {
+	v.Rollback = r.Active.ID
+	r.History = append(r.History, r.Active)
+	r.Active = v
+}
+
+func (r *Registry) Rollback() (Version, bool) {
+	if len(r.History) == 0 {
+		return Version{}, false
+	}
+	prev := r.History[len(r.History)-1]
+	r.History = r.History[:len(r.History)-1]
+	r.Active = prev
+	return prev, true
+}
+</pre>
+    </section>
+
+    <section class="topic" id="lora">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Low-rank adapters</h3>
+        <p class="lede">Full fine-tuning updates every weight, and the memory cost is dominated not by the weights but by the optimizer state beside them &mdash; roughly sixteen bytes per parameter. LoRA freezes the model and learns two thin matrices next to each big one, whose product has the same shape. Train a fraction of a percent of the parameters, and a job that needed a cluster fits on one card.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">Fine-tuning a 70-billion-parameter model the naive way needs over a terabyte of GPU memory, most of it optimizer state for weights that barely move.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Replace the update &Delta;W (d&times;d) with B&middot;A, where B is d&times;r and A is r&times;d and r is small. Only A and B are trained; the base stays frozen and can even be quantised to 4 bits.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;The adapter is a small file, so I can serve one base model with a different adapter per customer instead of deploying a whole model each time. That is usually the bigger operational win.&rdquo;</span></div>
+      </div>
+
+      <figure class="demo" data-demo="lora">
+        <div class="demo-head"><span class="demo-title">Rank against memory &middot; drag r</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>The adapters are drawn at about twenty-six times scale so they are visible at all; the honest ratio is the percentage in the table.</b> At r=16 on an 8-billion-parameter model you are training roughly a tenth of a percent of the weights, and the training memory drops from three figures of gigabytes to something that fits on one card. Switch the frozen base to 4-bit and it drops again &mdash; that combination is what QLoRA names. Push r past 64 and the argument for LoRA weakens: you are approaching the cost of the thing it was avoiding.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Knob</th><th>Typical</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Rank <b>r</b></td><td>8&ndash;32; 16 is a good first try</td><td>Capacity of the adapter. Higher fits more, overfits sooner, costs linearly more.</td></tr>
+            <tr><td>Alpha</td><td>Often 2&times;r</td><td>Scales the adapter&rsquo;s contribution by alpha/r. Tuning alpha and r together is mostly tuning the effective learning rate.</td></tr>
+            <tr><td>Target modules</td><td>All linear layers beats attention-only</td><td>Where adapters are inserted. Including the feed-forward layers costs more parameters and generally works better.</td></tr>
+            <tr><td>Dropout</td><td>0.0&ndash;0.1</td><td>Regularisation on the adapter. Raise it on small datasets.</td></tr>
+            <tr><td>Base precision</td><td>bf16, or 4-bit for QLoRA</td><td>4-bit makes large models trainable on one card, at a small and usually acceptable quality cost.</td></tr>
+            <tr><td>Merging</td><td>Optional</td><td>Fold B&middot;A back into W for zero inference overhead &mdash; and lose the ability to swap adapters per request.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l3" data-lang="py"># lora.py — the layer itself, in twenty lines, because the idea is smaller
+# than the acronym suggests and reading it once removes the mystery.
+import torch
+import torch.nn as nn
+
+
+class LoRALinear(nn.Module):
+    """Wraps a frozen nn.Linear with a trainable low-rank update."""
+
+    def __init__(self, base: nn.Linear, r: int = 16, alpha: int = 32, dropout: float = 0.05):
+        super().__init__()
+        self.base = base
+        for p in self.base.parameters():
+            p.requires_grad = False                    # the base never moves
+
+        self.a = nn.Parameter(torch.empty(r, base.in_features))
+        self.b = nn.Parameter(torch.zeros(base.out_features, r))
+        # A is random, B is zero, so B @ A is zero at step 0 and the wrapped
+        # layer starts out exactly equal to the base. Training begins from the
+        # model you already trusted rather than from a perturbed one.
+        nn.init.kaiming_uniform_(self.a, a=5 ** 0.5)
+
+        self.scale = alpha / r                         # decouples r from the effective LR
+        self.drop = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -&gt; torch.Tensor:
+        return self.base(x) + self.drop(x) @ self.a.T @ self.b.T * self.scale
+
+    @torch.no_grad()
+    def merge(self) -&gt; nn.Linear:
+        """Fold the adapter into the base for inference: zero overhead, and no
+        more swapping adapters per request."""
+        self.base.weight += (self.b @ self.a) * self.scale
+        return self.base
+
+
+def trainable_fraction(model: nn.Module) -&gt; float:
+    total = sum(p.numel() for p in model.parameters())
+    train = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return train / total
+
+# 8B model, r=16, all linear layers: about 0.5% trainable.
+# Full fine-tune with Adam: ~16 bytes/parameter -&gt; ~128 GB.
+# LoRA on a bf16 base:      ~2 bytes/parameter  -&gt; ~17 GB.
+# QLoRA on a 4-bit base:                        -&gt; ~6 GB.
+</pre>
+
+<pre class="l2" data-lang="ts">// adapters.ts — the operational win people miss: one base model in memory,
+// many adapters, chosen per request. Deploying a full fine-tuned model per
+// customer does not scale; deploying a few megabytes per customer does.
+
+export interface Adapter {
+  id: string;        // "acme-tone-v3"
+  tenantId: string;
+  rank: number;
+  sizeBytes: number; // a few MB, not a few GB
+  trainedAt: Date;
+}
+
+export interface Server {
+  loaded(): Promise&lt;string[]&gt;;
+  load(id: string): Promise&lt;void&gt;;
+  unload(id: string): Promise&lt;void&gt;;
+  generate(adapterId: string | null, prompt: string): Promise&lt;string&gt;;
+}
+
+/** A small LRU over loaded adapters. The base model stays resident; only the
+ *  adapters come and go, which is the whole reason this is affordable. */
+export class AdapterPool {
+  private order: string[] = [];
+  constructor(private server: Server, private capacity = 16) {}
+
+  async use(adapter: Adapter | null, prompt: string): Promise&lt;string&gt; {
+    if (!adapter) return this.server.generate(null, prompt);
+
+    if (!this.order.includes(adapter.id)) {
+      if (this.order.length &gt;= this.capacity) {
+        const evict = this.order.shift()!;
+        await this.server.unload(evict);
+      }
+      await this.server.load(adapter.id);
+    } else {
+      this.order = this.order.filter((x) =&gt; x !== adapter.id);
+    }
+    this.order.push(adapter.id);
+    return this.server.generate(adapter.id, prompt);
+  }
+}
+</pre>
+
+<pre class="l1" data-lang="go">// memory.go — the arithmetic that decides whether a training run fits, and it
+// is worth being able to do it on a whiteboard. The dominant term is not the
+// weights; it is the optimizer state sitting beside every trainable one.
+package train
+
+const (
+	bytesPerFrozenParam16 = 2  // bf16 weights, no gradient, no optimizer state
+	bytesPerFrozenParam4  = 0.5
+	// Adam: 4 bytes fp32 master weight + 4 gradient + 8 for the two moments.
+	bytesPerTrainableParam = 16
+)
+
+type Plan struct {
+	Params      float64 // total parameters in the base model
+	Trainable   float64 // parameters actually being trained
+	Quantised   bool    // frozen base held at 4-bit
+	Activations float64 // bytes, roughly linear in batch x sequence
+}
+
+func (p Plan) Bytes() float64 {
+	frozen := p.Params - p.Trainable
+	per := float64(bytesPerFrozenParam16)
+	if p.Quantised {
+		per = bytesPerFrozenParam4
+	}
+	return frozen*per + p.Trainable*bytesPerTrainableParam + p.Activations
+}
+
+// 8B model, 4 GB of activations:
+//
+//	full:  Plan{Params: 8e9, Trainable: 8e9}                    -&gt; ~123 GB
+//	LoRA:  Plan{Params: 8e9, Trainable: 42e6}                   -&gt; ~19 GB
+//	QLoRA: Plan{Params: 8e9, Trainable: 42e6, Quantised: true}  -&gt; ~8 GB
+//
+// The middle line is the one that changed the field: it moved fine-tuning from
+// a cluster problem to a single-card problem.
+</pre>
+    </section>
+
+    <section class="topic" id="pref">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Preference tuning and distillation</h3>
+        <p class="lede">Supervised tuning teaches the model what a good answer looks like. Preference tuning teaches it which of two answers is <em>better</em>, which is a different and often easier thing to collect: people are unreliable at writing the ideal response and quite reliable at picking the better of two. Distillation is the other end &mdash; use a large model to generate the data that trains a small one.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">You cannot write the ideal answer to &ldquo;is this reply appropriately empathetic&rdquo;, but any reviewer can tell you which of two replies is better in under ten seconds.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Collect pairs: a prompt, a chosen response, a rejected one. DPO optimises the model directly on that preference with no separate reward model and no reinforcement learning loop.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;DPO first, because it is a supervised loss on pairs and I can debug it. PPO buys more headroom with a reward model and an RL loop, and a great deal more that can go wrong.&rdquo;</span></div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Method</th><th>What it needs</th><th>Trade-off</th></tr></thead>
+          <tbody>
+            <tr><td>SFT</td><td>Ideal outputs</td><td>Simplest. Teaches the shape, cannot express &ldquo;better than&rdquo;.</td></tr>
+            <tr><td>DPO</td><td>Preference pairs</td><td>A supervised loss on pairs. No reward model, no RL loop, far fewer moving parts. The usual first choice.</td></tr>
+            <tr><td>RLHF with PPO</td><td>Preference pairs, a reward model, an RL loop</td><td>More headroom, much more machinery, and reward hacking to watch for.</td></tr>
+            <tr><td>RLAIF</td><td>A model generating the preferences</td><td>Cheap at scale, and it inherits the grading model&rsquo;s biases wholesale.</td></tr>
+            <tr><td>Distillation</td><td>A strong model and unlabelled inputs</td><td>Generate outputs with the large model, train the small one on them. The most practical cost lever on this list.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>Reward hacking, and why it is not an exotic risk</h4>
+        <p>Optimise against a proxy hard enough and the model finds the gap between the proxy and what you meant. A reward model that scored longer answers slightly higher produces a model that pads. One trained on graders who liked confident language produces a model that is confidently wrong. This is not a theoretical worry: it is the normal outcome of optimising a learned score, which is why the loss is regularised against the original model, why held-out human evaluation stays in the loop, and why &ldquo;the reward went up&rdquo; is never on its own evidence that anything improved.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l3" data-lang="py"># dpo.py — the DPO loss, which is short enough that it demystifies the method.
+# It is a supervised classification loss over pairs: push the chosen response's
+# log-probability up relative to the frozen reference, and the rejected one's
+# down, with beta controlling how far the model may drift from where it started.
+import torch
+import torch.nn.functional as F
+
+
+def dpo_loss(policy_chosen_logps: torch.Tensor,
+             policy_rejected_logps: torch.Tensor,
+             ref_chosen_logps: torch.Tensor,
+             ref_rejected_logps: torch.Tensor,
+             beta: float = 0.1) -&gt; torch.Tensor:
+    """All four arguments are summed log-probabilities of a full response.
+
+    The reference model is the pre-DPO checkpoint, frozen. Its role is the
+    whole safety story: the loss is defined on how far the policy has moved
+    *relative to the reference*, so a low beta keeps the model close to
+    something that already worked and limits how strange it can become.
+    """
+    policy_margin = policy_chosen_logps - policy_rejected_logps
+    ref_margin = ref_chosen_logps - ref_rejected_logps
+    return -F.logsigmoid(beta * (policy_margin - ref_margin)).mean()
+
+
+def accuracy(policy_chosen, policy_rejected) -&gt; float:
+    """The metric to watch beside the loss: how often the model now prefers the
+    response the humans preferred. It should climb; if it sits at 0.5 the pairs
+    are probably not distinguishable and the problem is the data."""
+    return (policy_chosen &gt; policy_rejected).float().mean().item()
+
+
+# Two things to watch during a run:
+#   - accuracy climbing towards 0.7-0.8 (past ~0.95 you are likely overfitting)
+#   - the KL divergence from the reference; if it runs away, lower beta
+</pre>
+
+<pre class="l2" data-lang="ts">// pairs.ts — collecting preference data, which is where the quality of the
+// whole exercise is decided. The two design choices that matter: pairs must be
+// genuinely comparable, and ties must be recordable.
+
+export interface Pair {
+  prompt: string;
+  a: string;
+  b: string;
+  chosen: "a" | "b" | "tie";
+  annotator: string;
+  reason?: string;
+}
+
+/** Sample two responses from the SAME prompt, at a non-zero temperature, from
+ *  the model you are about to tune. Comparing your model against a different
+ *  one teaches it to imitate that model, which is distillation — a fine thing
+ *  to do, but not the thing this dataset is for. */
+export async function makePair(
+  prompt: string,
+  generate: (p: string, temperature: number) =&gt; Promise&lt;string&gt;,
+): Promise&lt;{ prompt: string; a: string; b: string } | null&gt; {
+  const [a, b] = await Promise.all([generate(prompt, 0.9), generate(prompt, 0.9)]);
+  // Identical responses carry no signal and dilute the set.
+  return a.trim() === b.trim() ? null : { prompt, a, b };
+}
+
+/** Annotator agreement, computed before the data is used. Below about 0.6 the
+ *  criterion is not shared and no amount of training will fix that — go back
+ *  and write a clearer rubric for the humans. */
+export function agreement(pairs: Pair[][]): number {
+  let same = 0, total = 0;
+  for (const group of pairs) {
+    for (let i = 0; i &lt; group.length; i++)
+      for (let j = i + 1; j &lt; group.length; j++) {
+        total++;
+        if (group[i].chosen === group[j].chosen) same++;
+      }
+  }
+  return total === 0 ? 0 : same / total;
+}
+</pre>
+
+<pre class="l2" data-lang="go">// distil.go — distillation as a pipeline, which is how it actually gets done:
+// run the large model over unlabelled production inputs, keep only the outputs
+// that pass your own checks, and train the small model on what survives.
+package distil
+
+import (
+	"context"
+	"fmt"
+)
+
+type Example struct {
+	Input  string
+	Output string
+	Score  float64
+}
+
+type Teacher func(ctx context.Context, input string) (string, error)
+type Verifier func(input, output string) (float64, bool)
+
+// Generate is deliberately picky. Unfiltered teacher output trains the student
+// on the teacher's mistakes as faithfully as on its successes, and the student
+// has no way to tell them apart. The verifier is what makes this work: a
+// schema check, a unit test, a business rule, a second model — anything
+// cheaper and more reliable than the generation itself.
+func Generate(ctx context.Context, inputs []string, teach Teacher, verify Verifier) ([]Example, error) {
+	var kept []Example
+	var rejected int
+
+	for _, in := range inputs {
+		out, err := teach(ctx, in)
+		if err != nil {
+			return nil, fmt.Errorf("teacher on %q: %w", in, err)
+		}
+		score, ok := verify(in, out)
+		if !ok {
+			rejected++
+			continue
+		}
+		kept = append(kept, Example{Input: in, Output: out, Score: score})
+	}
+
+	// A rejection rate worth logging: if the teacher fails your own checks a
+	// third of the time, the student cannot be better than that, and the
+	// verifier is telling you something about the task, not the model.
+	fmt.Printf("kept %d, rejected %d (%.0f%%)\n",
+		len(kept), rejected, 100*float64(rejected)/float64(len(inputs)))
+	return kept, nil
+}
+</pre>
+    </section>
+  </div>
+</section>

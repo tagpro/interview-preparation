@@ -1,0 +1,789 @@
+<section class="part" id="rag">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part three</span>
+      <h2>Giving it your data</h2>
+      <p>Retrieval-augmented generation is a search engine with a model on the end, and almost every problem people call a &ldquo;RAG problem&rdquo; is a search problem wearing a costume. The model is the easy half. The hard half is deciding what to index, how to cut it up, how to find the right piece, and how to know afterwards which of those steps failed. Four topics, in the order the pipeline runs.</p>
+    </div>
+
+    <section class="topic" id="whyrag">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Two failures it fixes, one it does not</h3>
+        <p class="lede">A model knows what was in its training data, has no idea what it does not know, and cannot cite anything. Retrieval fixes the first two by putting the relevant text in front of it at request time, and the third by carrying identifiers along with the text. What it does not fix is a model that ignores the passage it was given, and telling those two failures apart is the whole discipline.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">Asked about your refund policy, the model produces a fluent, plausible, wrong answer, with no signal that it was guessing and nothing to check it against.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Embed and index your documents once. At query time, retrieve the few most relevant passages, put them in the prompt, and instruct the model to answer only from them and to cite which it used.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;When an answer is wrong I first check whether the right passage was in the context at all. If it was not, that is a retrieval bug. If it was, that is a generation bug. They have completely different fixes.&rdquo;</span></div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Stage</th><th>Decision</th><th>Where it bites</th></tr></thead>
+          <tbody>
+            <tr><td>Ingest</td><td>What is a document, and how is it parsed</td><td>PDF tables and multi-column layouts arrive scrambled. Bad parsing is the most common invisible cause of bad retrieval.</td></tr>
+            <tr><td>Chunk</td><td>Where the boundaries go</td><td>A boundary through the answering sentence is unrecoverable downstream.</td></tr>
+            <tr><td>Embed</td><td>Which model, which dimension</td><td>Changing it later means reindexing everything.</td></tr>
+            <tr><td>Retrieve</td><td>Dense, sparse, or both; how many</td><td>Dense alone misses identifiers; sparse alone misses paraphrase.</td></tr>
+            <tr><td>Rerank</td><td>Whether to spend a second model on the top 50&ndash;100</td><td>The single biggest quality lever, at 100&ndash;300&nbsp;ms.</td></tr>
+            <tr><td>Generate</td><td>Prompt, citation format, refusal behaviour</td><td>Where &ldquo;say you do not know&rdquo; earns its tokens.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>&ldquo;Just put it all in the context window&rdquo;</h4>
+        <p>With million-token windows this is a real option and worth stating clearly in an interview. It wins on simplicity for a corpus that genuinely fits and rarely changes. It loses on cost &mdash; you pay for the whole corpus on every request, where retrieval pays for six chunks &mdash; on latency, on the accuracy dip for facts buried mid-context, and on the fact that you cannot cite what you did not select. In practice the two compose: retrieval decides what deserves the window, and a large window means retrieval can afford to be generous rather than surgical. Prompt caching changes the arithmetic again, since a stable corpus prefix can be cached; that is the version of this answer that shows you have actually thought about it.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># rag.py — the whole pipeline, small enough to read in one go. Everything after
+# this section is a refinement of one of these six lines.
+from dataclasses import dataclass
+from anthropic import Anthropic
+
+client = Anthropic()
+
+SYSTEM = """Answer using only the numbered passages provided.
+
+Cite the number of every passage you use, like [2].
+If the passages do not contain the answer, say "I don't have that information"
+and stop. Do not answer from prior knowledge."""
+
+
+@dataclass
+class Passage:
+    id: str
+    text: str
+    source: str
+
+
+def answer(question: str, retrieve, rerank, k: int = 6) -&gt; tuple[str, list[Passage]]:
+    candidates = retrieve(question, k=50)        # cheap and broad
+    passages = rerank(question, candidates)[:k]  # expensive and precise
+
+    context = "\n\n".join(
+        f"[{i + 1}] ({p.source})\n{p.text}" for i, p in enumerate(passages)
+    )
+    response = client.messages.create(
+        model="claude-opus-5",
+        max_tokens=2048,
+        temperature=0,
+        system=SYSTEM,
+        messages=[{"role": "user", "content": f"{context}\n\nQuestion: {question}"}],
+    )
+    text = next(b.text for b in response.content if b.type == "text")
+
+    # Return the passages alongside the answer, always. Without them you cannot
+    # tell a retrieval failure from a generation failure, and that single
+    # distinction is most of what debugging a RAG system consists of.
+    return text, passages
+</pre>
+
+<pre class="l2" data-lang="ts">// attribute.ts — the diagnostic that turns "the answer was wrong" into a
+// ticket someone can act on. Run it over every logged failure.
+
+export type Verdict =
+  | "retrieval"   // the right passage was never fetched — fix the index
+  | "ranking"     // it was fetched but did not make the top k — fix the reranker
+  | "generation"; // it was in the prompt and the model still got it wrong
+
+export interface Trace {
+  question: string;
+  candidateIds: string[]; // everything the retriever returned
+  usedIds: string[];      // what actually went into the prompt
+  goldIds: string[];      // what a human says answers the question
+  correct: boolean;
+}
+
+export function attribute(t: Trace): Verdict | "ok" {
+  if (t.correct) return "ok";
+  const inPrompt = t.goldIds.some((g) =&gt; t.usedIds.includes(g));
+  if (inPrompt) return "generation";
+  const retrieved = t.goldIds.some((g) =&gt; t.candidateIds.includes(g));
+  return retrieved ? "ranking" : "retrieval";
+}
+
+// The output is a histogram, and it decides your next sprint. Mostly
+// "retrieval" means work on chunking and the index. Mostly "ranking" means add
+// or tune a reranker. Mostly "generation" means the prompt, the model, or too
+// many distracting passages in the context.
+export function histogram(traces: Trace[]): Record&lt;string, number&gt; {
+  const counts: Record&lt;string, number&gt; = { ok: 0, retrieval: 0, ranking: 0, generation: 0 };
+  for (const t of traces) counts[attribute(t)]++;
+  return counts;
+}
+</pre>
+
+<pre class="l1" data-lang="go">// pipeline.go — the shape of a retrieval service, as interfaces. Writing it
+// this way makes the swap points explicit: you will replace the retriever and
+// the reranker several times, and the generator roughly never.
+package rag
+
+import "context"
+
+type Passage struct {
+	ID     string
+	Text   string
+	Source string
+	Score  float64
+}
+
+// Retriever is cheap and broad: it returns far more than you will use.
+type Retriever interface {
+	Retrieve(ctx context.Context, query string, k int) ([]Passage, error)
+}
+
+// Reranker is expensive and precise: it reads the query together with each
+// candidate, which is why it is accurate and why it costs what it costs.
+type Reranker interface {
+	Rerank(ctx context.Context, query string, in []Passage) ([]Passage, error)
+}
+
+type Pipeline struct {
+	Retrieve Retriever
+	Rerank   Reranker
+	Fanout   int // candidates fetched, typically 50-100
+	TopK     int // passages sent to the model, typically 3-8
+}
+
+func (p Pipeline) Context(ctx context.Context, query string) ([]Passage, error) {
+	cands, err := p.Retrieve.Retrieve(ctx, query, p.Fanout)
+	if err != nil {
+		return nil, err
+	}
+	// A reranker failure should degrade to the retriever's own order rather
+	// than fail the request: a slightly worse answer beats no answer.
+	ranked, err := p.Rerank.Rerank(ctx, query, cands)
+	if err != nil {
+		ranked = cands
+	}
+	if len(ranked) &gt; p.TopK {
+		ranked = ranked[:p.TopK]
+	}
+	return ranked, nil
+}
+</pre>
+    </section>
+
+    <section class="topic" id="chunking">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>The boundary decides the answer</h3>
+        <p class="lede">Retrieval can only return a chunk, so the chunk boundary decides what an answer is even allowed to contain. Cut through the sentence that answers the question and no amount of clever ranking, reranking or model capability gets it back &mdash; the failure happened at index time, hours earlier, in a batch job nobody was watching.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">The system confidently answers &ldquo;refunds are issued&rdquo; and stops, because the chunk ended mid-sentence and the fourteen days lived in the next one.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Split on structure the document already has &mdash; headings, paragraphs, list items, table rows &mdash; and only fall back to a character count when there is none. Overlap papers over the seams.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;I chunk on document structure, not on a fixed character count, and I keep the heading path on every chunk so a fragment still says what it is about.&rdquo;</span></div>
+      </div>
+
+      <figure class="demo" data-demo="chunk">
+        <div class="demo-head"><span class="demo-title">Chunking a policy document &middot; where do the seams fall</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>The underlined sentence is the one that answers the question; the orange bands are where two chunks overlap, and a vertical rule is a boundary no chunk spans.</b> Drag the size down with the fixed strategy and watch the readout change from &ldquo;holds the answering sentence whole&rdquo; to &ldquo;the answering sentence is cut in half&rdquo;. Overlap rescues some of those cases at the price of a larger index. The paragraph strategy never cuts mid-sentence at all, which is why structure beats arithmetic whenever the document has any.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Strategy</th><th>Good for</th><th>Watch out for</th></tr></thead>
+          <tbody>
+            <tr><td>Fixed size</td><td>Uniform prose with no structure</td><td>Cuts mid-sentence. Only ever a fallback.</td></tr>
+            <tr><td>Fixed size with overlap</td><td>The pragmatic default</td><td>10&ndash;20% overlap is usual; it inflates the index and duplicates hits.</td></tr>
+            <tr><td>Recursive by separator</td><td>Markdown, HTML, source code</td><td>Split on paragraphs, then sentences, then characters &mdash; only descending when a piece is still too big.</td></tr>
+            <tr><td>Structure-aware</td><td>Anything with headings or a schema</td><td>The best results and the most parsing work. Carry the heading path into the chunk text.</td></tr>
+            <tr><td>Small chunks, large context</td><td>Precision retrieval</td><td>Retrieve a small chunk, then send its neighbours or its whole parent section to the model.</td></tr>
+            <tr><td>Model-written summaries</td><td>Tables, images, code files</td><td>Index a generated description alongside the raw content. Costs an ingest-time model call per chunk.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Reasonable defaults</h4>
+          <ul>
+            <li><strong>Start at 500&ndash;800 tokens with 10&ndash;15% overlap</strong> and move only when a measurement tells you to.</li>
+            <li><strong>Never split mid-sentence.</strong> Snap the boundary to the nearest sentence end.</li>
+            <li><strong>Keep metadata on every chunk:</strong> source, title, heading path, page, timestamp.</li>
+            <li>Store the original document too. You will need to show it to a human.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Make the chunk self-contained</h4>
+          <ul>
+            <li><strong>Prepend the heading path</strong> to the chunk text before embedding. &ldquo;Returns &rsaquo; Refunds &rsaquo; Timing&rdquo; makes a bare paragraph findable.</li>
+            <li><strong>Resolve pronouns at ingest</strong> where you can. A chunk beginning &ldquo;It must be returned within&hellip;&rdquo; embeds to nothing useful.</li>
+            <li><strong>Never split a table row</strong>, and never separate a row from its header.</li>
+            <li>Re-chunking is a full reindex. Version the chunking config alongside the embedding model.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Decouple what you match from what you send</h4>
+          <ul>
+            <li><strong>Retrieve small, generate large.</strong> Match on a precise sentence-level chunk, then expand to the surrounding section for the model.</li>
+            <li><strong>Contextual retrieval:</strong> prepend a model-written sentence situating each chunk in its document before embedding. It is an ingest-time cost that measurably lifts recall.</li>
+            <li><strong>Index several views of the same content</strong> &mdash; the raw text, a summary, hypothetical questions it answers &mdash; and let fusion sort it out.</li>
+            <li>Deduplicate near-identical chunks. Boilerplate that appears on every page will otherwise dominate every result set.</li>
+          </ul>
+        </article>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># chunk.py — recursive splitting that respects structure and never cuts a
+# sentence, with the heading path carried into the text so a fragment still
+# says what it is about.
+import re
+from dataclasses import dataclass
+
+SEPARATORS = ["\n## ", "\n### ", "\n\n", ". ", " "]   # coarse to fine
+
+
+@dataclass
+class Chunk:
+    text: str
+    heading: str
+    start: int
+
+
+def split(text: str, target: int = 2400, overlap: int = 300,
+          seps: list[str] | None = None) -&gt; list[str]:
+    """Descend the separator list only as far as necessary.
+
+    The recursion is the point: a document with headings is split on headings,
+    and only a paragraph that is still too big gets split on sentences. A flat
+    character split does the same violence to every document.
+    """
+    seps = SEPARATORS if seps is None else seps
+    if len(text) &lt;= target or not seps:
+        return [text]
+
+    sep, rest = seps[0], seps[1:]
+    parts, out, buf = text.split(sep), [], ""
+    for p in parts:
+        piece = (buf + sep + p) if buf else p
+        if len(piece) &lt;= target:
+            buf = piece
+            continue
+        if buf:
+            out.append(buf)
+        buf = p if len(p) &lt;= target else ""
+        if not buf:
+            out.extend(split(p, target, overlap, rest))
+    if buf:
+        out.append(buf)
+
+    # Overlap is added last, from the tail of the previous chunk, so it never
+    # interacts with the boundary decision above.
+    if overlap and len(out) &gt; 1:
+        out = [out[0]] + [out[i - 1][-overlap:] + " " + out[i] for i in range(1, len(out))]
+    return out
+
+
+def chunk_markdown(doc: str, title: str) -&gt; list[Chunk]:
+    heading, out, at = title, [], 0
+    for block in re.split(r"(?=^#{1,3} )", doc, flags=re.M):
+        m = re.match(r"^(#{1,3}) (.+)$", block, flags=re.M)
+        if m:
+            heading = f"{title} &gt; {m.group(2).strip()}"
+        for piece in split(block):
+            # The heading is embedded WITH the text. Retrieval matches on it.
+            out.append(Chunk(text=f"{heading}\n\n{piece.strip()}", heading=heading, start=at))
+            at += len(piece)
+    return out
+</pre>
+
+<pre class="l3" data-lang="ts">// window.ts — retrieve small, generate large. Match on precise sentence-level
+// chunks, then hand the model the surrounding section, so precision at the
+// index and completeness in the prompt stop competing.
+
+export interface Stored {
+  id: string;
+  docId: string;
+  ordinal: number; // position within the document
+  text: string;
+}
+
+export interface Store {
+  search(query: string, k: number): Promise&lt;Stored[]&gt;;
+  neighbours(docId: string, from: number, to: number): Promise&lt;Stored[]&gt;;
+}
+
+/** Expand each hit by `radius` chunks either side, then merge overlaps so a
+ *  passage is never sent twice — duplicated context wastes budget and biases
+ *  the model towards whatever got repeated. */
+export async function expand(store: Store, hits: Stored[], radius = 2): Promise&lt;string[]&gt; {
+  const spans = new Map&lt;string, [number, number]&gt;();
+  for (const h of hits) {
+    const lo = Math.max(0, h.ordinal - radius);
+    const hi = h.ordinal + radius;
+    const cur = spans.get(h.docId);
+    spans.set(h.docId, cur ? [Math.min(cur[0], lo), Math.max(cur[1], hi)] : [lo, hi]);
+  }
+
+  const out: string[] = [];
+  for (const [docId, [lo, hi]] of spans) {
+    const run = await store.neighbours(docId, lo, hi);
+    out.push(run.sort((a, b) =&gt; a.ordinal - b.ordinal).map((c) =&gt; c.text).join("\n"));
+  }
+  return out;
+}
+</pre>
+
+<pre class="l2" data-lang="go">// sentences.go — the boundary rule that matters most, on its own: never cut a
+// sentence. Everything else about chunking is tuning; this one is correctness.
+package chunk
+
+import "strings"
+
+// Snap moves a proposed split point forward to the end of the sentence it
+// lands inside. Abbreviations are the trap — splitting on every "." puts a
+// boundary inside "Ltd." and "e.g." — so a period only ends a sentence when
+// what follows looks like the start of a new one.
+func Snap(text string, at int) int {
+	if at &gt;= len(text) {
+		return len(text)
+	}
+	for i := at; i &lt; len(text)-1; i++ {
+		if !isTerminator(text[i]) {
+			continue
+		}
+		j := i + 1
+		for j &lt; len(text) &amp;&amp; text[j] == ' ' {
+			j++
+		}
+		if j &gt;= len(text) {
+			return len(text)
+		}
+		// A capital or a newline after the space: a real sentence boundary.
+		if text[j] == '\n' || (text[j] &gt;= 'A' &amp;&amp; text[j] &lt;= 'Z') {
+			if !endsWithAbbreviation(text[:i+1]) {
+				return j
+			}
+		}
+	}
+	return len(text)
+}
+
+func isTerminator(b byte) bool { return b == '.' || b == '!' || b == '?' }
+
+var abbreviations = []string{" Ltd.", " Inc.", " e.g.", " i.e.", " etc.", " Dr.", " No.", " vs."}
+
+func endsWithAbbreviation(s string) bool {
+	for _, a := range abbreviations {
+		if strings.HasSuffix(s, a) {
+			return true
+		}
+	}
+	return false
+}
+</pre>
+    </section>
+
+    <section class="topic" id="vectors">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Index, recall, latency: pick two</h3>
+        <p class="lede">Comparing a query against every stored vector is exact and, for a surprisingly long time, fast enough. Past that, an approximate index trades a small amount of recall for a very large amount of speed by building a graph with a few long-range links and walking downhill. Every vector database is a wrapper around that trade, and the knob is always the same one.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">Ten million chunks and a 50&nbsp;ms latency budget. Reading every vector on every query is arithmetic you cannot afford, and the exact answer is not worth what it costs.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">A navigable small-world graph: mostly short links to near neighbours, a few long ones across the space. Enter at one point, greedily move closer, keep a candidate list of size <em>ef</em>.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;I would start with exact search, because at our size it is fast enough and it has no recall to lose. When it stops being fast enough I would move to an ANN index and measure its recall against the exact answers I already have.&rdquo;</span></div>
+      </div>
+
+      <figure class="demo" data-demo="ann">
+        <div class="demo-head"><span class="demo-title">A graph index being walked &middot; press play</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>The cross is the query; green points are the current best candidates and the line traces where the search actually went.</b> Drop <em>ef</em> to 1 and the walk becomes pure greedy descent &mdash; fast, and it gets stuck. Raise it and recall climbs while the number of vectors touched climbs with it. Watch the count in the readout against 120: that ratio, not the algorithm, is the reason vector databases exist.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Index</th><th>How it searches</th><th>Choose it when</th></tr></thead>
+          <tbody>
+            <tr><td>Flat / exact</td><td>Compares everything</td><td>Under a few hundred thousand vectors. Perfect recall, nothing to tune, no index to rebuild.</td></tr>
+            <tr><td>HNSW</td><td>Greedy walk over a layered small-world graph</td><td>The default for high recall at low latency. Memory-hungry; deletes are awkward.</td></tr>
+            <tr><td>IVF</td><td>Partition into clusters, scan a few</td><td>Memory is tight. Tune how many clusters to probe; needs training data to build.</td></tr>
+            <tr><td>IVF + product quantisation</td><td>As above, on compressed vectors</td><td>Very large corpora. Big memory win, real recall cost.</td></tr>
+            <tr><td>Binary or int8 quantised</td><td>Cheap first pass, exact rescore of the top few hundred</td><td>Almost always worth it at scale. Most of the memory saving, most of the recall.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>The vocabulary</h4>
+          <ul>
+            <li><strong>Recall@k</strong> is the fraction of the true nearest k that the index actually returned. It is the accuracy number for an index.</li>
+            <li><strong>Approximate means approximate.</strong> 90&ndash;95% recall is the normal operating point, not a bug.</li>
+            <li><strong>Filtering by metadata</strong> &mdash; tenant, date, language &mdash; interacts badly with graph indexes. Ask how a database does it before you rely on it.</li>
+            <li>Every index has a knob that trades recall for speed. Find it and write down where you set it.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Operate it</h4>
+          <ul>
+            <li><strong>Measure recall against your own exact results.</strong> Compute brute-force top-10 for a thousand real queries once, then treat it as a fixture.</li>
+            <li><strong>Building is much slower than searching.</strong> Plan the first index build, and plan rebuilds.</li>
+            <li><strong>Deletes are usually tombstones.</strong> A high-churn corpus needs periodic compaction or recall quietly rots.</li>
+            <li>Multi-tenant filtering is a first-class design question, not a WHERE clause you add later.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Where the cost really is</h4>
+          <ul>
+            <li><strong>Quantise, then rescore.</strong> Search a binary or int8 index for the top 500, rescore those against full-precision vectors. Most of the memory saving, almost none of the recall loss.</li>
+            <li><strong>Pre-filtering vs post-filtering</strong> is the difference between correct results and empty ones under a selective filter.</li>
+            <li><strong>Recall past 95% is bought at a steep price</strong> &mdash; often triple the query time for a difference no user can perceive.</li>
+            <li>A vector index is a derived artefact. Be able to rebuild it from source at any time, and test that you can.</li>
+          </ul>
+        </article>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l2" data-lang="py"># recall.py — measure the index instead of trusting it. Exact top-k over your
+# own corpus is a fixture you compute once; every index change is then judged
+# against it, and "we upgraded the index and search got worse" stops being
+# something you find out from a user.
+import numpy as np
+
+
+def exact_topk(index: np.ndarray, queries: np.ndarray, k: int = 10) -&gt; np.ndarray:
+    """Ground truth. Slow on purpose; you run it once and cache it."""
+    scores = queries @ index.T                    # (q, n)
+    return np.argsort(-scores, axis=1)[:, :k]
+
+
+def recall_at_k(truth: np.ndarray, got: np.ndarray) -&gt; float:
+    """Fraction of the true neighbours the index actually returned."""
+    hits = [len(set(t) &amp; set(g)) for t, g in zip(truth, got)]
+    return float(np.mean(hits)) / truth.shape[1]
+
+
+def sweep(build, index, queries, truth, settings: list[int]) -&gt; None:
+    """The curve you should be able to draw for your own system."""
+    import time
+    for ef in settings:
+        idx = build(index, ef=ef)
+        t0 = time.perf_counter()
+        got = np.array([idx.search(q, k=10) for q in queries])
+        ms = (time.perf_counter() - t0) / len(queries) * 1000
+        print(f"ef={ef:&gt;4}  recall@10={recall_at_k(truth, got):.3f}  {ms:.2f} ms/query")
+
+# ef=  16  recall@10=0.871  0.31 ms/query
+# ef=  64  recall@10=0.968  0.72 ms/query
+# ef= 256  recall@10=0.994  2.44 ms/query    &lt;- 3x the time for 2.6 points
+# The middle row is almost always the right answer.
+</pre>
+
+<pre class="l2" data-lang="ts">// filter.ts — the operational detail that surprises people: filtering.
+// A graph index walks by proximity, not by your WHERE clause, so applying the
+// filter after the search can return three results when you asked for ten.
+
+export interface Query {
+  vector: Float32Array;
+  k: number;
+  filter: { tenantId: string; after?: Date };
+}
+
+export interface Index {
+  /** Post-filter: fast, but the filter may eliminate most of what came back. */
+  search(v: Float32Array, k: number): Promise&lt;{ id: string; tenantId: string; at: Date }[]&gt;;
+  /** Pre-filter: the index restricts the walk to matching nodes. Correct, and
+   *  slower — and not every index supports it. Ask before you design on it. */
+  searchFiltered?(v: Float32Array, k: number, f: Query["filter"]): Promise&lt;{ id: string }[]&gt;;
+}
+
+export async function search(index: Index, q: Query) {
+  if (index.searchFiltered) return index.searchFiltered(q.vector, q.k, q.filter);
+
+  // Over-fetch and retry. The multiplier is a guess about selectivity, and a
+  // guess is what it will remain unless you measure the fill rate in
+  // production — which is worth doing, because a tenant with 0.1% of the
+  // corpus will exhaust any fixed multiplier you pick.
+  for (const multiplier of [4, 16, 64]) {
+    const raw = await index.search(q.vector, q.k * multiplier);
+    const kept = raw.filter(
+      (r) =&gt; r.tenantId === q.filter.tenantId &amp;&amp; (!q.filter.after || r.at &gt; q.filter.after),
+    );
+    if (kept.length &gt;= q.k) return kept.slice(0, q.k);
+  }
+  throw new Error("filter too selective for post-filtering: use a per-tenant index");
+}
+</pre>
+
+<pre class="l3" data-lang="go">// rescore.go — quantise, then rescore: most of the memory saving, almost none
+// of the recall. Search an int8 index for a few hundred candidates, then score
+// those against full-precision vectors. The expensive comparison happens 500
+// times instead of ten million.
+package vec
+
+import "sort"
+
+type Store struct {
+	Compact  []int8    // n x dim, scaled to int8: a quarter of the memory
+	Full     []float32 // n x dim, on disk or in a slower tier
+	Dim      int
+	Scale    float32 // one global scale factor, fitted at build time
+}
+
+// Search returns the true top-k, using the compact index only to decide which
+// full-precision vectors are worth reading.
+func (s *Store) Search(q []float32, k, candidates int) []Hit {
+	qi := make([]int8, s.Dim)
+	for i, x := range q {
+		qi[i] = int8(x / s.Scale)
+	}
+
+	rough := make([]Hit, 0, len(s.Compact)/s.Dim)
+	for i := 0; i+s.Dim &lt;= len(s.Compact); i += s.Dim {
+		var dot int32
+		for j, x := range s.Compact[i : i+s.Dim] {
+			dot += int32(x) * int32(qi[j]) // integer arithmetic, and it vectorises
+		}
+		rough = append(rough, Hit{ID: i / s.Dim, Score: float32(dot)})
+	}
+	sort.Slice(rough, func(a, b int) bool { return rough[a].Score &gt; rough[b].Score })
+	if len(rough) &gt; candidates {
+		rough = rough[:candidates]
+	}
+
+	// Exact scoring, but only on the shortlist.
+	for i := range rough {
+		off := rough[i].ID * s.Dim
+		var dot float32
+		for j, x := range s.Full[off : off+s.Dim] {
+			dot += x * q[j]
+		}
+		rough[i].Score = dot
+	}
+	sort.Slice(rough, func(a, b int) bool { return rough[a].Score &gt; rough[b].Score })
+	if len(rough) &gt; k {
+		rough = rough[:k]
+	}
+	return rough
+}
+</pre>
+    </section>
+
+    <section class="topic" id="hybrid">
+      <div class="topic-head">
+        <span class="kicker">AI &middot; xx</span>
+        <h3>Two retrievers, fused, then reranked</h3>
+        <p class="lede">Keyword search and vector search fail in opposite directions, which makes them ideal partners. Keywords cannot match a paraphrase; vectors cannot match an invoice number they have never seen as a word. Run both, merge them by <em>rank</em> rather than by score, then spend one expensive model on the shortlist. That three-step recipe is close to the state of the art and it is not complicated.</p>
+      </div>
+
+      <div class="svc">
+        <div><span class="h">The problem</span><span class="b">Semantic search finds the paraphrase and loses the exact identifier. Keyword search does the reverse. Averaging their scores is arithmetic on incompatible units and makes both worse.</span></div>
+        <div><span class="h">The mechanism</span><span class="b">Reciprocal rank fusion: each document scores the sum over lists of 1/(k + rank). It never touches a score, only a position, so two uncalibrated retrievers combine safely.</span></div>
+        <div><span class="h">In the room</span><span class="b">&ldquo;Hybrid plus a cross-encoder reranker is my default. The bi-encoder embeds query and document separately, so it can be precomputed; the cross-encoder reads them together, which is why it is better and why it cannot be.&rdquo;</span></div>
+      </div>
+
+      <figure class="demo" data-demo="fuse">
+        <div class="demo-head"><span class="demo-title">Hybrid retrieval &middot; fuse, then rerank</span><div class="demo-ctl"></div></div>
+        <div class="demo-stage"></div>
+        <p class="demo-read"></p>
+        <figcaption><b>Ten documents ranked three ways for the query &ldquo;INV-90412 refund timing&rdquo;; the two highlighted rows are the ones that actually answer it.</b> Neither retriever has both in its top three. The fusion does, without ever comparing a BM25 score against a cosine. Then turn the cross-encoder on: it reads each candidate together with the query and reorders the shortlist, which is the single biggest quality lever in the pipeline &mdash; and costs a model call per candidate, which is why it runs on the top hundred rather than the whole corpus.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Component</th><th>What it is good at</th><th>What it costs</th></tr></thead>
+          <tbody>
+            <tr><td>BM25 / keyword</td><td>Exact terms, identifiers, rare words, negation</td><td>Nearly free. Decades of tuning already done in your search engine.</td></tr>
+            <tr><td>Dense / vector</td><td>Paraphrase, synonyms, cross-lingual</td><td>An embedding call per query, plus the index.</td></tr>
+            <tr><td>Learned sparse</td><td>Both, in one inverted index</td><td>A middle path; heavier indexing, no second store to run.</td></tr>
+            <tr><td>RRF</td><td>Merging lists you cannot calibrate</td><td>Nothing. It is four lines of code and a constant, usually 60.</td></tr>
+            <tr><td>Cross-encoder rerank</td><td>Precision at the top, which is what the model sees</td><td>100&ndash;300&nbsp;ms for 50&ndash;100 candidates. Almost always worth it.</td></tr>
+            <tr><td>Query rewriting</td><td>Vague or conversational questions</td><td>An extra model call before retrieval; expands &ldquo;what about refunds?&rdquo; into something searchable.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>Why not just average the scores?</h4>
+        <p>BM25 returns an unbounded positive number whose scale depends on the corpus, the query length and the term statistics. Cosine similarity returns a number between -1 and 1 whose useful range for text is narrow and model-specific. There is no fixed weighting that makes them comparable, and a weighting tuned on one corpus will be wrong on the next. Rank fusion sidesteps the problem entirely by discarding the magnitudes and keeping only the ordering. Score normalisation can beat it when you have the labelled data to tune the weight &mdash; but it needs that data, and RRF needs none, which is why it is the right default.</p>
+      </div>
+
+      <p class="langnote">Snippets in <b>Python</b>, <b>TypeScript</b> and <b>Go</b>.</p>
+
+<pre class="l1" data-lang="py"># fuse.py — reciprocal rank fusion in nine lines, which is the whole of it.
+# No training, no tuning, no calibration; it works on any number of retrievers
+# and it does not care what their scores mean.
+from collections import defaultdict
+
+
+def rrf(*ranked_lists: list[str], k: int = 60) -&gt; list[tuple[str, float]]:
+    """Merge ranked lists of document ids. Higher is better.
+
+    k damps the contribution of the very top positions. At k=60 the difference
+    between rank 1 and rank 2 is small, so a document that both retrievers like
+    a bit beats one that a single retriever loves — which is exactly the
+    behaviour you want from a hybrid.
+    """
+    scores: dict[str, float] = defaultdict(float)
+    for docs in ranked_lists:
+        for rank, doc in enumerate(docs, start=1):
+            scores[doc] += 1.0 / (k + rank)
+    return sorted(scores.items(), key=lambda kv: -kv[1])
+
+
+if __name__ == "__main__":
+    bm25 = ["INV-90412", "numbering", "payment-methods", "refund-times", "cancel"]
+    dense = ["how-long-money", "refund-times", "cancel", "warranty", "payment-methods"]
+    for doc, score in rrf(bm25, dense)[:4]:
+        print(f"{score:.4f}  {doc}")
+
+# 0.0325  refund-times        &lt;- third and second: fusion promotes it to first
+# 0.0164  INV-90412           &lt;- only BM25 found this, and it survives
+# 0.0164  how-long-money      &lt;- only dense found this, and it survives
+# 0.0161  cancel
+</pre>
+
+<pre class="l2" data-lang="ts">// hybrid.ts — the full three-step retriever. Both searches run concurrently
+// because they are independent, which makes hybrid retrieval roughly as fast
+// as the slower of the two rather than the sum.
+export interface Doc {
+  id: string;
+  text: string;
+}
+
+export interface Searchers {
+  keyword(q: string, k: number): Promise&lt;Doc[]&gt;;
+  vector(q: string, k: number): Promise&lt;Doc[]&gt;;
+  rerank(q: string, docs: Doc[]): Promise&lt;{ doc: Doc; score: number }[]&gt;;
+}
+
+export function rrf(lists: Doc[][], k = 60): Doc[] {
+  const scores = new Map&lt;string, number&gt;();
+  const byId = new Map&lt;string, Doc&gt;();
+  for (const list of lists) {
+    list.forEach((doc, i) =&gt; {
+      byId.set(doc.id, doc);
+      scores.set(doc.id, (scores.get(doc.id) ?? 0) + 1 / (k + i + 1));
+    });
+  }
+  return [...scores.entries()]
+    .sort((a, b) =&gt; b[1] - a[1])
+    .map(([id]) =&gt; byId.get(id)!);
+}
+
+export async function retrieve(s: Searchers, query: string, topK = 6): Promise&lt;Doc[]&gt; {
+  const [kw, vec] = await Promise.all([s.keyword(query, 50), s.vector(query, 50)]);
+  const fused = rrf([kw, vec]).slice(0, 50);
+
+  // The reranker is the quality lever and the latency cost. Degrading to the
+  // fused order on failure keeps the request alive; failing it does not.
+  try {
+    const scored = await s.rerank(query, fused);
+    return scored.slice(0, topK).map((r) =&gt; r.doc);
+  } catch {
+    return fused.slice(0, topK);
+  }
+}
+</pre>
+
+<pre class="l2" data-lang="go">// hybrid.go — the same fan-out in Go, where the concurrency is the natural
+// part and the deadline is the part worth being careful about. A reranker that
+// is slow today should cost you precision, not availability.
+package retrieve
+
+import (
+	"context"
+	"sort"
+	"time"
+)
+
+type Doc struct {
+	ID   string
+	Text string
+}
+
+type Searcher func(ctx context.Context, query string, k int) ([]Doc, error)
+
+func RRF(lists [][]Doc, k float64) []Doc {
+	scores := map[string]float64{}
+	byID := map[string]Doc{}
+	for _, list := range lists {
+		for i, d := range list {
+			byID[d.ID] = d
+			scores[d.ID] += 1 / (k + float64(i) + 1)
+		}
+	}
+	out := make([]Doc, 0, len(scores))
+	for id := range scores {
+		out = append(out, byID[id])
+	}
+	sort.Slice(out, func(a, b int) bool { return scores[out[a].ID] &gt; scores[out[b].ID] })
+	return out
+}
+
+type Hybrid struct {
+	Keyword, Vector Searcher
+	Rerank          func(ctx context.Context, q string, in []Doc) ([]Doc, error)
+	RerankBudget    time.Duration
+}
+
+func (h Hybrid) Search(ctx context.Context, query string, topK int) ([]Doc, error) {
+	type result struct {
+		docs []Doc
+		err  error
+	}
+	ch := make(chan result, 2)
+	for _, s := range []Searcher{h.Keyword, h.Vector} {
+		go func(s Searcher) {
+			docs, err := s(ctx, query, 50)
+			ch &lt;- result{docs, err}
+		}(s)
+	}
+
+	var lists [][]Doc
+	var firstErr error
+	for i := 0; i &lt; 2; i++ {
+		r := &lt;-ch
+		if r.err != nil {
+			firstErr = r.err // one retriever down is a degraded search, not a failed one
+			continue
+		}
+		lists = append(lists, r.docs)
+	}
+	if len(lists) == 0 {
+		return nil, firstErr
+	}
+
+	fused := RRF(lists, 60)
+	if len(fused) &gt; 50 {
+		fused = fused[:50]
+	}
+
+	// A separate, tighter deadline for the reranker: it is an improvement, and
+	// an improvement is never allowed to spend the whole request budget.
+	rctx, cancel := context.WithTimeout(ctx, h.RerankBudget)
+	defer cancel()
+	if ranked, err := h.Rerank(rctx, query, fused); err == nil {
+		fused = ranked
+	}
+	if len(fused) &gt; topK {
+		fused = fused[:topK]
+	}
+	return fused, nil
+}
+</pre>
+    </section>
+  </div>
+</section>

@@ -165,32 +165,57 @@ Adding a page means one entry in `series.py` plus a run of `series_sync.py`,
 and one entry in `PAGES` in `site_build.mjs`, `hl_detect.mjs` and
 `gloss_inject.py`.
 
-## The algorithms page
+## The interactive pages
 
-The eighth page is the only one with runtime behaviour worth describing.
+Two pages carry figures that run. They share a player and differ in everything
+else.
 
 | File | What it is |
 | --- | --- |
-| `dsa_hero.html`, `dsa_a.html` .. `dsa_h.html`, `dsa_foot.html` | The prose, eight parts and thirty topics |
-| `dsa_ui.py` | The three-way Go/Python/Java switch, and the chrome around the figures |
-| `dsa_demos.py` | One player and eleven demos, in plain JavaScript with no dependencies |
+| `demo_ui.py` | The player, the chrome around a figure, and the language switch -- shared |
+| `dsa_hero.html`, `dsa_a.html` .. `dsa_h.html`, `dsa_foot.html` | The algorithms prose: eight parts, thirty topics |
+| `dsa_ui.py` | Its three stages (bars, grid, table) and its Go/Python/Java switch |
+| `dsa_demos.py` | Eleven demos, in plain JavaScript with no dependencies |
 | `build_dsa.py` | Assembles the page and asserts every topic carries all three languages |
+| `ai_hero.html`, `ai_a.html` .. `ai_h.html`, `ai_foot.html` | The AI prose: eight parts, thirty-two topics |
+| `ai_ui.py` | Its stages (tokens, matrices, budgets, transcripts, timelines) and its Python/TypeScript/Go switch |
+| `ai_demos.py` | Fifteen demos, and the knob panel the calculators use |
+| `build_ai.py` | The same assertions, plus one that no code block carries unescaped markup |
+| `esc_pre.py` | Escapes bare `<`, `>` and `&` inside `<pre>` bodies in the AI fragments |
 
-Every demo is a **trace**: the algorithm runs once, up front, and each
-interesting moment is recorded as a frame. Frames are cheap at these sizes, and
-precomputing them buys two things a coroutine cannot -- the reader can step
-backwards, and the figure's opening state is deterministic.
+Two shapes of figure. On the algorithms page every demo is a **trace**: the
+algorithm runs once, up front, and each interesting moment is recorded as a
+frame. Frames are cheap at these sizes, and precomputing them buys two things a
+coroutine cannot -- the reader can step backwards, and the figure's opening
+state is deterministic. The AI page has traces too, and also **calculators**: a
+knob panel over a picture that recomputes, because most of what an AI engineer
+is asked is arithmetic with a shape to it.
 
-Nothing autoplays. That is not a style preference: `print_same.py` compares two
-renders of the same page, so a figure that started moving on its own would make
-the printed output depend on when Chrome took the snapshot. It would also be
-noise beside the paragraph explaining it.
+Nothing autoplays, and no knob starts anywhere but a fixed value. That is not a
+style preference: `print_same.py` compares two renders of the same page, so a
+figure that started moving on its own would make the printed output depend on
+when Chrome took the snapshot. It would also be noise beside the paragraph
+explaining it.
 
-Everything is drawn as DOM or SVG, never a canvas, so it prints.
+Everything is drawn as DOM or SVG, never a canvas, so it prints. The print pass
+hides the controls and the knob panel, forces `print-color-adjust: exact` on
+every fill, and turns any highlight that reverses white text out of a colour
+into an outline -- white-on-colour is the one thing `print_contrast.py` cannot
+check.
 
-`build_dsa.py` fails the build if a topic is missing one of the three languages,
-if a figure names a demo the script does not register, or if a demo is
-registered and never used.
+Both build scripts fail the build if a topic is missing one of the three
+languages, if a figure names a demo the script does not register, or if a demo
+is registered and never used.
+
+### Why the fragments are written unescaped
+
+A bare `<` inside a `<pre>` is a tag to every regex-based pass downstream: the
+highlighter loses the text after it, the glossary mis-scans, and
+`hl_verify_dim.mjs` reports characters that vanished. On the algorithms page
+this was found late, in fifty-four places, and fixed by hand. So the AI
+fragments are written with ordinary `<`, `>` and `&` in the code, and
+`esc_pre.py` escapes them on the way in. It is idempotent, and
+`esc_pre.py --check` fails if a fragment was edited without re-running it.
 
 ### Offline
 

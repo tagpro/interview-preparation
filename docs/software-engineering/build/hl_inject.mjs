@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import { createHighlighter, renderTokens, renderNodesToHtml } from '@tanstack/highlight/core';
 import { createThemeRule } from '@tanstack/highlight/theme';
 import { python } from '@tanstack/highlight/languages/python';
+import { ts } from '@tanstack/highlight/languages/ts';
 import { sql } from '@tanstack/highlight/languages/sql';
 import { yaml } from '@tanstack/highlight/languages/yaml';
 import { toml } from '@tanstack/highlight/languages/toml';
@@ -35,7 +36,7 @@ const CHECK = process.argv.includes('--check');
 
 const highlighter = createHighlighter({
   fallbackLanguage: 'plaintext',
-  languages: [go, java, gomod, hcl, consoleLang, python, sql, yaml, toml, json,
+  languages: [go, java, gomod, hcl, consoleLang, python, ts, sql, yaml, toml, json,
               html, http, dockerfile, env, markdown, plaintext].map(withCodas),
 });
 
