@@ -44,14 +44,17 @@ wrong: the next `site_build.mjs` overwrites them.
     python3 build_go.py && python3 build_py.py && python3 build_java.py
     python3 build_aws.py && python3 build_dsa.py && python3 build_ai.py
     python3 series_sync.py            # the cross-link rail, from series.py
+    python3 theme_sync.py             # the colour-theme switch, from theme_ui.py
+                                      # (writes theme_block.html for site_build)
     node hl_inject.mjs                # syntax highlighting
     node print_inject.mjs             # print stylesheet
     python3 gloss_inject.py           # abbreviation glossary
     node site_build.mjs ..            # wrap as standalone HTML, write the site
     node sw_build.mjs ../..           # the offline cache -- always last
 
-A rebuild from fragments drops all three injected blocks, so the passes always
-run after `build_*.py`. Each pass strips its own previous block instead of
+A rebuild from fragments drops all three injected blocks and the rail, so
+`series_sync.py` and the injection passes always run after `build_*.py`.
+`theme_sync.py` does not touch those pages at all -- see below. Each pass strips its own previous block instead of
 stacking, and the three together reach a fixed point -- `./pipeline_check.sh`
 asserts that, and it is the check that catches a pass quietly growing the file.
 
@@ -67,6 +70,8 @@ Run what the change touches; run all of them before publishing.
     python3 esc_pre.py --check ai_*.html   # no bare < or > inside a code block
     node verify_aws.mjs               # the Go/Python switch covers every pair
     python3 series_sync.py --check    # no page's rail has drifted from series.py
+    python3 theme_sync.py --check     # nor has any page's theme switch
+    node theme_check.mjs ../..        # the switch changes the page and survives a reload
     node site_check.mjs ..            # the built site: links, passes, structure
     node offline_check.mjs ../..      # no page reaches for the network at all
     node sw_check.mjs ../..           # install the cache, stop the server, walk every page
@@ -97,6 +102,19 @@ document.
 - **Both themes, always.** Every colour token is defined on bare `:root` and
   redefined for `prefers-color-scheme: dark` and `[data-theme="dark"]`. A colour
   whose only definition sits inside a media query is a bug.
+- **Three theme states, not two.** Bare `:root` is light, the
+  `prefers-color-scheme` block guarded as `:root:not([data-theme="light"])`
+  follows the system, and `:root[data-theme="dark"]` overrides both. The switch
+  in `theme_ui.py` writes that attribute and removes it again for "system"; a
+  two-state toggle would throw the follow-the-system behaviour away.
+- **The theme switch is a site feature, not a page feature.** The pages are
+  also published as artifacts, where the claude.ai host provides its own theme
+  control and stamps the same `data-theme` attribute -- two writers for one
+  attribute is a fight. So `site_build.mjs` splices the switch in as it writes
+  the site, next to the font swap and the service-worker registration, and the
+  nine `build/*.html` pages never carry it. `theme_sync.py` writes it into the
+  site's two hand-written pages and regenerates `theme_block.html`, which
+  `site_build.mjs` reads and refuses to build without.
 - **Chrome rewrites some colours on the way to the printer.** `#6F42AF` lands at
   half its brightness. Never add a print colour without `print_ink.mjs`.
 - **The site pass rewrites the series links.** Pages carry `claude.ai/code/...`

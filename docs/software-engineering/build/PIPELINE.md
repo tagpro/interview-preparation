@@ -165,6 +165,54 @@ Adding a page means one entry in `series.py` plus a run of `series_sync.py`,
 and one entry in `PAGES` in `site_build.mjs`, `hl_detect.mjs` and
 `gloss_inject.py`.
 
+## The colour theme
+
+Every page was built for three theme states from the start -- bare `:root` is
+light, the `prefers-color-scheme` block guarded as
+`:root:not([data-theme="light"])` follows the system, and
+`:root[data-theme="dark"]` beats both. Nothing ever set the attribute, so a
+reader got whatever their operating system said.
+
+`theme_ui.py` owns the switch -- its styles, its markup, and the behaviour.
+
+It is a **site** feature, not a page feature, and that decides where it is
+spliced. The same pages are published as artifacts, where the claude.ai host
+already gives the viewer a theme control and its frame runtime stamps this very
+attribute; two writers for one attribute is a fight. So `site_build.mjs` adds
+the block as it writes the site -- alongside the font swap and the
+service-worker registration it already does -- and the nine `build/*.html`
+pages never carry it, which is why adding the switch changed no artifact.
+
+`theme_sync.py` covers what `site_build.mjs` does not produce: the site's front
+page and its 404, which are hand-written. It also regenerates
+`theme_block.html`, the copy `site_build.mjs` reads; building without it fails
+loudly rather than quietly shipping a site with no switch.
+
+Two more things are deliberate:
+
+  * **The stored choice is applied synchronously**, in a block spliced ahead of
+    the topbar, before anything visible is parsed. Deferring it to
+    `DOMContentLoaded` paints the system theme and then flips, which is the
+    flash every themed site is judged on. `theme_check.mjs` asserts the
+    attribute is already present when the document's first script runs.
+
+  * **The icons are inline SVG, not characters.** The site self-hosts only the
+    latin and greek subsets of its faces, so a sun or a moon would fall back to
+    whatever the system had -- a colour emoji in a monochrome bar, or a blank
+    box.
+
+It mounts ahead of the language switch rather than after it. On a phone the
+topbar is over its width budget on the two pages carrying both, and whatever is
+last is what scrolls out of sight; the theme applies everywhere and is what a
+reader goes looking for, while the language switch is page-specific and is also
+named under every snippet and bound to a key. The Contents button is pinned to
+the right edge with `position: sticky` so that whatever else overflows, the only
+navigation a phone has never does.
+
+    python3 theme_sync.py             # regenerate the block; place it in the two root pages
+    python3 theme_sync.py --check     # report drift, exit 1
+    node theme_check.mjs ../..        # it changes the page, and survives a reload
+
 ## The interactive pages
 
 Two pages carry figures that run. They share a player and differ in everything

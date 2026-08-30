@@ -1,43 +1,58 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>Not found</title>
-<meta name="robots" content="noindex">
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20x%3D%226%22%20y%3D%2278%22%20font-size%3D%2276%22%3E%F0%9F%93%9A%3C%2Ftext%3E%3C%2Fsvg%3E">
-<meta name="theme-color" content="#F2F5F7" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0B1218" media="(prefers-color-scheme: dark)">
-<link rel="stylesheet" href="fonts/fonts.css">
-<style>
-:root{--ground:#F2F5F7;--surface:#FFFFFF;--line:#CFDAE1;--ink:#101A22;--ink-soft:#42545F;
-  --ink-faint:#6E808B;--accent:#0D7F8B}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --ground:#0B1218;--surface:#111C24;--line:#25353F;--ink:#E2EAEF;--ink-soft:#9FB0BA;
-  --ink-faint:#758791;--accent:#3EC0CC}}
-:root[data-theme="dark"]{--ground:#0B1218;--surface:#111C24;--line:#25353F;--ink:#E2EAEF;
-  --ink-soft:#9FB0BA;--ink-faint:#758791;--accent:#3EC0CC}
-*{box-sizing:border-box}
-body{margin:0;background:var(--ground);color:var(--ink);
-  font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;font-size:16px;line-height:1.6;
-  display:flex;align-items:center;min-height:100vh;-webkit-font-smoothing:antialiased}
-.shell{max-width:640px;margin:0 auto;padding:40px 24px}
-.kicker{font-family:"IBM Plex Mono",monospace;font-size:0.7rem;font-weight:600;
-  letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-faint)}
-h1{font-family:"Bricolage Grotesque",sans-serif;font-size:clamp(2rem,5vw,3rem);font-weight:800;
-  letter-spacing:-0.015em;line-height:1.1;margin:10px 0 0}
-p{color:var(--ink-soft);margin:18px 0 0;max-width:52ch}
-.back{display:inline-flex;align-items:center;gap:9px;margin-top:28px;text-decoration:none;
-  border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface);
-  padding:11px 16px;color:var(--ink);font-family:"IBM Plex Mono",monospace;font-size:0.74rem;
-  letter-spacing:0.05em}
-.back:hover{border-color:var(--accent);color:var(--accent)}
-.back .arrow{color:var(--accent);font-weight:700}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-</style>
-</head>
-<!-- theme -->
+# -*- coding: utf-8 -*-
+"""The colour-theme switch, and the one place its markup and behaviour live.
+
+Every page in the series was already built for three theme states -- the bare
+`:root` block is the light palette, `@media (prefers-color-scheme: dark)` guarded
+as `:root:not([data-theme="light"])` follows the system, and
+`:root[data-theme="dark"]` wins over both. What was missing was anything that
+ever set the attribute, so a reader got whatever their operating system said and
+had no way to disagree.
+
+Three states, not two. A plain light/dark toggle would throw away the
+follow-my-system behaviour the pages already had, which is a regression for
+anyone who liked it, so the control is System / Light / Dark and "System" is
+what an untouched page uses.
+
+This is a *site* feature, not a page feature. The pages are also published as
+artifacts, where the claude.ai host already gives the viewer a theme control and
+its frame runtime stamps this very attribute -- two writers for one attribute is
+a fight. So the block is spliced in by site_build.mjs, alongside the other
+site-only transformations it already does (swapping the font stylesheet for the
+self-hosted one, registering the offline cache), and theme_sync.py writes it
+into the two hand-written pages site_build does not produce. The artifacts are
+left byte-identical. The framing guard below is belt and braces for anyone who
+embeds the served site somewhere that manages the theme itself.
+
+The detail that is easiest to get wrong: the choice is applied *synchronously*,
+before the topbar is even parsed. Deferring it to DOMContentLoaded paints the
+operating system's theme first and then flips, which is the flash every themed
+site is judged on.
+
+The icons are inline SVG rather than characters. The site self-hosts only the
+latin and greek subsets of its faces, so a sun or a moon glyph would fall back
+to whatever the system had -- which is how you get a coloured emoji in the
+middle of a monochrome bar, or a blank box.
+"""
+
+KEY = 'ladder-theme'
+OPEN, CLOSE = '<!-- theme -->', '<!-- /theme -->'
+
+# Drawn at a 24-unit grid and scaled down, so the three read as one set: a
+# half-filled disc for "follow the system", a sun, a crescent.
+ICONS = {
+    'system': ('<circle cx="12" cy="12" r="9"/>'
+               '<path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/>'),
+    'light': ('<circle cx="12" cy="12" r="4.2"/>'
+              '<path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2'
+              'M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/>'),
+    'dark': '<path d="M20.5 14.7A8.6 8.6 0 0 1 9.3 3.5a8.6 8.6 0 1 0 11.2 11.2z"/>',
+}
+
+LABELS = [('system', 'Match the system theme'),
+          ('light', 'Light theme'),
+          ('dark', 'Dark theme')]
+
+CSS = """
 <style>
 /* ---------- colour theme switch ---------- */
 .themebar{display:inline-flex;border:1px solid var(--line);background:var(--surface);
@@ -71,10 +86,24 @@ p{color:var(--ink-soft);margin:18px 0 0;max-width:52ch}
 .topbar-in .toc-toggle{position:sticky;right:0;
   background:color-mix(in srgb,var(--ground) 88%,var(--surface))}
 </style>
+"""
+
+
+def _buttons():
+    out = []
+    for mode, title in LABELS:
+        out.append(
+            '<button type="button" data-theme-set="%s" title="%s" aria-label="%s">'
+            '<svg viewBox="0 0 24 24" aria-hidden="true">%s</svg></button>'
+            % (mode, title, title, ICONS[mode]))
+    return ''.join(out)
+
+
+JS = """
 <script>
 (function () {
   "use strict";
-  var KEY = "ladder-theme";
+  var KEY = "%(key)s";
   var root = document.documentElement;
 
   /* If this page is ever embedded somewhere that manages the theme itself,
@@ -122,7 +151,7 @@ p{color:var(--ink-soft);margin:18px 0 0;max-width:52ch}
     bar.className = "themebar";
     bar.setAttribute("role", "group");
     bar.setAttribute("aria-label", "Colour theme");
-    bar.innerHTML = "<button type=\"button\" data-theme-set=\"system\" title=\"Match the system theme\" aria-label=\"Match the system theme\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 3a9 9 0 0 0 0 18z\" fill=\"currentColor\" stroke=\"none\"/></svg></button><button type=\"button\" data-theme-set=\"light\" title=\"Light theme\" aria-label=\"Light theme\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"4.2\"/><path d=\"M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6\"/></svg></button><button type=\"button\" data-theme-set=\"dark\" title=\"Dark theme\" aria-label=\"Dark theme\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20.5 14.7A8.6 8.6 0 0 1 9.3 3.5a8.6 8.6 0 1 0 11.2 11.2z\"/></svg></button>";
+    bar.innerHTML = %(buttons)s;
 
     var btns = bar.querySelectorAll("button");
     function paint(mode) {
@@ -166,23 +195,15 @@ p{color:var(--ink-soft);margin:18px 0 0;max-width:52ch}
   } else { mount(); }
 })();
 </script>
-<!-- /theme -->
-<body>
-<main class="shell">
-  <p class="kicker">404</p>
-  <h1>That page isn&rsquo;t here.</h1>
-  <p>The address may have changed, or the link that brought you here may be out of date. Everything on this site is reachable from the front page.</p>
-  <a class="back" href="/"><span class="arrow">&larr;</span> Back to the notes</a>
-</main>
-<script>
-/* Register the offline cache. Fails quietly where it cannot run -- opened off
-   disk, or in a browser without service workers -- because the site works
-   without it either way. */
-if ("serviceWorker" in navigator) {
-  addEventListener("load", function () {
-    navigator.serviceWorker.register("sw.js").catch(function () {});
-  });
-}
-</script>
-</body>
-</html>
+"""
+
+
+def block():
+    """The whole switch -- styles, the pre-paint application, and the control."""
+    body = JS % {'key': KEY, 'buttons': _json(_buttons())}
+    return '\n'.join([OPEN, CSS.strip(), body.strip(), CLOSE, ''])
+
+
+def _json(s):
+    import json
+    return json.dumps(s)

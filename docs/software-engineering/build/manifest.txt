@@ -107,6 +107,10 @@ site_build.mjs
 site_check.mjs
 sw_build.mjs
 sw_check.mjs
+theme_block.html
+theme_check.mjs
+theme_sync.py
+theme_ui.py
 tpl.py
 verify_aws.mjs
 verify_gloss.mjs
