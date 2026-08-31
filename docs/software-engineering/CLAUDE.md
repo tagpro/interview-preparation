@@ -126,6 +126,13 @@ Run what the change touches; run all of them before publishing.
   nine `build/*.html` pages never carry it. `theme_sync.py` writes it into the
   site's two hand-written pages and regenerates `theme_block.html`, which
   `site_build.mjs` reads and refuses to build without.
+- **Never put an HTML tag inside an `<svg>`.** A `<b>` or `<code>` in a `<text>`
+  element forces the parser out of foreign content: the `<svg>` ends there and
+  the rest of the figure lands in the page as body text. It still parses, a
+  geometry audit of what survives still passes, and it looks catastrophic. Use
+  `<tspan font-weight="600">` for emphasis. `site_check.mjs` scans the built
+  pages for it, because by the time the DOM exists the evidence is a pile of
+  stray nodes rather than a tag.
 - **The way home is a site feature too.** These pages are also published as
   artifacts, where there is no front page to go back to, so `site_build.mjs`
   splices the home link into the top bar as it writes the site -- beside the font
@@ -176,3 +183,9 @@ language switch. Two of its own assertions are worth knowing about: the atlas at
 the top of the page must name every part in document order, and the topic
 kickers are renumbered on every build from a placeholder word, so a topic can be
 moved between fragments without being renumbered by hand.
+
+Its syllabus cells carry a paragraph each rather than a line, which is what the
+two-column grid is for: at three columns a cell is 48 characters wide and reads
+as a list whatever is in it. The cell body is one `<i>`, so emphasis inside it
+must be `<em>` -- a nested `<i>` inherits `display:block` and snaps the
+paragraph into three.

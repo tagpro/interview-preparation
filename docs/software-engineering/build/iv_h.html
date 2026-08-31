@@ -28,7 +28,7 @@
             <rect x="20" y="64" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
             <text x="28" y="81" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">2 &nbsp;your app &rarr; browser</text>
           </g>
-          <text x="290" y="81" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Redirect to the provider, carrying a random <b>state</b> and a hashed <b>code_challenge</b>.</text>
+          <text x="290" y="81" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Redirect to the provider, carrying a random <tspan font-weight="600">state</tspan> and a hashed <tspan font-weight="600">code_challenge</tspan>.</text>
 
           <g class="svg-l2">
             <rect x="20" y="96" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
@@ -40,19 +40,19 @@
             <rect x="20" y="128" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
             <text x="28" y="145" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">4 &nbsp;provider &rarr; browser</text>
           </g>
-          <text x="290" y="145" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Redirect back to your callback with a short-lived, one-time <b>code</b>.</text>
+          <text x="290" y="145" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Redirect back to your callback with a short-lived, one-time <tspan font-weight="600">code</tspan>.</text>
 
           <g class="svg-l3">
             <rect x="20" y="160" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
             <text x="28" y="177" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">5 &nbsp;browser &rarr; your app</text>
           </g>
-          <text x="290" y="177" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">GET /callback. Check <b>state</b> here, or you have built a login-CSRF hole.</text>
+          <text x="290" y="177" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">GET /callback. Check <tspan font-weight="600">state</tspan> here, or you have built a login-CSRF hole.</text>
 
           <g class="svg-l1">
             <rect x="20" y="192" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
             <text x="28" y="209" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">6 &nbsp;your app &rarr; provider</text>
           </g>
-          <text x="290" y="209" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Back channel only: the code, the <b>code_verifier</b>, and the client secret.</text>
+          <text x="290" y="209" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Back channel only: the code, the <tspan font-weight="600">code_verifier</tspan>, and the client secret.</text>
 
           <g class="svg-l1">
             <rect x="20" y="224" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
@@ -74,21 +74,113 @@
         <figcaption><b>The two lines interviewers listen for are &ldquo;check the state parameter&rdquo; and &ldquo;the token exchange happens server to server&rdquo;.</b> Everything else in the flow is redirect plumbing. If a candidate describes a login where the browser ends up holding a long-lived access token in local storage, the follow-up about cross-site scripting writes itself &mdash; any injected script can read it, and there is no way to revoke it in time.</figcaption>
       </figure>
 
+<pre class="l2">// jwt.json — the two halves anyone holding the token can read.
+// Base64url is an encoding, not a cipher. Nothing secret goes in here.
+{                                    // header
+  "alg": "RS256",                    // what it CLAIMS it was signed with
+  "kid": "2026-08",                  // which key in the issuer's JWKS
+  "typ": "JWT"
+}
+{                                    // payload — the registered claims
+  "iss": "https://id.example.com",   // who minted it
+  "sub": "usr_01JB8Z0X4K9M2QW7N6R3", // who it is about
+  "aud": "https://api.example.com",  // who it is FOR — reject if that is not you
+  "exp": 1788012000,                 // expires at, epoch seconds
+  "nbf": 1788011700,                 // not valid before
+  "iat": 1788011700,                 // issued at
+  "jti": "01JB8Z1M4N7PQ2RS3TU4",     // unique id: one-time use, deny-lists
+  "scope": "links:read links:write", // then whatever else you agreed on
+  "tenant": "acme"
+}
+// signature = RS256( base64url(header) + "." + base64url(payload), private key )
+</pre>
+
+<p>The order of the checks <b>is</b> the security property. Every claim above is attacker-controlled text until the signature has been verified &mdash; so anything that reads a claim first, including choosing the algorithm from the header, is deciding on data the attacker wrote.</p>
+
+<pre class="l3"># verify.py — the whole of JWT verification, and it is all in the arguments.
+claims = jwt.decode(
+    token,
+    key=jwks.key_for(unverified_header(token)["kid"]),  # 1. key named by kid
+    algorithms=["RS256"],          # 2. YOUR allow-list, never token["alg"] —
+                                   #    that is how alg:none and the RS256-&gt;HS256
+                                   #    downgrade both get in
+    issuer="https://id.example.com",
+    audience="https://api.example.com",     # 3. the claim everyone forgets
+    leeway=30,                     # seconds of clock skew you will tolerate
+    options={"require": ["exp", "iss", "aud", "sub"]},   # absent != valid
+)
+
+# 4. Only now is anything in `claims` trustworthy. Authentication is finished;
+#    authorisation has not started, and it is a different question:
+if "links:write" not in claims["scope"].split():
+    raise Forbidden()
+link = links.get(link_id, tenant=claims["tenant"])   # and so is this one
+</pre>
+
+<pre class="l2">// jwt.json — the two halves anyone holding the token can read.
+// Base64url is an encoding, not a cipher. Nothing secret goes in here.
+{                                    // header
+  "alg": "RS256",                    // what it CLAIMS it was signed with
+  "kid": "2026-08",                  // which key in the issuer's JWKS
+  "typ": "JWT"
+}
+{                                    // payload — the registered claims
+  "iss": "https://id.example.com",   // who minted it
+  "sub": "usr_01JB8Z0X4K9M2QW7N6R3", // who it is about
+  "aud": "https://api.example.com",  // who it is FOR — reject if that is not you
+  "exp": 1788012000,                 // expires at, epoch seconds
+  "nbf": 1788011700,                 // not valid before
+  "iat": 1788011700,                 // issued at
+  "jti": "01JB8Z1M4N7PQ2RS3TU4",     // unique id: one-time use, deny-lists
+  "scope": "links:read links:write", // then whatever else you agreed on
+  "tenant": "acme"
+}
+// signature = RS256( base64url(header) + "." + base64url(payload), private key )
+</pre>
+
+<p>The order of the checks <b>is</b> the security property. Every claim above is attacker-controlled text until the signature has been verified &mdash; so anything that reads a claim first, including choosing the algorithm from the header, is deciding on data the attacker wrote.</p>
+
+<pre class="l3"># verify.py — the whole of JWT verification, and it is all in the arguments.
+claims = jwt.decode(
+    token,
+    key=jwks.key_for(unverified_header(token)["kid"]),  # 1. key named by kid
+    algorithms=["RS256"],          # 2. YOUR allow-list, never token["alg"] —
+                                   #    that is how alg:none and the RS256-&gt;HS256
+                                   #    downgrade both get in
+    issuer="https://id.example.com",
+    audience="https://api.example.com",     # 3. the claim everyone forgets
+    leeway=30,                     # seconds of clock skew you will tolerate
+    options={"require": ["exp", "iss", "aud", "sub"]},   # absent != valid
+)
+
+# 4. Only now is anything in `claims` trustworthy. Authentication is finished;
+#    authorisation has not started, and it is a different question:
+if "links:write" not in claims["scope"].split():
+    raise Forbidden()
+link = links.get(link_id, tenant=claims["tenant"])   # and so is this one
+</pre>
+
       <div class="syl s1">
-        <div><b>Sessions vs tokens</b><i>A server-side session can be revoked instantly; a signed token cannot be, which is why it must be short-lived.</i></div>
-        <div><b>Cookies</b><i>HttpOnly, Secure, SameSite, domain and path scope. The four attributes that decide how bad an XSS is.</i></div>
-        <div><b>JWT</b><i>Signed, not encrypted &mdash; anyone can read the claims. Verify the signature, the issuer, the audience, the expiry, and pin the algorithm.</i></div>
-        <div><b>The <code>alg: none</code> trap</b><i>Accepting the algorithm the token names lets the attacker choose it. Pin it server-side.</i></div>
-        <div><b>Refresh tokens</b><i>Long-lived and therefore dangerous. Rotate them, detect reuse, and store them somewhere a script cannot read.</i></div>
-        <div><b>OAuth 2.0 and OIDC</b><i>Delegated authorisation, then identity on top of it. Grant types, scopes, and consent.</i></div>
-        <div><b>SAML and enterprise SSO</b><i>Still everywhere in business software. Assertions, identity providers, and just-in-time provisioning.</i></div>
-        <div><b>Password storage</b><i>Argon2 or bcrypt with a per-user salt. Never a fast hash, never encryption, never your own scheme.</i></div>
-        <div><b>Multi-factor</b><i>TOTP, push, WebAuthn and passkeys. Also account recovery, which is where MFA is usually defeated.</i></div>
-        <div><b>Service-to-service</b><i>mTLS, workload identity, short-lived credentials from a metadata service. Not a shared static key.</i></div>
-        <div><b>Authorisation models</b><i>Role-based, attribute-based, relationship-based. Where the check happens, and whether it can be forgotten.</i></div>
-        <div><b>Least privilege</b><i>Per environment, per service, per table. And the audit that proves it, which is the part that is skipped.</i></div>
-        <div><b>Multi-tenant isolation</b><i>Every query filtered by tenant. Enforced in one place, not in three hundred call sites.</i></div>
-        <div><b>Impersonation and support access</b><i>How staff act as a user, and how that is logged. Asked in product-company loops.</i></div>
+        <div><b>Authentication vs authorisation</b><i>Authentication answers <b>who are you</b> and happens once per request at the edge; authorisation answers <b>may you do this, to this object</b> and happens at every decision point inside. They fail differently: a broken authenticator lets a stranger in, a broken authoriser lets a legitimate user read someone else&rsquo;s row. Most real breaches are the second kind, because the first is a library and the second is a hundred call sites.</i></div>
+        <div><b>Sessions vs tokens</b><i>A session is an opaque random id in a cookie; the state lives server-side, so signing out is a <code>DELETE</code> and the id is worthless the instant you do it. A signed token carries the state, so no lookup is needed on any hop &mdash; and nothing can be withdrawn before it expires. That asymmetry is the whole answer: sessions for a first-party web app, tokens for APIs and service-to-service, and if you want both, short expiry plus a refresh flow so the revocation window is minutes rather than days.</i></div>
+        <div><b>Cookie attributes</b><i>Four of them decide how bad a cross-site scripting bug turns out to be. <code>HttpOnly</code> stops script reading the cookie at all; <code>Secure</code> stops it travelling over plain HTTP; <code>SameSite=Lax</code>, now the default, stops it riding along on cross-site POSTs, which removes most of CSRF; <code>Domain</code> and <code>Path</code> decide which of your hosts ever see it. Set all four and a stored XSS still cannot steal the session. Miss <code>HttpOnly</code> and it is one injected line.</i></div>
+        <div><b>What a JWT actually is</b><i>Three base64url segments joined by dots: a header naming the algorithm and the key, a payload of claims, and a signature over the first two. Base64url is an <em>encoding</em>, not a cipher &mdash; anyone holding the token can read every claim, so no secret ever goes in one. The signature is the only part that needs a key, and it is the only part that means anything.</i></div>
+        <div><b>The registered claims</b><i><code>iss</code> who minted it, <code>sub</code> who it is about, <code>aud</code> who it is <em>for</em>, <code>exp</code> and <code>nbf</code> the validity window in epoch seconds, <code>iat</code> when it was issued, <code>jti</code> a unique id for one-time use or a deny-list. <code>aud</code> is the one people skip and the one that matters: without it, a token minted for one of your APIs is happily accepted by another, and so is a token your identity provider issued to somebody else&rsquo;s tenant.</i></div>
+        <div><b>Verifying one, in order</b><i>Resolve the key by the header&rsquo;s <code>kid</code> from the issuer&rsquo;s JWKS endpoint, cached, refetching once on an unknown <code>kid</code> so key rotation does not page you. Check <code>alg</code> against <b>your</b> allow-list, never the token&rsquo;s. Verify the signature. Only then read <code>iss</code>, <code>aud</code>, <code>exp</code> and <code>nbf</code>, with a few seconds of leeway for clock skew. A verifier that reads claims before checking the signature is deciding on attacker-supplied text.</i></div>
+        <div><b>The two classic JWT holes</b><i><code>alg: none</code> &mdash; a library that honours the algorithm the token names will accept an unsigned token as valid. And <b>RS256 downgraded to HS256</b>: the attacker re-signs using your <em>public</em> key as the HMAC secret, and a verifier that takes the algorithm from the header validates it happily. One line fixes both, and it is the same line: pin the algorithm server-side.</i></div>
+        <div><b>Refresh tokens</b><i>Long-lived, so they are the valuable thing to steal. Rotate on every use and remember the one just retired &mdash; if a retired token is ever presented, the family has been cloned, so revoke the whole family and force a fresh login. Keep them where script cannot reach: an <code>HttpOnly</code> cookie in a browser, the keychain on a device, never local storage.</i></div>
+        <div><b>OAuth 2.0, and which grant</b><i>It is a <em>delegation</em> protocol: the user lets your app act for them without handing over a password. Authorisation code with PKCE for anything with a human, single-page apps and mobile included, where PKCE stands in for the client secret you cannot keep. Client credentials for machine-to-machine with no user at all. Device code for televisions and command-line tools. Implicit and password grants are deprecated, and being able to say why is the actual question.</i></div>
+        <div><b>OIDC on top of it</b><i>OAuth alone hands you an access token and tells you nothing about the user &mdash; that token is not addressed to you and you should not parse it. OpenID Connect adds an <b>ID token</b>, a JWT about the user, plus a <code>/userinfo</code> endpoint and a discovery document. The rule of thumb: ID token to establish a session, access token to call an API. Sending an ID token to an API is the common and wrong shortcut.</i></div>
+        <div><b>SAML and enterprise SSO</b><i>Older, XML, and still what most enterprise customers mean by &ldquo;SSO&rdquo;. An assertion signed by the identity provider is POSTed to your assertion consumer service; you check the signature, the audience and the timestamps, then provision the account just-in-time on first login. The traps are XML signature wrapping, and the fact that SAML has no refresh concept &mdash; once the assertion is spent, the session is entirely yours to manage.</i></div>
+        <div><b>Password storage</b><i>A slow, memory-hard hash with a per-user salt: Argon2id first, scrypt or bcrypt acceptable. Not SHA-256 &mdash; a GPU does billions a second, so a fast hash means a stolen table is cracked rather than merely leaked. Not encryption, which implies a key you can lose. The library generates the salt and stores it inside the hash string, so &ldquo;where do you keep the salt&rdquo; has a boring answer, and the work factor is tuned until one verification costs your server tens of milliseconds.</i></div>
+        <div><b>Multi-factor, and how it is beaten</b><i>TOTP codes are phishable in real time by a proxy that relays them; push prompts get fatigued into approval at three in the morning; WebAuthn and passkeys are bound to the origin, which is the property that actually stops phishing. Whichever you pick, the weak point is nearly always <b>account recovery</b> &mdash; an SMS reset that skips the second factor is not a second factor, it is a slower first one.</i></div>
+        <div><b>Service-to-service</b><i>No user, so no password: mutual TLS where both ends present a certificate, or a workload identity exchanged for a short-lived token at a metadata endpoint. Both give you rotation for free and an identity the network itself can enforce. A long-lived shared key in an environment variable gives you neither, and it is in your logs the first time somebody prints a header while debugging.</i></div>
+        <div><b>Authorisation models</b><i><b>RBAC</b> maps users to roles to permissions: simple, and it degrades into two hundred roles nobody dares delete. <b>ABAC</b> decides from attributes &mdash; department, region, time of day &mdash; flexible and hard to reason about. <b>ReBAC</b> asks whether a relationship exists (&ldquo;is this user an editor of the folder this document is in?&rdquo;), which is what document-shaped and repository-shaped products actually need. Name the one the product shape calls for, not your favourite.</i></div>
+        <div><b>Where the check belongs</b><i>Route middleware can only answer &ldquo;is this caller authenticated and broadly allowed here&rdquo;. Object-level authorisation &mdash; is <em>this row</em> theirs &mdash; has to happen where the row is loaded, which is why the safe shape is a repository that takes the caller and filters, rather than a service that fetches and then remembers to compare. The bug is always an omission, and an omission is invisible in review: nothing is wrong on the screen, something is simply absent.</i></div>
+        <div><b>Least privilege</b><i>Per environment, per service, per table, per operation. The reporting job does not need <code>DELETE</code>; the payments service does not need the users table. The half nobody does is the audit that proves it &mdash; an unused permission looks exactly like a needed one unless something measures, which is what access analysers and query logs are for.</i></div>
+        <div><b>Multi-tenant isolation</b><i>Every query filtered by tenant, enforced in <b>one</b> place &mdash; a session variable with row-level security, or a data layer no query bypasses &mdash; because three hundred call sites will eventually contain one that forgets. Test it with a deliberately hostile case: authenticate as tenant A, ask for a known id of tenant B, and assert a 404 rather than a 403, so the response does not confirm that the row exists.</i></div>
+        <div><b>Logout and revocation</b><i>With sessions it is a delete. With tokens it is the genuinely hard part: shorten the expiry, keep a deny-list of <code>jti</code> values until they lapse, or store a per-user &ldquo;valid from&rdquo; timestamp the verifier compares against <code>iat</code>. All three cost a lookup, which is the very property you bought tokens to avoid &mdash; say that trade out loud rather than claiming stateless revocation, which does not exist.</i></div>
+        <div><b>Impersonation and support access</b><i>Staff acting as a user needs a path of its own: a token carrying both identities (<code>sub</code> the user, <code>act</code> the operator), a recorded reason, a time limit, and an audit line you would be willing to show the user. Reusing the ordinary login makes every audit trail a lie. Asked routinely in product-company loops, and almost nobody has an answer ready.</i></div>
       </div>
     </section>
 
@@ -171,6 +263,25 @@ if invoice is None or invoice.tenant_id != caller.tenant_id:
     raise NotFound()                     # not Forbidden: do not confirm it exists
 </pre>
 
+      <div class="syl s3">
+        <div><b>Injection</b><i>Any place a value is concatenated into a language the receiver will parse &mdash; SQL, shell, LDAP, a template, a NoSQL query document. The fix is never escaping: it is <b>separating code from data</b> with a parameterised query, an argument array instead of a shell string, or a template engine that does not evaluate. Escaping is a blocklist, and blocklists lose.</i></div>
+        <div><b>Cross-site scripting</b><i>Attacker script running on your origin, so it can do anything the user can. Three shapes: <b>stored</b> (saved and served to everyone), <b>reflected</b> (echoed back from a parameter), <b>DOM-based</b> (your own JavaScript writes untrusted data into <code>innerHTML</code>). The fix is contextual output encoding at the sink &mdash; HTML, attribute, URL and JavaScript contexts each need different escaping &mdash; plus a Content Security Policy as the second line, and <code>HttpOnly</code> so the session survives one anyway.</i></div>
+        <div><b>Cross-site request forgery</b><i>Another site causes the browser to make an authenticated request to yours, using cookies it sends automatically. <code>SameSite=Lax</code> as a cookie default removed most of it; a per-session synchroniser token in a header removes the rest, because a cross-origin page cannot read your response to obtain one. Note the interaction: an API authenticated by an <code>Authorization</code> header rather than a cookie is not vulnerable, and one that accepts either is.</i></div>
+        <div><b>Server-side request forgery</b><i>You fetch a URL the user supplied, and they point it at <code>169.254.169.254</code> or an internal admin service. Devastating in a cloud environment, because the metadata endpoint hands out credentials. Defence is an allow-list of destinations, resolving the name and validating the resulting <em>IP</em> (not the string), refusing redirects to private ranges, and denying the fetcher egress by default.</i></div>
+        <div><b>Broken access control</b><i>The largest category in real breaches and the least interesting to look at: nothing appears wrong, a check is simply absent. <b>Insecure direct object reference</b> is the everyday form &mdash; change <code>/invoices/1042</code> to <code>1043</code> and read someone else&rsquo;s. Guessable identifiers are not the bug and unguessable ones are not the fix; the fix is checking that the object belongs to the caller, at the point the object is loaded.</i></div>
+        <div><b>Mass assignment</b><i>Binding a request body straight onto a model, so the user adds <code>"role": "admin"</code> or <code>"account_balance": 999999</code> to the JSON and your ORM helpfully saves it. Fix with an explicit input type listing exactly the fields a client may set &mdash; never a blocklist of the ones it may not, because the next field somebody adds is not on it.</i></div>
+        <div><b>Insecure deserialisation</b><i>Formats that reconstruct arbitrary object graphs &mdash; Java serialisation, Python <code>pickle</code>, unsafe YAML loaders &mdash; can be crafted to execute code during deserialisation, before any of your validation runs. Never deserialise untrusted input with them. Use a data format with no code semantics, and if you must accept typed payloads, use a strict allow-list of permitted classes.</i></div>
+        <div><b>Path traversal and file handling</b><i><code>../../etc/passwd</code> in a filename, a zip entry that escapes its directory, or an upload whose extension decides how the web server executes it. Resolve the path and verify it is still inside the intended directory, generate your own filenames rather than trusting the client&rsquo;s, and serve user uploads from a separate origin so a crafted file cannot run as your site.</i></div>
+        <div><b>XML external entities</b><i>An XML parser that resolves external entities will read local files or make network requests on the attacker&rsquo;s behalf. It is a configuration bug rather than a coding one: disable DTD processing and external entities, which most modern parsers now do by default &mdash; which is exactly why an old service or an old library version is where it still lives.</i></div>
+        <div><b>Open redirects and clickjacking</b><i>A <code>?next=</code> parameter that will forward anywhere makes your domain a credible starting point for a phishing link; validate it against an allow-list of paths on your own site. Clickjacking frames your page invisibly over something the user is being tricked into clicking; <code>X-Frame-Options: DENY</code> or a CSP <code>frame-ancestors</code> directive ends it.</i></div>
+        <div><b>Business logic flaws</b><i>No injection, no missing authorisation &mdash; the system does exactly what it was built to do and that turns out to be wrong. A negative quantity that credits the account, a discount code applied twice by two concurrent requests, a refund of more than was paid, a workflow whose steps can be done out of order. Scanners never find these; they are found by asking &ldquo;what if I do this twice at once?&rdquo; about every state change.</i></div>
+        <div><b>Race conditions in the flow</b><i>Two requests arrive together and both pass a check that should have allowed one: two withdrawals against one balance, two redemptions of a single-use voucher, two signups for one seat. The check-then-act is the bug and the fix is a database constraint, a conditional update, or a lock on the thing being protected &mdash; not a shorter window.</i></div>
+        <div><b>Enumeration and timing</b><i>Different responses for &ldquo;no such user&rdquo; and &ldquo;wrong password&rdquo; hand an attacker a list of valid accounts; so does a signup form that says the email is taken, and so does a 403 where a 404 was safer. Timing leaks the same thing more quietly, which is why credential checks use constant-time comparison and why a failed lookup should still cost a hash.</i></div>
+        <div><b>The supply chain</b><i>The dependency you did not audit, the transitive one you have never heard of, a typosquatted package name, a build step that runs an install script, and a CI token with write access to the registry. Practical answers: lock files with integrity hashes, a pinned internal proxy, automated vulnerability scanning with a policy for acting on it, and treating the pipeline itself as production infrastructure.</i></div>
+        <div><b>Secrets and logs</b><i>A key in the repository is compromised the moment it is pushed, and deleting the commit does not remove it from the history &mdash; the only response is rotation. The subtler version is logging: a token in a URL ends up in access logs, a request body dumped on error ends up in your log store, and both are now in a system with much broader access than the original secret.</i></div>
+        <div><b>Defence in depth</b><i>No single control is trusted to hold. Validate input at the boundary <em>and</em> encode output at the sink; authenticate at the edge <em>and</em> authorise at the object; restrict egress <em>and</em> allow-list destinations. The question interviewers use to test this: &ldquo;that control fails &mdash; what is the next thing that stops the attack?&rdquo; If the answer is nothing, the design is one bug deep.</i></div>
+      </div>
+
       <p class="chips-h">The vocabulary</p>
       <div class="chips">
         <span class="hot">SQL injection</span><span>NoSQL injection</span><span>command injection</span><span>LDAP injection</span><span class="hot">cross-site scripting</span><span>stored, reflected, DOM</span><span>content security policy</span><span class="hot">cross-site request forgery</span><span>SameSite cookies</span><span class="hot">server-side request forgery</span><span>insecure deserialisation</span><span>XML external entities</span><span>path traversal</span><span class="hot">broken access control</span><span>insecure direct object reference</span><span>privilege escalation</span><span>mass assignment</span><span>open redirect</span><span>clickjacking</span><span>request smuggling</span><span>subdomain takeover</span><span>race condition in checkout</span><span>timing attack</span><span>enumeration</span><span>credential stuffing</span><span>session fixation</span><span>replay attack</span><span>supply chain attack</span><span>typosquatting</span><span>dependency confusion</span><span>secrets in git history</span><span>log injection</span><span>prompt injection</span><span>rate limit bypass</span><span>business logic flaw</span>
@@ -185,18 +296,18 @@ if invoice is None or invoice.tenant_id != caller.tenant_id:
       </div>
 
       <div class="syl s2">
-        <div><b>Hashing</b><i>One way, fixed size. For integrity and lookup &mdash; SHA-256. Not for passwords.</i></div>
-        <div><b>Password hashing</b><i>Deliberately slow and memory-hard: Argon2id, scrypt, bcrypt. With a per-user salt, which the library handles.</i></div>
-        <div><b>MAC and HMAC</b><i>Integrity plus authenticity with a shared key. The right tool for webhook signatures.</i></div>
-        <div><b>Symmetric encryption</b><i>AES-GCM or ChaCha20-Poly1305. Authenticated, so tampering is detected. Never reuse a nonce.</i></div>
-        <div><b>Asymmetric encryption</b><i>RSA and elliptic curve. Slow, so used to exchange a symmetric key rather than to encrypt data.</i></div>
-        <div><b>Signatures</b><i>Prove origin and integrity without a shared secret. What a JWT and a code-signing certificate both rely on.</i></div>
-        <div><b>TLS and PKI</b><i>Certificates, chains, roots, revocation, pinning, and what a certificate actually proves.</i></div>
-        <div><b>Key management</b><i>Where keys live, how they rotate, envelope encryption, and a hardware module for the root.</i></div>
-        <div><b>Randomness</b><i>Cryptographically secure generators only. A token from <code>Math.random</code> is a predictable token.</i></div>
-        <div><b>Encryption at rest and in transit</b><i>Two different threats. Disk encryption does nothing against a compromised application.</i></div>
-        <div><b>Tokenisation and masking</b><i>Keeping regulated data out of your systems entirely, which is cheaper than protecting it.</i></div>
-        <div><b>Privacy obligations</b><i>Data minimisation, retention limits, the right to deletion, and where the data may physically live.</i></div>
+        <div><b>Hashing</b><i>One way, fixed size, deterministic. SHA-256 for integrity and for identifiers; the properties that matter are pre-image resistance and collision resistance, which is why MD5 and SHA-1 are dead for anything adversarial while still fine as a cache key. Use a constant-time comparison when checking a digest against a user-supplied one, or the comparison itself leaks the answer a byte at a time.</i></div>
+        <div><b>Password hashing</b><i>A different job with a different tool: deliberately slow and memory-hard, so that a stolen table costs years rather than an afternoon on rented GPUs. Argon2id first (tune memory, iterations and parallelism), scrypt or bcrypt acceptable, and bcrypt silently truncates past 72 bytes. Per-user salt, stored inside the hash string by the library. A pepper &mdash; a secret added from configuration &mdash; is a reasonable extra, not a substitute.</i></div>
+        <div><b>MAC and HMAC</b><i>Integrity plus authenticity from a shared secret: the recipient can tell the message is unmodified <em>and</em> came from someone with the key. The right tool for webhook signatures, signed URLs and cookie integrity. Two details that get asked: include a timestamp in the signed payload so a captured request cannot be replayed, and compare with a constant-time function.</i></div>
+        <div><b>Symmetric encryption</b><i>AES-GCM or ChaCha20-Poly1305, both <b>authenticated</b>, so tampering is detected rather than decrypted into garbage. Never CBC without a separate MAC &mdash; that is where padding-oracle attacks live. The rule that breaks systems: <b>never reuse a nonce with the same key</b>, which with a 96-bit random nonce means rotating the key well before you have written enough messages for a birthday collision.</i></div>
+        <div><b>Asymmetric encryption</b><i>A public key anyone may hold and a private key you do not share. Orders of magnitude slower than symmetric, so it is used to exchange or wrap a symmetric key rather than to encrypt data &mdash; which is what TLS does in its handshake, and what envelope encryption does at rest. Elliptic curve gives equivalent strength to RSA at much smaller key sizes.</i></div>
+        <div><b>Signatures</b><i>Prove origin and integrity without a shared secret: sign with the private key, verify with the public one. This is what a JWT relies on, what code signing relies on, and what lets a client verify a token issued by a service it has no secret with. Anyone can verify, which is exactly the property a shared HMAC key cannot give you.</i></div>
+        <div><b>TLS and PKI</b><i>A certificate binds a name to a public key, signed by an intermediate, chained to a root your operating system trusts. What it proves is that you are talking to whoever controls that name &mdash; not that they are honest, and not that the data is safe after it arrives. Common failures: a chain missing its intermediate (works in a browser, fails in your client), an expired certificate, a wrong clock, and a container image with no root store at all.</i></div>
+        <div><b>Key management</b><i>The actual hard part. Where keys live (a managed KMS or an HSM), who can use them, how they rotate without breaking data encrypted under the old one, and how a compromise is contained. <b>Envelope encryption</b> is the standard shape: a data key encrypts the data, a master key encrypts the data key, so rotating the master is cheap and the master never leaves the module.</i></div>
+        <div><b>Randomness</b><i>Cryptographically secure generators only &mdash; <code>secrets</code>, <code>crypto/rand</code>, <code>SecureRandom</code>. A session id, a password reset token or an API key from a fast pseudo-random generator is predictable given a few samples, and <code>Math.random</code> has produced real breaches. Also size it: 128 bits of entropy is the floor for anything that acts as a credential.</i></div>
+        <div><b>At rest versus in transit</b><i>Two different threats. Disk encryption protects against someone walking off with the drive and does nothing at all against a compromised application, which reads through it as normal. Field-level encryption protects specific data from your own database administrators and from a dump; it costs you the ability to index or search that field. Say which threat you are addressing.</i></div>
+        <div><b>Tokenisation and minimisation</b><i>The cheapest way to protect regulated data is not to hold it: swap a card number for a token from a provider, keep only the last four digits, and let the compliance scope shrink accordingly. The same instinct applies generally &mdash; every field you do not store is a field that cannot leak, and every retention window you shorten reduces the size of an eventual breach.</i></div>
+        <div><b>Privacy obligations</b><i>Data minimisation, purpose limitation, retention limits, the right to deletion and to export, and where the data may physically live. These are architectural constraints, not paperwork: &ldquo;delete this user&rdquo; has to reach backups, logs, analytics, caches and the search index, which is a design decision you have to have made in advance.</i></div>
       </div>
 
       <ul class="ask">
@@ -367,15 +478,15 @@ if invoice is None or invoice.tenant_id != caller.tenant_id:
       </div>
 
       <div class="syl s1">
-        <div><b>Frontend</b><i>The browser rendering path, reflow and repaint, the critical path, bundle size, code splitting, hydration. State management, reactivity, virtual DOM diffing. Accessibility: semantics, focus order, ARIA, keyboard-only use. Core Web Vitals. CSS layout and specificity. Forms, validation and optimistic updates. Cross-browser and internationalisation.</i></div>
-        <div><b>Mobile</b><i>The activity or view-controller lifecycle, and the state you lose on rotation or backgrounding. Memory pressure and being killed. Offline-first storage and sync. Background execution limits. Push notifications. Battery and network cost. App size, store review, staged rollout and the fact that you cannot force an update.</i></div>
-        <div><b>Data engineering</b><i>Batch against streaming, and event time against processing time. Watermarks and late data. Idempotent, replayable pipelines. Partitioning, file formats, compaction and small-file problems. Schema evolution. Orchestration and backfills. Data quality tests, lineage, and the cost of a full reprocess.</i></div>
-        <div><b>Machine learning</b><i>Training and serving skew, feature stores, offline and online evaluation, drift. Model deployment, shadow traffic and rollback. Latency and cost per inference, batching, quantisation. For language-model work: context, retrieval, tool use, evaluation harnesses, prompt injection and guardrails.</i></div>
-        <div><b>Infrastructure and SRE</b><i>A terminal and a broken host. Linux internals, networking, DNS and TLS debugging under time pressure. Capacity planning and load testing. Terraform and configuration drift. Kubernetes internals, not just its YAML. On-call practice, error budgets, and the failure injection you have actually run.</i></div>
-        <div><b>Security engineering</b><i>Threat modelling a design out loud. Reading code for vulnerabilities. Attack chains rather than isolated bugs. Detection and response, log sources, and what an attacker does after the first foothold. Compliance frameworks as a constraint on architecture.</i></div>
-        <div><b>Test and quality</b><i>Test strategy across a system rather than a file. Automation frameworks, page objects, flakiness at scale, test data management, and a considered position on what should never be automated.</i></div>
-        <div><b>Embedded and systems</b><i>Memory constraints, interrupts and real-time deadlines, fixed-point arithmetic, hardware interfaces, cross-compilation, and firmware update that cannot brick the device.</i></div>
-        <div><b>Platform and developer tooling</b><i>Build systems and caching, monorepo tooling, developer experience as a product, migration of hundreds of teams, and API design where the users are engineers who will not read the documentation.</i></div>
+        <div><b>Frontend</b><i>The rendering path &mdash; parse, style, layout, paint, composite &mdash; and which changes force which stage, because that is why a transform is cheap and a width is not. The critical path, bundle size, code splitting, and what hydration costs on a mid-range phone. State management and reactivity. Accessibility as a real subject: semantic elements, focus order, keyboard-only operation, ARIA only where semantics run out. Core Web Vitals. CSS layout, specificity and the cascade. Forms, validation and optimistic updates. Then internationalisation and the browser support matrix.</i></div>
+        <div><b>Mobile</b><i>The activity or view-controller lifecycle, and exactly which state is lost on rotation or backgrounding. Memory pressure and being terminated without warning. Offline-first storage, a sync engine, and conflict resolution when two devices edited the same thing. Background execution limits, which are strict and differ by platform. Push notifications end to end. Battery and cellular cost as design constraints. And the release model: app size, store review, staged rollout, and the fact that you cannot force an update &mdash; so the API must support the version from eighteen months ago.</i></div>
+        <div><b>Data engineering</b><i>Batch against streaming, and event time against processing time &mdash; with watermarks and a policy for late data, because the answer &ldquo;we drop it&rdquo; is fine if you say it. Pipelines that are idempotent and replayable, so a backfill is routine rather than terrifying. Partitioning schemes, columnar file formats, compaction and the small-files problem. Schema evolution and who breaks when a producer adds a field. Orchestration, dependencies and retries. Data quality tests, lineage, and the cost of a full reprocess in both money and hours.</i></div>
+        <div><b>Machine learning engineering</b><i>Training and serving skew, and the feature store that exists to prevent it. Offline metrics against online ones, and why they disagree. Drift, and what triggers a retrain. Deployment: shadow traffic, canaries, and rolling back a model like any other artifact. Latency and cost per inference, batching, caching, quantisation, and hardware choice. For language-model work: context management, retrieval, tool use, evaluation harnesses that are not vibes, and prompt injection as a genuine security boundary rather than a content-filter problem.</i></div>
+        <div><b>Infrastructure and SRE</b><i>A terminal and a broken host, under time pressure &mdash; Linux internals, networking, DNS and TLS debugging with the standard tools and no internet search. Capacity planning and load testing with numbers. Terraform, drift and the blast radius of a plan. Kubernetes internals rather than its YAML: the scheduler, the controllers, the network model, what actually happens during a rolling update. On-call practice, error budgets, and the failure injection you have actually run rather than the one you have read about.</i></div>
+        <div><b>Security engineering</b><i>Threat modelling a design out loud &mdash; assets, entry points, trust boundaries, and what an attacker does after the first foothold. Reading code for vulnerabilities rather than running a scanner over it. Thinking in attack chains, because a low-severity information leak plus a low-severity redirect is frequently a critical. Detection and response: which log sources exist, what a good detection looks like, and how you would know. Compliance frameworks treated as constraints on architecture rather than as documents.</i></div>
+        <div><b>Test and quality engineering</b><i>Test strategy across a system rather than a file: what is covered where, and what is deliberately not automated. Automation frameworks and their patterns, flakiness at a scale where a 0.1% failure rate means a red build every run, and test data management for environments that must not contain real customer data. A considered position on what should stay manual &mdash; exploratory testing, usability, and anything whose oracle is a human judgement.</i></div>
+        <div><b>Embedded and systems</b><i>Memory constraints measured in kilobytes, so no allocation in the hot path and often none at all. Interrupts, and what may safely happen inside one. Real-time deadlines, hard and soft. Fixed-point arithmetic where there is no floating-point unit. Hardware interfaces, cross-compilation and the toolchain. And firmware update as the defining problem: it must be atomic, verified, power-fail safe, and impossible to brick, because there is no engineer standing next to the device.</i></div>
+        <div><b>Platform and developer tooling</b><i>Build systems, dependency graphs, and caching that is correct as well as fast. Monorepo tooling and change detection. Developer experience treated as a product with users who can choose not to adopt: adoption metrics, migration paths, and codemods rather than instructions. The distinctive skill is migrating hundreds of teams without stopping them &mdash; which means the new path has to be easier than the old one, because nobody reads the documentation.</i></div>
       </div>
 
       <div class="note">

@@ -16,13 +16,21 @@ Nothing here is interactive. The page ships no JavaScript of its own.
 CSS = """
 <style>
 /* ---------- syllabus grid: a sub-topic and what it tests ---------- */
-.syl{display:grid;grid-template-columns:repeat(auto-fit,minmax(292px,1fr));gap:10px;margin:24px 0}
+/* Two columns, not three. These carry a paragraph each rather than a line, and
+   at three columns a card is 48 characters wide -- a measure that reads as a
+   list even when the content is prose. */
+.syl{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:10px;margin:24px 0}
 .syl > div{background:var(--surface);border:1px solid var(--line);
   border-left:3px solid var(--sc,var(--l2));padding:11px 14px}
-.syl b{display:block;font-family:"IBM Plex Mono",monospace;font-size:0.71rem;
+/* The term. A direct child, so a <b> used for emphasis inside the body below
+   does not inherit the mono-uppercase treatment and become a heading. */
+.syl > div > b{display:block;font-family:"IBM Plex Mono",monospace;font-size:0.71rem;
   letter-spacing:0.06em;text-transform:uppercase;color:var(--ink);font-weight:600}
 .syl i{display:block;font-style:normal;font-size:0.88rem;color:var(--ink-soft);
-  margin-top:5px;line-height:1.45}
+  margin-top:6px;line-height:1.55}
+.syl i b{display:inline;font-family:inherit;font-size:inherit;letter-spacing:normal;
+  text-transform:none;color:var(--ink);font-weight:600}
+.syl i + i{margin-top:9px}
 .syl i code{font-size:0.86em}
 .syl.s1 > div{--sc:var(--l1)}
 .syl.s2 > div{--sc:var(--l2)}

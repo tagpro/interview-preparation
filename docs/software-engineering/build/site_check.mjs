@@ -7,8 +7,26 @@ import { chromium } from 'playwright';
 
 const DIR = path.resolve(process.argv[2]);
 const files = fs.readdirSync(DIR).filter(f => f.endsWith('.html')).sort();
+// A handful of HTML tag names force the parser out of SVG foreign content, so
+// one <b> inside a <text> ends the <svg> there and dumps the rest of the figure
+// into the page as body text. It still parses, still passes a geometry audit of
+// what is left, and looks catastrophic. Source-level, because by the time the
+// DOM exists the evidence is a pile of stray nodes rather than a tag.
+const BREAKOUT = /<(b|big|blockquote|body|br|center|code|dd|div|dl|dt|em|embed|h[1-6]|head|hr|i|img|li|listing|menu|meta|nobr|ol|p|pre|ruby|s|small|span|strong|strike|sub|sup|table|tt|u|ul|var)\b[^>]*>/;
+let broken = 0;
+for (const f of files) {
+  const src = fs.readFileSync(path.join(DIR, f), 'utf8');
+  for (const svg of src.match(/<svg\b[\s\S]*?<\/svg>/g) || []) {
+    const m = BREAKOUT.exec(svg);
+    if (!m) continue;
+    broken++;
+    const at = svg.slice(Math.max(0, m.index - 50), m.index + 30).replace(/\s+/g, ' ');
+    console.log(`FAIL  ${f.padEnd(18)} <${m[1]}> inside <svg> breaks the figure: ...${at}...`);
+  }
+}
+
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
-let bad = 0;
+let bad = broken;
 
 for (const f of files) {
   const page = await browser.newPage();
