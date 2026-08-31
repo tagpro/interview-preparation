@@ -179,6 +179,18 @@ const AI = `
   }
 `;
 
+// The interview map's own three components. Two of them are auto-fit grids,
+// pinned here the way this sheet pins every other auto-fit grid, and all three
+// are lists of short items that read badly split across a page boundary.
+const IV = `
+  .syl { grid-template-columns: 1fr 1fr; gap: 8pt; }
+  .syl > div { break-inside: avoid; }
+  .atlas { grid-template-columns: repeat(3, 1fr); gap: 6pt; }
+  .atlas a { break-inside: avoid; }
+  .ask li { break-inside: avoid; }
+  .chips span { break-inside: avoid; }
+`;
+
 // The three passes all splice a block in ahead of the next marker, and each one
 // leaves its own idea of the blank line before it. Left alone they leapfrog and
 // the file grows a newline per full run. Normalising the gap here -- in all
@@ -194,6 +206,7 @@ for (const page of PAGES) {
   const extra = page === 'aws-deep-dive.html' ? AWS
     : page === 'dsa.html' ? DSA
     : page === 'ai.html' ? AI
+    : page === 'interview-map.html' ? IV
     : '';
   const sheet = base.replace(/\n\}\n$/, extra + '}').replace(/\n+$/, '');
   const css = [OPEN, '<style>', sheet, '</style>', CLOSE, ''].join('\n');

@@ -42,6 +42,8 @@ const PAGES = [
     uuid: 'de1c07a0-10a5-42a5-ac59-582c4a48cc19' },
   { src: 'ai.html',                   out: 'ai-engineering.html', icon: '🧠',
     uuid: '934e618a-db2e-4b3d-8cd1-0d3a58ac2a5c' },
+  { src: 'interview-map.html',        out: 'interview.html',    icon: '🗺️',
+    uuid: 'b9b3c754-363e-4a1f-9163-32dda13ac63c' },
 ];
 const BY_UUID = Object.fromEntries(PAGES.map(p => [p.uuid, p.out]));
 

@@ -1,6 +1,7 @@
 # The Backend Ladder
 
-Nine long-form HTML pages on backend engineering, served by GitHub Pages at
+Ten long-form HTML pages -- nine on backend engineering and one mapping the
+interviews it all gets tested in -- served by GitHub Pages at
 `study.jaspreet.info/software-engineering/`, plus the toolchain that builds them
 in `build/`.
 
@@ -13,7 +14,7 @@ in `build/`.
 
 `index.html` is the hub page (`build/backend-go-ladder.html`), not a listing.
 It is also where the design system lives: `tpl.py` lifts the hub's `<style>`
-blocks verbatim so the six built pages cannot drift from it. A change to a token,
+blocks verbatim so the seven built pages cannot drift from it. A change to a token,
 a type rule or a colour therefore has to be made in the hub **and** in the two
 other pages with no build script -- `pillar-a-foundations.html` and
 `pillar-c-cloud.html` -- which carry their own copy. Prose is set at
@@ -30,11 +31,12 @@ means adding a card to `../index.html` by hand.
 
 ## What is source and what is generated
 
-The nine `build/*.html` **pages** are the source of truth for their prose and
-markup. Six of them are also assembled from fragments (`build_py.py`,
-`build_java.py`, `build_aws.py`, `build_dsa.py`, `build_ai.py` read `py_*.html`,
-`java_*.html`, `aws_*.html`, `dsa_*.html`, `ai_*.html`; `build_go.py` rebuilds
-`pillar-b-go.html` from itself). The three pillar pages have no fragments -- they *are* the source.
+The ten `build/*.html` **pages** are the source of truth for their prose and
+markup. Seven of them are also assembled from fragments (`build_py.py`,
+`build_java.py`, `build_aws.py`, `build_dsa.py`, `build_ai.py`, `build_iv.py`
+read `py_*.html`, `java_*.html`, `aws_*.html`, `dsa_*.html`, `ai_*.html`,
+`iv_*.html`; `build_go.py` rebuilds `pillar-b-go.html` from itself). The three
+pillar pages have no fragments -- they *are* the source.
 
 `build_go.py` is the odd one and the difference matters when editing it. It
 explodes the built page and splices two fragments back in. `go_cook.html` is
@@ -44,10 +46,10 @@ that fragment was extracted and the two have drifted -- the page wins.
 part ten and an edit there actually reaches the page. Edit the right one.
 
 The cross-link rail every page carries is generated from `series.py`, which is
-the one list of pages in the series. `series_sync.py` writes it into all nine,
+the one list of pages in the series. `series_sync.py` writes it into all ten,
 including the three that have no build script.
 
-The nine files at the top of this directory are output. Editing them is always
+The ten files at the top of this directory are output. Editing them is always
 wrong: the next `site_build.mjs` overwrites them.
 
 ## Building
@@ -56,6 +58,7 @@ wrong: the next `site_build.mjs` overwrites them.
     npm install                       # once
     python3 build_go.py && python3 build_py.py && python3 build_java.py
     python3 build_aws.py && python3 build_dsa.py && python3 build_ai.py
+    python3 build_iv.py
     python3 series_sync.py            # the cross-link rail, from series.py
     python3 theme_sync.py             # the colour-theme switch, from theme_ui.py
                                       # (writes theme_block.html for site_build)
@@ -80,8 +83,8 @@ Run what the change touches; run all of them before publishing.
     node hl_verify_dim.mjs            # no text that used to be dimmed lost it
     node audit2.mjs                   # SVG geometry -- must print TOTAL: 0
     node verify_gloss.mjs             # glossary wraps, misplaced: 0
-    python3 esc_pre.py --check ai_*.html py_svc.html java_svc.html go_svc.html
-                                      # no bare < or > inside a code block
+    python3 esc_pre.py --check ai_*.html iv_*.html py_svc.html java_svc.html \
+        go_svc.html                   # no bare < or > inside a code block
     node verify_aws.mjs               # the Go/Python switch covers every pair
     python3 series_sync.py --check    # no page's rail has drifted from series.py
     python3 theme_sync.py --check     # nor has any page's theme switch
@@ -132,7 +135,9 @@ Run what the change touches; run all of them before publishing.
   to local filenames and fails if one is unrecognised. Adding a page means one
   entry in `series.py`, one run of `series_sync.py`, one entry in `PAGES` in
   `site_build.mjs`, `hl_detect.mjs`, `gloss_inject.py` and `verify_gloss.mjs`,
-  and one card in `../index.html`.
+  one card in `../index.html`, one row in `README.md`, and -- if the page brings
+  components of its own -- a block of print rules in `print_inject.mjs`, because
+  an `auto-fit` grid that was never pinned spills half a page of white.
 - **Nothing on the interactive pages autoplays, and that is load-bearing.** The
   twenty-six figures on the algorithms and AI pages are precomputed traces with
   a fixed opening frame, or calculators whose knobs start at fixed values, so
@@ -151,3 +156,14 @@ Run what the change touches; run all of them before publishing.
   re-running it.
 - **`build/` is served too.** It sits inside the Pages directory, so anything
   added there is publicly fetchable. Keep credentials out of it.
+
+## The interview map
+
+`interview-map.html` is the tenth page and the only one that is a syllabus
+rather than a subject. It brings three components the shared design system does
+not have -- `.syl`, `.chips` and `.ask`, all in `iv_ui.py` -- and `build_iv.py`
+splices that CSS in ahead of the top bar the way `build_aws.py` splices its
+language switch. Two of its own assertions are worth knowing about: the atlas at
+the top of the page must name every part in document order, and the topic
+kickers are renumbered on every build from a placeholder word, so a topic can be
+moved between fragments without being renumbered by hand.

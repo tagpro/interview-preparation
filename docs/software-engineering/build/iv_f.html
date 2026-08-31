@@ -1,0 +1,414 @@
+<section class="part" id="lld">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part six</span>
+      <h2>Design in the small</h2>
+      <p>The other design round: no traffic estimates, no datacentres, just a domain and forty-five minutes to turn it into types. It rewards different things from the system round &mdash; naming, boundaries, and the discipline to leave things out &mdash; and it is where object-oriented principles stop being trivia and start being usable.</p>
+    </div>
+
+    <section class="topic" id="ood-method">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>From three sentences to a set of types</h3>
+        <p class="lede">The exercise has a mechanical opening: extract the nouns, extract the verbs, decide which nouns are types and which are fields, then show one interaction end to end.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 224" role="img" aria-label="Four stages turning a parking-lot problem statement into nouns and verbs, then into types and interfaces, then into one traced interaction.">
+          <defs>
+            <marker id="iv-l1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE OPENING FIVE MINUTES OF ANY LOW-LEVEL DESIGN ROUND</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="34" width="200" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="28" y="54" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">1 the sentences</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="240" y="34" width="200" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="248" y="54" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">2 nouns and verbs</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="460" y="34" width="200" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="468" y="54" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">3 types and interfaces</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="680" y="34" width="200" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="688" y="54" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">4 one interaction</text>
+          </g>
+          <line x1="222" y1="49" x2="238" y2="49" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-l1)"/>
+          <line x1="442" y1="49" x2="458" y2="49" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-l1)"/>
+          <line x1="662" y1="49" x2="678" y2="49" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-l1)"/>
+
+          <text x="28" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">A car park has several levels.</text>
+          <text x="28" y="100" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">Each level has spots of a few</text>
+          <text x="28" y="114" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sizes. A vehicle takes a ticket</text>
+          <text x="28" y="128" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">on entry and pays on exit,</text>
+          <text x="28" y="142" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">priced by duration.</text>
+
+          <text x="248" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">nouns: ParkingLot, Level,</text>
+          <text x="248" y="100" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">Spot, Vehicle, Ticket,</text>
+          <text x="248" y="114" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">Payment</text>
+          <text x="248" y="128" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">verbs: park, unpark,</text>
+          <text x="248" y="142" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">price, pay</text>
+
+          <text x="468" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">SpotSize is an enum, not</text>
+          <text x="468" y="100" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">three subclasses</text>
+          <text x="468" y="114" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">PricingPolicy: interface</text>
+          <text x="468" y="128" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">SpotRepository: interface</text>
+          <text x="468" y="142" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">ParkingLot: the front door</text>
+
+          <text x="688" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">park(vehicle):</text>
+          <text x="688" y="100" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">  find a free spot</text>
+          <text x="688" y="114" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">  claim it atomically</text>
+          <text x="688" y="128" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">  issue a ticket</text>
+          <text x="688" y="142" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">  return it, or Full</text>
+
+          <line x1="20" y1="162" x2="880" y2="162" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="182" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The decision that carries the most weight is at stage three: which nouns become <tspan font-weight="600">types</tspan>, which become <tspan font-weight="600">fields</tspan>, and which become <tspan font-weight="600">enums</tspan>.</text>
+          <text x="20" y="200" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">A subclass per spot size is the classic wrong turn: the sizes differ in a value, not in behaviour, so inheritance buys nothing and costs a class each.</text>
+          <text x="20" y="218" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.8">Say what you are leaving out, too. &ldquo;No reservations, no season tickets, single site&rdquo; is scope control, and it is scored.</text>
+        </svg>
+        <figcaption><b>Stage four is what separates a class diagram from a design.</b> Anyone can list six classes; tracing one call through them exposes whether the boundaries work &mdash; who holds the lock, who validates, what is returned when the lot is full, and whether the caller has to know anything it should not. Do the trace even if nobody asks, because it is where the missing interface always shows up.</figcaption>
+      </figure>
+
+      <p>Concurrency belongs in the design, not after it. &ldquo;Two cars arrive at the same instant&rdquo; is asked in almost every one of these rounds, and the answer is not a <code>synchronized</code> keyword sprinkled on a method: it is a single atomic claim on a spot, with the search allowed to be racy because a failed claim just retries.</p>
+
+<pre class="l1">// ParkingLot.java — the interesting three lines of a low-level design round.
+public final class ParkingLot {
+    private final SpotRepository spots;      // interface: in memory now, a table later
+    private final PricingPolicy pricing;     // interface: hourly now, dynamic later
+    private final Clock clock;               // injected, so the tests do not sleep
+
+    public Ticket park(Vehicle vehicle) {
+        for (Spot candidate : spots.freeSpotsFor(vehicle.size())) {
+            // The search may be stale; the claim must not be. One atomic
+            // compare-and-set decides the winner, and the loser simply
+            // takes the next candidate -- no lock spans the search.
+            if (candidate.claim(vehicle)) {
+                return new Ticket(candidate.id(), vehicle.plate(), clock.instant());
+            }
+        }
+        throw new LotFullException(vehicle.size());
+    }
+}
+</pre>
+    </section>
+
+    <section class="topic" id="solid">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>SOLID, stated as five failure modes</h3>
+        <p class="lede">Reciting the five names scores nothing. Naming the smell each one describes, and the cost of ignoring it, is what the question is for.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 212" role="img" aria-label="The five SOLID principles, each with the code smell it names and what that smell costs.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">EACH PRINCIPLE IS A SMELL PLUS A BILL</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="32" width="162" height="122" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="28" y="50" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">S one reason to change</text>
+            <text x="28" y="70" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="currentColor" opacity="0.6">SMELL</text>
+            <text x="28" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">a class edited for two</text>
+            <text x="28" y="98" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">unrelated reasons</text>
+            <text x="28" y="118" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="currentColor" opacity="0.6">BILL</text>
+            <text x="28" y="134" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">every change risks the</text>
+            <text x="28" y="146" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">other reason</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="192" y="32" width="162" height="122" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="200" y="50" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">O open to extension</text>
+            <text x="200" y="70" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="currentColor" opacity="0.6">SMELL</text>
+            <text x="200" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">a switch on type that</text>
+            <text x="200" y="98" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">grows every release</text>
+            <text x="200" y="118" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="currentColor" opacity="0.6">BILL</text>
+            <text x="200" y="134" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">adding a case edits</text>
+            <text x="200" y="146" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">code that worked</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="364" y="32" width="162" height="122" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="372" y="50" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">L subtypes substitute</text>
+            <text x="372" y="70" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="currentColor" opacity="0.6">SMELL</text>
+            <text x="372" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">an override that</text>
+            <text x="372" y="98" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">throws or narrows</text>
+            <text x="372" y="118" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="currentColor" opacity="0.6">BILL</text>
+            <text x="372" y="134" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">callers must know the</text>
+            <text x="372" y="146" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">real subclass</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="536" y="32" width="162" height="122" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="544" y="50" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">I small interfaces</text>
+            <text x="544" y="70" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="currentColor" opacity="0.6">SMELL</text>
+            <text x="544" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">implementers stubbing</text>
+            <text x="544" y="98" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">out half the methods</text>
+            <text x="544" y="118" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="currentColor" opacity="0.6">BILL</text>
+            <text x="544" y="134" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">one new method</text>
+            <text x="544" y="146" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">breaks everyone</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="708" y="32" width="172" height="122" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="716" y="50" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">D depend on abstractions</text>
+            <text x="716" y="70" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="currentColor" opacity="0.6">SMELL</text>
+            <text x="716" y="86" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">a service that builds</text>
+            <text x="716" y="98" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">its own DB client</text>
+            <text x="716" y="118" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="currentColor" opacity="0.6">BILL</text>
+            <text x="716" y="134" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">no test without the</text>
+            <text x="716" y="146" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">real database</text>
+          </g>
+
+          <text x="20" y="180" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Four of the five are the same instinct in different clothes: <tspan font-weight="600">keep the reasons for change apart</tspan>. The fifth, L, is about honouring a promise you made in a type.</text>
+          <text x="20" y="200" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.8">All five are guidance, not law. A round where you apply every one of them to a forty-line problem reads as worse judgement, not better.</text>
+        </svg>
+        <figcaption><b>The most useful of the five in an interview is D.</b> Depending on an interface rather than a concrete client is what makes the design testable, and testability is the property interviewers can check in the room &mdash; &ldquo;how would you test this without a database?&rdquo; is the follow-up in nearly every low-level design round, and it has no good answer if the class constructs its own dependencies.</figcaption>
+      </figure>
+
+      <p class="chips-h">The neighbouring vocabulary</p>
+      <div class="chips">
+        <span class="hot">encapsulation</span><span class="hot">abstraction</span><span class="hot">inheritance</span><span class="hot">polymorphism</span><span>composition over inheritance</span><span>coupling</span><span>cohesion</span><span>law of Demeter</span><span>DRY</span><span>YAGNI</span><span>KISS</span><span>separation of concerns</span><span>tell, don&rsquo;t ask</span><span>value object</span><span>entity</span><span>aggregate root</span><span>domain model</span><span>anaemic model</span><span>ubiquitous language</span><span>bounded context</span><span>hexagonal architecture</span><span>ports and adapters</span><span>clean architecture</span><span>layering</span><span>dependency injection</span><span>inversion of control</span><span>immutability</span><span>defensive copying</span><span>equals and hashCode</span><span>null object</span><span>fail fast</span><span>design by contract</span><span>invariant</span><span>state machine</span>
+      </div>
+    </section>
+
+    <section class="topic" id="gof">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Design patterns, filed by the problem they solve</h3>
+        <p class="lede">Learn them as answers to questions, not as a list of twenty-three names. In an interview you will use six of them, and you should be able to name the trade-off of each.</p>
+      </div>
+
+      <div class="syl s2">
+        <div><b>Strategy</b><i>&ldquo;The rule varies.&rdquo; An interface plus one implementation per rule. The single most useful pattern in these rounds.</i></div>
+        <div><b>Factory / abstract factory</b><i>&ldquo;Construction is a decision.&rdquo; Keeps <code>new</code> out of the code that uses the thing.</i></div>
+        <div><b>Builder</b><i>&ldquo;Too many constructor arguments, some optional.&rdquo; Also the standard way to build an immutable object.</i></div>
+        <div><b>Singleton</b><i>&ldquo;Exactly one.&rdquo; Ask whether you mean one instance or one lifetime &mdash; injection usually answers it better.</i></div>
+        <div><b>Prototype</b><i>&ldquo;Copy this configured object.&rdquo; Rare, but the deep-versus-shallow copy question is not.</i></div>
+        <div><b>Adapter</b><i>&ldquo;Their interface, my shape.&rdquo; The boundary object that keeps a third-party type out of your domain.</i></div>
+        <div><b>Facade</b><i>&ldquo;One door to a subsystem.&rdquo; What a service class usually is.</i></div>
+        <div><b>Decorator</b><i>&ldquo;Add behaviour without subclassing.&rdquo; Retries, caching, metrics, logging &mdash; all decorators over one interface.</i></div>
+        <div><b>Proxy</b><i>&ldquo;Stand in for it.&rdquo; Lazy loading, access control, remote calls.</i></div>
+        <div><b>Composite</b><i>&ldquo;A thing and a group of things behave the same.&rdquo; File systems, menus, permissions trees.</i></div>
+        <div><b>Bridge</b><i>&ldquo;Two dimensions of variation.&rdquo; Stops the class count multiplying.</i></div>
+        <div><b>Flyweight</b><i>&ldquo;Millions of nearly identical objects.&rdquo; Share the immutable part; interning strings is the everyday case.</i></div>
+        <div><b>Observer</b><i>&ldquo;Tell whoever cares.&rdquo; Events, listeners, and the memory leak from never unsubscribing.</i></div>
+        <div><b>Command</b><i>&ldquo;Make the action an object.&rdquo; Undo, queues, retries, audit logs.</i></div>
+        <div><b>State</b><i>&ldquo;Behaviour depends on a mode.&rdquo; The honest alternative to a growing enum and a switch.</i></div>
+        <div><b>Template method</b><i>&ldquo;Same skeleton, different steps.&rdquo; Easy to overuse; strategy is usually the better shape.</i></div>
+        <div><b>Chain of responsibility</b><i>&ldquo;Try each handler in turn.&rdquo; Middleware, filters, interceptors.</i></div>
+        <div><b>Iterator</b><i>&ldquo;Walk it without exposing it.&rdquo; A common coding-round exercise in its own right.</i></div>
+        <div><b>Mediator</b><i>&ldquo;Stop objects wiring themselves to each other.&rdquo; Chat rooms, air traffic control, forms.</i></div>
+        <div><b>Memento</b><i>&ldquo;Snapshot and restore.&rdquo; Undo without exposing internals.</i></div>
+        <div><b>Visitor</b><i>&ldquo;New operation over a fixed set of types.&rdquo; Compilers, ASTs &mdash; and the reason sealed hierarchies exist.</i></div>
+        <div><b>Interpreter</b><i>&ldquo;A tiny language.&rdquo; Rules engines and expression evaluation.</i></div>
+        <div><b>Repository and unit of work</b><i>Not in the original book, asked more often than half of it.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="lld-catalogue">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The low-level design catalogue</h3>
+        <p class="lede">A shorter list than the system-design one, and each entry has a known trap. Interviewers reuse the traps far more than they reuse the problems.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Exercise</th><th>The trap</th></tr></thead>
+          <tbody>
+            <tr><td>Parking lot</td><td>Subclassing by spot size. It is an enum and a capacity rule, not a hierarchy.</td></tr>
+            <tr><td>Elevator system</td><td>Modelling the car without the scheduler. The interesting object is the dispatcher.</td></tr>
+            <tr><td>Vending machine</td><td>Money and state in the same class. It is a state machine with a coin ledger beside it.</td></tr>
+            <tr><td>ATM</td><td>Forgetting that dispensing can fail after the balance has changed.</td></tr>
+            <tr><td>Library / rental</td><td>Copies versus titles. Two entities that beginners merge into one.</td></tr>
+            <tr><td>Chess or tic-tac-toe</td><td>Rules scattered across pieces. A move validator with a board is easier to test and to extend.</td></tr>
+            <tr><td>Deck of cards</td><td>Shuffling correctly. Fisher&ndash;Yates, and a seeded random for testability.</td></tr>
+            <tr><td>LRU cache</td><td>Hash map plus doubly linked list, and the eviction that must be O(1) with the lock held once.</td></tr>
+            <tr><td>Rate limiter</td><td>Where the state lives, and what happens on a clock jump.</td></tr>
+            <tr><td>In-memory key&ndash;value store</td><td>Expiry: lazy on read, or a sweeper, and what each costs.</td></tr>
+            <tr><td>Logging framework</td><td>Levels, appenders and formatters as three separate abstractions, plus asynchronous flushing.</td></tr>
+            <tr><td>Notification service</td><td>Channels as strategies, preferences as a filter, and retries per channel.</td></tr>
+            <tr><td>Splitwise / expense sharing</td><td>Balances as a derived graph, not stored pairwise. Simplifying debts is the follow-up.</td></tr>
+            <tr><td>Food ordering / cart</td><td>Pricing rules as composable strategies; totals recomputed, never stored mutable.</td></tr>
+            <tr><td>Ride matching</td><td>Driver state transitions, and matching as a service the driver object does not own.</td></tr>
+            <tr><td>File system</td><td>Composite pattern, path resolution, and permissions inherited down the tree.</td></tr>
+            <tr><td>Text editor / undo</td><td>Command objects and a stack. Ask whether redo is in scope before designing for it.</td></tr>
+            <tr><td>Job scheduler</td><td>A priority queue plus workers, and what a task retry does to ordering.</td></tr>
+            <tr><td>Snake / game loop</td><td>Tick-based state updates, and keeping input, state and rendering apart.</td></tr>
+            <tr><td>Hotel or flight booking</td><td>Inventory holds with expiry &mdash; the same overselling problem as the system-design version, in one process.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="topic" id="api-design">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>API design</h3>
+        <p class="lede">Asked on its own, and as a sub-question of both design rounds. The whole subject is: what is the resource, what can go wrong, and how does the client find out.</p>
+      </div>
+
+      <div class="syl s3">
+        <div><b>REST</b><i>Resources and nouns, correct verbs, correct status codes, and the difference between 400, 401, 403, 404, 409 and 422.</i></div>
+        <div><b>Idempotency</b><i>PUT and DELETE are idempotent by definition; POST is made so with a client key. Say which yours is.</i></div>
+        <div><b>Pagination</b><i>Offset is simple and wrong at scale; cursor pagination is stable under insertion. Know both.</i></div>
+        <div><b>Filtering and sorting</b><i>Whitelist the fields. An open sort parameter is an unindexed query waiting to happen.</i></div>
+        <div><b>Errors</b><i>A stable machine-readable code, a human message, and a request ID. Never a stack trace.</i></div>
+        <div><b>Versioning</b><i>URL, header or content type &mdash; and the harder half: how a field is deprecated and removed.</i></div>
+        <div><b>Compatibility</b><i>Additive changes only; never repurpose a field. What breaks a client is rarely what you expected.</i></div>
+        <div><b>Rate limits</b><i>Communicated in headers, with a retry hint. A limit the client cannot see is a limit it will hammer.</i></div>
+        <div><b>gRPC</b><i>Schema-first, streaming, deadlines that propagate. Costs browser reach and human debuggability.</i></div>
+        <div><b>GraphQL</b><i>The client picks the shape. Costs you query cost control, caching and the N+1 problem moving server-side.</i></div>
+        <div><b>Webhooks</b><i>Signed, retried, idempotent, replayable. The receiver must assume duplicates and out-of-order delivery.</i></div>
+        <div><b>Long-running work</b><i>202 plus a status resource, or a callback. Do not hold a connection open for four minutes.</i></div>
+        <div><b>Bulk operations</b><i>Partial success is the design problem. Per-item results, not one status code for a hundred items.</i></div>
+        <div><b>Authentication</b><i>Where the token goes, how it is scoped, and what a leaked one can do &mdash; see part ten.</i></div>
+      </div>
+
+<pre class="l2">// errors.json — an error body worth defending in an interview. Three
+// properties matter:
+// a code the client can branch on, a message a human can read, and an id
+// that ties this response to the log line that explains it.
+{
+  "error": {
+    "code": "link_code_taken",
+    "message": "That short code is already in use.",
+    "field": "code",
+    "request_id": "01JB8Z0X4K9M2QW7N6R3T5V8Y1",
+    "retryable": false
+  }
+}
+
+// Cursor pagination, because offset pagination shifts under inserts:
+// GET /v1/links?limit=50&amp;cursor=eyJpZCI6IjAxSkI4WiJ9
+{
+  "items": [],
+  "next_cursor": "eyJpZCI6IjAxSkI5QSJ9"
+}
+</pre>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="lang">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part seven</span>
+      <h2>Languages and runtimes</h2>
+      <p>Two rounds&rsquo; worth of questions hide here: the ones asked of any language, which test whether you understand the machine underneath the syntax, and the ones asked of yours, which test whether you have read the manual or only the tutorial.</p>
+    </div>
+
+    <section class="topic" id="lang-core">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The five questions asked of every language</h3>
+        <p class="lede">Whatever you claim on your CV, expect these five. They are the same five for Java, Python, Go, C++, TypeScript and Rust; only the answers change.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 322" role="img" aria-label="Eight languages compared across memory management, concurrency model, error handling and type system.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE SAME FOUR QUESTIONS, EIGHT ANSWERS</text>
+
+          <text x="148" y="42" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">MEMORY</text>
+          <text x="333" y="42" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">CONCURRENCY</text>
+          <text x="518" y="42" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">ERRORS</text>
+          <text x="703" y="42" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">TYPES</text>
+
+          <g class="svg-l1">
+            <text x="20" y="66" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Java</text>
+            <text x="148" y="66" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">GC, generational</text>
+            <text x="333" y="66" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">threads, now virtual ones</text>
+            <text x="518" y="66" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">checked and unchecked</text>
+            <text x="703" y="66" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">static, erased generics</text>
+            <text x="20" y="94" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Python</text>
+            <text x="148" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">refcount plus GC</text>
+            <text x="333" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">GIL, asyncio, processes</text>
+            <text x="518" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">exceptions, duck typed</text>
+            <text x="703" y="94" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">dynamic, optional hints</text>
+            <text x="20" y="122" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Go</text>
+            <text x="148" y="122" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">GC, low pause</text>
+            <text x="333" y="122" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">goroutines and channels</text>
+            <text x="518" y="122" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">errors are values</text>
+            <text x="703" y="122" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">static, structural</text>
+          </g>
+          <g class="svg-l2">
+            <text x="20" y="150" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">C++</text>
+            <text x="148" y="150" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">manual, RAII</text>
+            <text x="333" y="150" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">threads and atomics</text>
+            <text x="518" y="150" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">exceptions or codes</text>
+            <text x="703" y="150" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">static, templates</text>
+            <text x="20" y="178" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">TypeScript</text>
+            <text x="148" y="178" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">GC in the engine</text>
+            <text x="333" y="178" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">event loop, promises</text>
+            <text x="518" y="178" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">throw, and rejections</text>
+            <text x="703" y="178" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">structural, erased</text>
+            <text x="20" y="206" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Rust</text>
+            <text x="148" y="206" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">ownership, no GC</text>
+            <text x="333" y="206" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">threads, Send and Sync</text>
+            <text x="518" y="206" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">Result and Option</text>
+            <text x="703" y="206" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">static, traits, lifetimes</text>
+          </g>
+          <g class="svg-l3">
+            <text x="20" y="234" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">C#</text>
+            <text x="148" y="234" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">GC, generational</text>
+            <text x="333" y="234" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">tasks, async and await</text>
+            <text x="518" y="234" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">exceptions</text>
+            <text x="703" y="234" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">static, reified generics</text>
+            <text x="20" y="262" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">Kotlin</text>
+            <text x="148" y="262" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">GC, on the JVM</text>
+            <text x="333" y="262" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">coroutines</text>
+            <text x="518" y="262" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">exceptions, none checked</text>
+            <text x="703" y="262" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">static, null aware</text>
+          </g>
+
+          <line x1="20" y1="278" x2="880" y2="278" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="298" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The fifth question does not fit a column: <tspan font-weight="600">how do you build and ship it?</tspan> Dependency resolution, lock files, reproducibility, the artifact you deploy.</text>
+          <text x="20" y="316" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.8">Answer for the language you claimed, in one sentence each. Hesitating on your own language&rsquo;s memory model is the most expensive kind of gap.</text>
+        </svg>
+        <figcaption><b>The interesting follow-up is always the same: what does that cost?</b> Garbage collection costs pauses and headroom; ownership costs compile time and a learning curve; a global interpreter lock costs parallelism but simplifies the C API; checked exceptions cost ceremony and buy an explicit contract. A candidate who can name the price of their own language&rsquo;s design is demonstrating exactly the judgement the design rounds are also testing.</figcaption>
+      </figure>
+
+      <div class="syl s1">
+        <div><b>Memory</b><i>Stack versus heap, what a reference is, how memory is reclaimed, and what a leak looks like in a garbage-collected language.</i></div>
+        <div><b>Concurrency</b><i>What a unit of concurrency costs, what is shared, and what the language guarantees about visibility.</i></div>
+        <div><b>Errors</b><i>Values or exceptions, checked or not, and what happens to an error nobody handles.</i></div>
+        <div><b>The type system</b><i>Static or dynamic, nominal or structural, generics and variance, and how much of it survives to runtime.</i></div>
+        <div><b>Build and dependencies</b><i>Resolution, lock files, transitive conflicts, reproducible builds, and the artifact you actually deploy.</i></div>
+        <div><b>Equality and identity</b><i>Value versus reference equality, and the hash contract every language has and every candidate forgets.</i></div>
+        <div><b>Mutability and copying</b><i>Deep versus shallow, defensive copies, and why a mutable default argument is a bug in more than one language.</i></div>
+        <div><b>The standard library</b><i>Which collection to reach for, and its complexity. Interviewers do ask what happens when a map resizes.</i></div>
+        <div><b>Performance tools</b><i>The profiler, the allocation profile, and one story about using them on real code.</i></div>
+        <div><b>Idiom</b><i>What reviewers in that language would object to. Writing Java in Python reads as inexperience even when it works.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="lang-each">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The questions asked of each language</h3>
+        <p class="lede">Pick the row for the language on your CV and be able to answer all five without preparation. These are the ones that come up again and again.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Language</th><th>What gets asked</th></tr></thead>
+          <tbody>
+            <tr><td>Java</td><td>JVM memory areas and the collectors; <code>equals</code>/<code>hashCode</code>; generics and type erasure; <code>final</code>, immutability and records; the collections and their complexities; the memory model and <code>volatile</code>; virtual threads against the old pool; streams and when they hurt; try-with-resources; classloading; Spring&rsquo;s proxies, scopes and transaction boundaries.</td></tr>
+            <tr><td>Python</td><td>Names against variables and the object model; mutable default arguments; the GIL and what it does and does not prevent; generators and laziness; decorators and closures; context managers; <code>__slots__</code>, dataclasses and memory; MRO and multiple inheritance; type hints and what they do not check; packaging, virtual environments and the import system.</td></tr>
+            <tr><td>Go</td><td>What a slice really is and how append aliases; maps and iteration order; interfaces and the nil-interface trap; goroutine leaks and <code>context</code>; channels, <code>select</code> and closing; <code>defer</code> ordering and evaluation; escape analysis; error wrapping and <code>errors.Is</code>/<code>As</code>; the race detector; modules and vendoring.</td></tr>
+            <tr><td>C++</td><td>RAII and ownership; the rule of five; move semantics; smart pointers and cycles; virtual dispatch and the vtable; templates and instantiation; undefined behaviour; the memory model and atomics; copy elision; the standard containers and iterator invalidation.</td></tr>
+            <tr><td>JavaScript / TypeScript</td><td>The event loop, microtasks and macrotasks; closures and <code>this</code>; prototypes; promises, <code>async</code>/<code>await</code> and error propagation; modules; structural typing and <code>any</code>; narrowing and discriminated unions; what the compiler erases; bundling and tree shaking.</td></tr>
+            <tr><td>Rust</td><td>Ownership, borrowing and lifetimes; <code>Result</code>, <code>Option</code> and the <code>?</code> operator; traits and dynamic dispatch; <code>Send</code> and <code>Sync</code>; interior mutability; <code>async</code> and the executor; what <code>unsafe</code> actually permits; cargo and features.</td></tr>
+            <tr><td>C#</td><td>The CLR and its collector; value versus reference types and boxing; <code>async</code>/<code>await</code> and the synchronisation context; LINQ and deferred execution; <code>IDisposable</code>; reified generics; nullable reference types; records and spans.</td></tr>
+            <tr><td>Kotlin</td><td>Null safety and platform types; coroutines, scopes and structured concurrency; data classes; extension functions; sealed classes and exhaustive <code>when</code>; interoperability with Java.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>Three of these have a page each</h4>
+        <p>The Python, Java and Go rows above are each expanded into a full page in this series: <b>Python, End to End</b>, <b>Java, Then Spring</b> and <b>Reading Go</b>, all in the rail below. Each ends with the same production service built in that language, which is the fastest way to see what &ldquo;idiomatic&rdquo; means in practice.</p>
+      </div>
+    </section>
+  </div>
+</section>

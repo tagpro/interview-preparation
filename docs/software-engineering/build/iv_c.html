@@ -1,0 +1,318 @@
+<section class="part" id="machine">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part three</span>
+      <h2>The machine underneath</h2>
+      <p>Hardware, the operating system, concurrency and the network. These four turn up in three disguises: as fundamentals questions in their own right, as the reason a system-design answer is wrong, and as the explanation for a bug in a debugging round. A candidate who can say <i>why</i> a thing is slow is scored a level above one who knows that it is.</p>
+    </div>
+
+    <section class="topic" id="hardware">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The processor, memory and the cost of a cache miss</h3>
+        <p class="lede">Every performance question eventually reduces to one number: how far away the data is. Knowing the ladder by heart is the cheapest possible preparation and it pays out in coding rounds, design rounds and debugging rounds alike.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 296" role="img" aria-label="A logarithmic bar chart of access latencies from L1 cache at one nanosecond to a transatlantic round trip at one hundred milliseconds.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">HOW FAR AWAY THE DATA IS &mdash; ONE MARK PER FACTOR OF TEN</text>
+          <text x="20" y="34" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">WHERE IT LIVES</text>
+          <text x="130" y="34" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">TYPICAL</text>
+
+          <g class="svg-l1">
+            <text x="20" y="56" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">L1 cache</text>
+            <text x="130" y="56" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">1 ns</text>
+            <rect x="230" y="44" width="8" height="16" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="20" y="82" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">L2 cache</text>
+            <text x="130" y="82" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">4 ns</text>
+            <rect x="230" y="70" width="47" height="16" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="20" y="108" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">L3 cache</text>
+            <text x="130" y="108" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">15 ns</text>
+            <rect x="230" y="96" width="93" height="16" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="20" y="134" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">main memory</text>
+            <text x="130" y="134" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">80 ns</text>
+            <rect x="230" y="122" width="150" height="16" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          </g>
+          <g class="svg-l2">
+            <text x="20" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">NVMe read</text>
+            <text x="130" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">100 us</text>
+            <rect x="230" y="148" width="394" height="16" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="20" y="186" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">same-DC hop</text>
+            <text x="130" y="186" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">0.5 ms</text>
+            <rect x="230" y="174" width="449" height="16" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          </g>
+          <g class="svg-l3">
+            <text x="20" y="212" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">disk seek</text>
+            <text x="130" y="212" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">8 ms</text>
+            <rect x="230" y="200" width="544" height="16" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="20" y="238" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">London&ndash;New York</text>
+            <text x="130" y="238" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">100 ms</text>
+            <rect x="230" y="226" width="630" height="16" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          </g>
+
+          <line x1="20" y1="256" x2="880" y2="256" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="276" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Scale one nanosecond up to one second and the ladder becomes human: L1 is a heartbeat, memory is a minute and a half,</text>
+          <text x="20" y="290" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">an SSD read is a day and a bit, a hop across the datacentre is a week, and the trip to New York takes three years.</text>
+        </svg>
+        <figcaption><b>The gap between memory and cache is why data layout beats cleverness.</b> An array of structs walked in order costs one miss per cache line and the prefetcher hides most of that; the same data behind pointers costs a miss per element. This is the entire reason a linked list loses to an array with identical big-O, and it is the answer interviewers are hoping for when they ask why the &ldquo;slower&rdquo; algorithm won.</figcaption>
+      </figure>
+
+      <div class="syl s1">
+        <div><b>Cache line</b><i>64 bytes, the unit of transfer. Reading one byte fetches all 64 &mdash; which is why sequential access is nearly free.</i></div>
+        <div><b>Locality</b><i>Temporal and spatial. Almost every &ldquo;make it faster&rdquo; answer is one of these two in disguise.</i></div>
+        <div><b>False sharing</b><i>Two cores writing different variables in the same line, invalidating each other. Fix by padding.</i></div>
+        <div><b>Branch prediction</b><i>A mispredict costs ~15 cycles. Sorted input can make identical code twice as fast.</i></div>
+        <div><b>Pipelining, superscalar, SIMD</b><i>Why loop count is a bad proxy for time, and why branchless code sometimes wins.</i></div>
+        <div><b>Virtual memory</b><i>Pages, the page table, the TLB, a page fault. Explains a mysterious first-request latency.</i></div>
+        <div><b>NUMA</b><i>Memory attached to one socket is slower from the other. Turns up in database and JVM tuning questions.</i></div>
+        <div><b>Endianness and alignment</b><i>Wire formats, struct padding, and why a field order change shrinks a struct.</i></div>
+        <div><b>Word size and overflow</b><i>32 vs 64 bit, signed overflow, floating-point representation and why <code>0.1 + 0.2</code> is not <code>0.3</code>.</i></div>
+        <div><b>Memory hierarchy cost model</b><i>Registers, caches, RAM, disk, network &mdash; the five rungs above, in order, with numbers.</i></div>
+      </div>
+
+      <p class="chips-h">Also fair game</p>
+      <div class="chips">
+        <span>instruction set</span><span>cycles per instruction</span><span>clock speed vs IPC</span><span>out-of-order execution</span><span>speculative execution</span><span>Spectre / Meltdown</span><span>write buffer</span><span>cache coherence</span><span>MESI protocol</span><span>prefetching</span><span>huge pages</span><span>copy-on-write</span><span>DMA</span><span>interrupt</span><span>context switch cost</span><span>hyper-threading</span><span>GPU vs CPU</span><span>Amdahl&rsquo;s law</span><span>Little&rsquo;s law</span><span>the utilisation knee</span>
+      </div>
+    </section>
+
+    <section class="topic" id="os">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The operating system your service is a guest of</h3>
+        <p class="lede">Processes, threads, scheduling, memory and files. Asked directly in systems-heavy loops, and indirectly everywhere else &mdash; &ldquo;why did the container get killed?&rdquo; is an operating-system question wearing a cloud costume.</p>
+      </div>
+
+      <div class="syl s2">
+        <div><b>Process vs thread</b><i>Separate address space vs shared. Everything hard about concurrency follows from the word &ldquo;shared&rdquo;.</i></div>
+        <div><b>The scheduler</b><i>Time slices, priorities, preemption, run queues. Why a busy machine adds latency without adding work.</i></div>
+        <div><b>Context switch</b><i>A few microseconds plus a cold cache. The reason a thread per request stops scaling.</i></div>
+        <div><b>System calls</b><i>The user/kernel boundary, and why a syscall per byte is the bug. <code>strace</code> is the tool they hope you name.</i></div>
+        <div><b>Virtual address space</b><i>Stack, heap, text, mapped files. Where a segmentation fault comes from and what a stack overflow is.</i></div>
+        <div><b>Paging and swap</b><i>Page faults, minor vs major, thrashing, and the OOM killer that ended your pod.</i></div>
+        <div><b>The page cache</b><i>Why a second read of the same file is free, and why &ldquo;the database has 8&nbsp;GB of RAM&rdquo; understates its cache.</i></div>
+        <div><b>File descriptors</b><i>A finite per-process table. Leaks show up as <code>EMFILE</code> under load and never in testing.</i></div>
+        <div><b>Blocking vs non-blocking I/O</b><i>And the four models: blocking, non-blocking polling, readiness (<code>epoll</code>/<code>kqueue</code>), completion (<code>io_uring</code>, IOCP).</i></div>
+        <div><b>Signals</b><i><code>SIGTERM</code> then <code>SIGKILL</code> &mdash; the contract behind graceful shutdown in every orchestrator.</i></div>
+        <div><b>Pipes, sockets, shared memory</b><i>The inter-process channels, and which one a question is really describing.</i></div>
+        <div><b>fsync and durability</b><i>A write returns before it is durable. This one fact underlies write-ahead logs and half of all database questions.</i></div>
+        <div><b>Permissions and users</b><i>UID/GID, file modes, why the container runs as root and why it should not.</i></div>
+        <div><b>cgroups and namespaces</b><i>What a container actually is: limits plus a private view. Memory limits kill; CPU limits throttle.</i></div>
+      </div>
+
+      <ul class="ask">
+        <li><q>What happens between typing a command and the program running?</q><em>fork, exec, the loader, dynamic linking, the entry point &mdash; and whether you can stop at the right depth for the role.</em></li>
+        <li><q>Your service is at 100% CPU but doing no work. What now?</q><em>a method: is it user or system time, a spin loop, GC, a lock convoy? Naming <code>top</code>, <code>perf</code> and a flame graph is the expected answer.</em></li>
+        <li><q>Why was the container killed with exit code 137?</q><em>128 + 9, so <code>SIGKILL</code>, so the memory cgroup limit &mdash; and the follow-up about heap versus RSS.</em></li>
+        <li><q>How does a thread pool of 200 threads behave differently from 20?</q><em>context switching, memory per stack, and Little&rsquo;s law: more threads do not create more capacity, they only lengthen the queue.</em></li>
+      </ul>
+    </section>
+
+    <section class="topic" id="concurrency">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Concurrency: races, locks and the memory model</h3>
+        <p class="lede">The most reliably mishandled subject in the whole loop. Almost everyone can define a race condition; far fewer can say why a correctly locked program can still read stale data on another core.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 274" role="img" aria-label="Two threads incrementing a shared counter, with the interleaving that loses one update, followed by three ways to fix it.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">TWO THREADS RUN counter++ ONCE EACH &mdash; THE COUNTER ENDS AT 1</text>
+
+          <text x="20" y="62" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">thread A</text>
+          <g class="svg-l1">
+            <rect x="120" y="44" width="100" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="128" y="63" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">read x -&gt; 0</text>
+            <rect x="360" y="44" width="100" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="368" y="63" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">add 1 -&gt; 1</text>
+            <rect x="600" y="44" width="100" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="608" y="63" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">store 1</text>
+          </g>
+
+          <text x="20" y="116" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">thread B</text>
+          <g class="svg-l3">
+            <rect x="240" y="98" width="100" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="248" y="117" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">read x -&gt; 0</text>
+            <rect x="480" y="98" width="100" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="488" y="117" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">add 1 -&gt; 1</text>
+            <rect x="720" y="98" width="100" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="728" y="117" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">store 1</text>
+          </g>
+
+          <line x1="120" y1="142" x2="860" y2="142" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+          <text x="20" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">x in memory</text>
+          <text x="128" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">0</text>
+          <text x="248" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">0</text>
+          <text x="368" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">0</text>
+          <text x="488" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">0</text>
+          <text x="608" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">1</text>
+          <text x="728" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">1</text>
+          <text x="790" y="160" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.8">&mdash; not 2</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="186" width="276" height="58" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="30" y="206" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">mutex</text>
+            <text x="30" y="222" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">Only one thread in the section at a</text>
+            <text x="30" y="236" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">time. Costs a syscall when contended.</text>
+            <rect x="312" y="186" width="276" height="58" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="322" y="206" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">atomic add</text>
+            <text x="322" y="222" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">One instruction the hardware makes</text>
+            <text x="322" y="236" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">indivisible. Fastest, but only for one word.</text>
+            <rect x="604" y="186" width="276" height="58" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="614" y="206" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">compare-and-swap loop</text>
+            <text x="614" y="222" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">Read, compute, swap-if-unchanged,</text>
+            <text x="614" y="236" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">retry. The basis of every lock-free queue.</text>
+          </g>
+
+          <text x="20" y="266" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The bug is not the increment. It is that <tspan font-weight="600">read</tspan>, <tspan font-weight="600">modify</tspan> and <tspan font-weight="600">write</tspan> are three steps and nothing says they happen together.</text>
+        </svg>
+        <figcaption><b>Then the second half of the question: visibility.</b> Even with no interleaving, a write by one core may sit in a store buffer and never be seen by another until something forces it out. That &ldquo;something&rdquo; is a memory barrier, which is what a mutex release and an atomic store quietly emit. A variable read in a loop without one can spin forever on a value that changed minutes ago &mdash; the reason <code>volatile</code>, <code>Atomic*</code> and <code>sync/atomic</code> exist at all.</figcaption>
+      </figure>
+
+<pre class="l3">// race.go — go build -race is the only honest way to find these.
+var counter int                       // shared, unprotected
+
+func worker(wg *sync.WaitGroup) {
+    defer wg.Done()
+    for i := 0; i &lt; 1000; i++ {
+        counter++                     // read, add, write: three steps
+    }
+}
+
+// Three fixes, in increasing order of how much they let you do:
+
+var mu sync.Mutex                     // 1. protects any amount of state
+mu.Lock(); counter++; mu.Unlock()
+
+var n atomic.Int64                    // 2. one word, no lock, no waiting
+n.Add(1)
+
+for {                                 // 3. read-modify-write on your own terms
+    old := n.Load()
+    if n.CompareAndSwap(old, old*2) { // fails if anyone else moved it
+        break
+    }
+}
+</pre>
+
+      <div class="syl s3">
+        <div><b>Race condition</b><i>The result depends on timing. A <b>data race</b> is the narrower case: unsynchronised access where one side writes.</i></div>
+        <div><b>Critical section</b><i>The code that must not interleave. Keep it small; a lock held across I/O is a design bug.</i></div>
+        <div><b>Mutex, RWMutex, spinlock</b><i>And when a reader&ndash;writer lock is slower than a plain one, which is more often than people expect.</i></div>
+        <div><b>Semaphore</b><i>A permit count. The right primitive for &ldquo;at most N concurrent&rdquo;, which is most rate-limiting questions.</i></div>
+        <div><b>Condition variable</b><i>Wait until a predicate holds. Always in a loop &mdash; spurious wakeups are real.</i></div>
+        <div><b>Deadlock</b><i>Four conditions; break any one. Consistent lock ordering is the answer they want.</i></div>
+        <div><b>Livelock and starvation</b><i>Progress without work, and progress for everyone but you. Backoff and fairness are the fixes.</i></div>
+        <div><b>Atomics and CAS</b><i>Lock-free algorithms, and the ABA problem that makes naive pointer CAS unsound.</i></div>
+        <div><b>Memory model</b><i>Happens-before, sequential consistency, acquire/release, barriers. Why <code>volatile</code> in Java is not <code>volatile</code> in C.</i></div>
+        <div><b>Thread pools</b><i>Bounded queues, rejection policies, and why an unbounded queue converts a latency problem into an outage.</i></div>
+        <div><b>Async and event loops</b><i>Single-threaded concurrency: callbacks, promises, async/await, and the blocking call that stalls everything.</i></div>
+        <div><b>CSP and actors</b><i>Channels and message passing &mdash; share memory by communicating instead of the other way round.</i></div>
+        <div><b>Immutability</b><i>The cheapest concurrency strategy: nothing to protect. Persistent structures and copy-on-write.</i></div>
+        <div><b>Producer&ndash;consumer</b><i>The archetypal exercise, and where backpressure enters the conversation.</i></div>
+        <div><b>Thread safety of your own types</b><i>&ldquo;Is <code>HashMap</code> safe?&rdquo; is really &ldquo;what does your language guarantee, and at what cost?&rdquo;</i></div>
+        <div><b>Parallel vs concurrent</b><i>Doing many things at once vs dealing with many things at once. Interviewers do ask for the distinction.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="network">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The network, from the frame to the request</h3>
+        <p class="lede">&ldquo;What happens when you type a URL and press enter&rdquo; is still asked because it is unboundedly deep: you can answer it in thirty seconds or forty minutes, and where you stop tells the interviewer your level.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 336" role="img" aria-label="One HTTPS request drawn as nested protocol headers, with notes on each layer, and a comparison of round trips before the first byte over TCP with TLS 1.3 versus QUIC.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">ONE REQUEST, WRAPPED FIVE TIMES</text>
+
+          <rect x="20" y="44" width="560" height="170" fill="none" stroke="currentColor" stroke-width="1.3"/>
+          <text x="28" y="59" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">ethernet frame &middot; MTU 1500</text>
+          <g class="svg-l2">
+            <rect x="36" y="66" width="528" height="134" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="44" y="81" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">IP packet &middot; 20 B &middot; addresses, TTL</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="52" y="88" width="496" height="98" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="60" y="103" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">TCP segment &middot; ports, seq, ack, window</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="68" y="110" width="464" height="62" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="76" y="125" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">TLS record &middot; encrypted and authenticated</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="84" y="132" width="432" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="92" y="149" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">GET /v1/links/abc123 &nbsp;Host: sho.rt</text>
+          </g>
+
+          <text x="600" y="60" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Exceed the MTU and you fragment, or the</text>
+          <text x="600" y="76" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">packet is dropped outright if DF is set.</text>
+          <text x="600" y="100" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Routing, TTL, and the NAT rewriting your</text>
+          <text x="600" y="116" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">source address on the way out.</text>
+          <text x="600" y="140" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Retransmission, congestion window, and</text>
+          <text x="600" y="156" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">head-of-line blocking for everything above.</text>
+          <text x="600" y="180" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Certificate chain, SNI, session resumption.</text>
+          <text x="600" y="204" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Methods, status codes, headers, keep-alive.</text>
+
+          <line x1="20" y1="228" x2="880" y2="228" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="248" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">HTTPS / TCP</text>
+          <g class="svg-l2">
+            <rect x="200" y="236" width="100" height="24" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="208" y="252" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">DNS</text>
+            <rect x="300" y="236" width="100" height="24" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="308" y="252" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">TCP SYN</text>
+            <rect x="400" y="236" width="100" height="24" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="408" y="252" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">TLS 1.3</text>
+            <rect x="500" y="236" width="100" height="24" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="508" y="252" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">request</text>
+          </g>
+          <text x="612" y="252" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">4 round trips before the first byte</text>
+
+          <text x="20" y="284" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">HTTP/3 / QUIC</text>
+          <g class="svg-l1">
+            <rect x="200" y="272" width="100" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="208" y="288" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">DNS</text>
+            <rect x="300" y="272" width="100" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="308" y="288" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">QUIC + TLS</text>
+            <rect x="400" y="272" width="100" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="408" y="288" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">request</text>
+          </g>
+          <text x="512" y="288" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">3 &mdash; or 2 on a resumed connection</text>
+
+          <text x="20" y="322" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">On a 100&nbsp;ms transatlantic link those two saved round trips are 200&nbsp;ms of the user&rsquo;s time, before your handler has run a single line.</text>
+        </svg>
+        <figcaption><b>This is why &ldquo;add a CDN&rdquo; is a latency answer and not just a bandwidth one.</b> Terminating TLS near the user removes round trips from the expensive leg of the journey; the bytes still cross the ocean, but the handshakes do not. It is also why connection pooling matters so much server-side: a pooled connection has already paid for all of the boxes above except the last one.</figcaption>
+      </figure>
+
+      <div class="syl s2">
+        <div><b>The layers</b><i>Link, network, transport, application. Enough of the OSI model to place a problem, not to recite seven names.</i></div>
+        <div><b>IP addressing</b><i>IPv4, IPv6, CIDR, subnets, private ranges, NAT, and reading a routing table.</i></div>
+        <div><b>DNS</b><i>Recursive resolution, record types, TTL, and why a deploy that changed a record is still broken for some users.</i></div>
+        <div><b>TCP</b><i>Three-way handshake, sequence numbers, retransmit, sliding window, slow start, Nagle, <code>TIME_WAIT</code>.</i></div>
+        <div><b>UDP and QUIC</b><i>No ordering, no delivery guarantee &mdash; and why HTTP/3 rebuilt those on top of it anyway.</i></div>
+        <div><b>TLS</b><i>Handshake, certificate chain, SNI, ALPN, mTLS, and where termination happens in your architecture.</i></div>
+        <div><b>HTTP versions</b><i>1.1 keep-alive and pipelining, 2 multiplexing and HPACK, 3 over QUIC. Head-of-line blocking at each.</i></div>
+        <div><b>HTTP semantics</b><i>Methods, safe and idempotent, status codes, caching headers, cookies, CORS, content negotiation.</i></div>
+        <div><b>Sockets</b><i>bind, listen, accept, the backlog queue, and what a connection actually is to the kernel.</i></div>
+        <div><b>Load balancing</b><i>L4 vs L7, round robin, least connections, consistent hashing, health checks, connection draining.</i></div>
+        <div><b>Proxies</b><i>Forward, reverse, sidecar. Where TLS ends, where retries happen, and who sees the real client IP.</i></div>
+        <div><b>WebSockets and SSE</b><i>Long-lived connections, and what they cost a load balancer that assumed short ones.</i></div>
+        <div><b>gRPC and HTTP/2 streams</b><i>Multiplexing, flow control, deadlines propagated across hops.</i></div>
+        <div><b>Bandwidth, latency, jitter, loss</b><i>Four different problems that all present as &ldquo;the network is slow&rdquo;.</i></div>
+        <div><b>The tools</b><i><code>dig</code>, <code>curl -v</code>, <code>ss</code>, <code>tcpdump</code>, <code>traceroute</code>, <code>mtr</code>. Naming the right one is half the answer.</i></div>
+      </div>
+
+      <ul class="ask">
+        <li><q>What happens when you type a URL and press enter?</q><em>whether you can walk the whole path &mdash; cache, DNS, ARP, route, handshake, TLS, request, render &mdash; and stop at the depth the role needs.</em></li>
+        <li><q>The service is fine but users say it is slow. Where do you look?</q><em>splitting client, network and server time; the words TTFB, round trip and percentile.</em></li>
+        <li><q>Why would a request succeed from your laptop and fail from the pod?</q><em>DNS, egress rules, security groups, proxies, certificate trust stores, IPv6 &mdash; a list, then a way to bisect it.</em></li>
+        <li><q>TCP or UDP for this?</q><em>whether you reason from the requirement (ordering, loss tolerance, latency) rather than from a memorised table.</em></li>
+      </ul>
+
+      <div class="note">
+        <h4>These have a page of their own too</h4>
+        <p>Latency, queueing, backpressure and metastable failure are worked through in <b>The Machine Room</b>; the network path from a hostname to a running container is <b>From Account to Pod</b>. Both are in the rail below. This part is the checklist you should be able to tick before either page feels easy.</p>
+      </div>
+    </section>
+  </div>
+</section>

@@ -32,6 +32,7 @@ build_ai.py
 build_aws.py
 build_dsa.py
 build_go.py
+build_iv.py
 build_java.py
 build_py.py
 check_aws.py
@@ -67,6 +68,19 @@ hl_langs.mjs
 hl_report.mjs
 hl_theme.mjs
 hl_verify_dim.mjs
+interview-map.html
+iv_a.html
+iv_b.html
+iv_c.html
+iv_d.html
+iv_e.html
+iv_f.html
+iv_foot.html
+iv_g.html
+iv_h.html
+iv_hero.html
+iv_i.html
+iv_ui.py
 java-spring.html
 java_a.html
 java_b.html

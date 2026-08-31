@@ -27,6 +27,7 @@ PAGES = [
     'aws-deep-dive.html',
     'dsa.html',
     'ai.html',
+    'interview-map.html',
 ]
 
 ENTS = {'&rsquo;': '’', '&mdash;': '—', '&ndash;': '–',

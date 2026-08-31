@@ -1,0 +1,331 @@
+<section class="part" id="coding">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part two</span>
+      <h2>The coding round</h2>
+      <p>One or two rounds, forty-five minutes each, a problem with a known shape and an interviewer watching you find it. The subject is finite: a few dozen structures, a few dozen algorithms, and about fifteen patterns that connect a problem statement to one of them. This part is the full list, plus the two things that decide the score once the code works &mdash; complexity you can defend and correctness you demonstrated yourself.</p>
+    </div>
+
+    <section class="topic" id="dsa-map">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Every structure and every algorithm, in one list</h3>
+        <p class="lede">Coverage first. If a word below is unfamiliar, that is the gap &mdash; not the twelfth variation of a problem you can already solve. The bolder terms are the ones that appear in a majority of loops.</p>
+      </div>
+
+      <p><b>Data structures</b> are asked in three ways: build one, use one to make something faster, or explain what the standard library&rsquo;s version costs. You need the operations, the complexity of each, and the memory behaviour &mdash; a hash map that rehashes and an array that reallocates are the same fact told twice.</p>
+
+      <p class="chips-h">Linear and associative</p>
+      <div class="chips">
+        <span class="hot">array</span><span class="hot">dynamic array</span><span>amortised growth</span><span class="hot">string</span><span>string builder</span><span>immutable strings</span><span class="hot">singly linked list</span><span>doubly linked list</span><span>circular list</span><span>sentinel node</span><span class="hot">stack</span><span class="hot">queue</span><span class="hot">deque</span><span>circular buffer</span><span class="hot">monotonic stack</span><span>monotonic deque</span><span class="hot">hash map</span><span class="hot">hash set</span><span>hash function</span><span>separate chaining</span><span>open addressing</span><span>linear probing</span><span>load factor</span><span>rehashing</span><span>ordered map</span><span>multiset</span><span>bitset</span><span>sparse array</span><span>rope</span><span>persistent structure</span>
+      </div>
+
+      <p class="chips-h">Trees, heaps and search structures</p>
+      <div class="chips">
+        <span class="hot">binary tree</span><span class="hot">binary search tree</span><span>tree traversal</span><span>inorder / preorder / postorder</span><span>level order</span><span>Morris traversal</span><span>balanced tree</span><span>AVL rotation</span><span>red&ndash;black tree</span><span>treap</span><span>splay tree</span><span class="hot">B-tree</span><span>B+ tree</span><span>skip list</span><span class="hot">binary heap</span><span>d-ary heap</span><span class="hot">priority queue</span><span>heapify</span><span>indexed heap</span><span>two-heap median</span><span class="hot">trie</span><span>radix / Patricia tree</span><span>suffix trie</span><span>suffix array</span><span>segment tree</span><span>lazy propagation</span><span>Fenwick / BIT</span><span>sparse table</span><span>interval tree</span><span>k-d tree</span><span>quadtree</span><span>R-tree</span>
+      </div>
+
+      <p class="chips-h">Graphs, sets and probabilistic structures</p>
+      <div class="chips">
+        <span class="hot">adjacency list</span><span>adjacency matrix</span><span>edge list</span><span>implicit graph</span><span>weighted graph</span><span>directed acyclic graph</span><span class="hot">disjoint set union</span><span>union by rank</span><span>path compression</span><span class="hot">LRU cache</span><span>LFU cache</span><span>bloom filter</span><span>count&ndash;min sketch</span><span>HyperLogLog</span><span>consistent hashing ring</span><span>merkle tree</span><span>skip graph</span>
+      </div>
+
+      <p><b>Algorithms</b> divide into families, and the families are what you memorise &mdash; not the problems. A candidate who knows six families and can recognise them beats one who has solved four hundred problems by pattern-matching titles.</p>
+
+      <p class="chips-h">Scanning, searching and sorting</p>
+      <div class="chips">
+        <span class="hot">two pointers</span><span>fast and slow pointers</span><span>cycle detection (Floyd)</span><span class="hot">sliding window</span><span>variable window</span><span class="hot">prefix sums</span><span>difference array</span><span>2-D prefix sums</span><span class="hot">binary search</span><span class="hot">binary search on the answer</span><span>lower / upper bound</span><span>ternary search</span><span class="hot">merge sort</span><span class="hot">quicksort</span><span>partition schemes</span><span>Dutch national flag</span><span>heap sort</span><span>insertion sort</span><span>counting sort</span><span>radix sort</span><span>bucket sort</span><span>Timsort / introsort</span><span>stability</span><span>custom comparator</span><span class="hot">quickselect</span><span>cyclic sort</span><span>merge k sorted</span><span class="hot">interval merge</span><span>sweep line</span><span>meet in the middle</span>
+      </div>
+
+      <p class="chips-h">Recursion, greedy and dynamic programming</p>
+      <div class="chips">
+        <span class="hot">recursion</span><span>recursion tree</span><span>tail call</span><span class="hot">backtracking</span><span>pruning</span><span>subsets</span><span>permutations</span><span>combinations</span><span>N-queens</span><span>Sudoku solver</span><span>divide and conquer</span><span class="hot">memoisation</span><span class="hot">tabulation</span><span>state definition</span><span>transition</span><span>base case</span><span>rolling array</span><span class="hot">0/1 knapsack</span><span>unbounded knapsack</span><span>coin change</span><span class="hot">longest increasing subsequence</span><span>longest common subsequence</span><span class="hot">edit distance</span><span>palindrome partitioning</span><span>matrix chain</span><span>interval DP</span><span>tree DP</span><span>digit DP</span><span class="hot">bitmask DP</span><span>DP on subsets</span><span>Kadane</span><span class="hot">greedy</span><span>exchange argument</span><span>activity selection</span><span>Huffman coding</span><span>fractional knapsack</span><span>job scheduling</span>
+      </div>
+
+      <p class="chips-h">Graph algorithms</p>
+      <div class="chips">
+        <span class="hot">breadth-first search</span><span class="hot">depth-first search</span><span>iterative DFS</span><span>multi-source BFS</span><span>bidirectional BFS</span><span>0&ndash;1 BFS</span><span class="hot">topological sort</span><span>Kahn&rsquo;s algorithm</span><span>cycle detection</span><span>colouring</span><span>bipartite check</span><span>connected components</span><span>flood fill</span><span>Tarjan SCC</span><span>Kosaraju</span><span>bridges</span><span>articulation points</span><span class="hot">Dijkstra</span><span>Bellman&ndash;Ford</span><span>negative cycles</span><span>Floyd&ndash;Warshall</span><span>A* search</span><span>Johnson</span><span class="hot">minimum spanning tree</span><span>Prim</span><span>Kruskal</span><span>Euler tour</span><span>Hamiltonian path</span><span>lowest common ancestor</span><span>binary lifting</span><span>heavy&ndash;light decomposition</span><span>max flow</span><span>Ford&ndash;Fulkerson</span><span>Edmonds&ndash;Karp</span><span>Dinic</span><span>min cut</span><span>bipartite matching</span><span>Hungarian algorithm</span>
+      </div>
+
+      <p class="chips-h">Strings, maths and the rest</p>
+      <div class="chips">
+        <span>string matching</span><span class="hot">rolling hash</span><span>Rabin&ndash;Karp</span><span>KMP failure function</span><span>Z-algorithm</span><span>Manacher</span><span>Aho&ndash;Corasick</span><span>suffix automaton</span><span>anagram grouping</span><span>tokenising</span><span>expression evaluation</span><span>shunting yard</span><span class="hot">bit manipulation</span><span>popcount</span><span>XOR tricks</span><span>lowest set bit</span><span>subset enumeration</span><span>GCD / Euclid</span><span>extended Euclid</span><span>modular arithmetic</span><span>modular inverse</span><span>fast exponentiation</span><span>sieve of Eratosthenes</span><span>prime factorisation</span><span>combinatorics</span><span>Catalan numbers</span><span>inclusion&ndash;exclusion</span><span>matrix exponentiation</span><span>probability</span><span>expected value</span><span>reservoir sampling</span><span>Fisher&ndash;Yates shuffle</span><span>randomised pivot</span><span>convex hull</span><span>line intersection</span><span>closest pair</span><span>overflow</span><span>floating point</span><span class="hot">design a data structure</span><span>iterator design</span><span>concurrency puzzle</span>
+      </div>
+
+      <div class="note">
+        <h4>These have a page of their own</h4>
+        <p>Every structure and algorithm above is worked through, with figures you can step, in <b>Data Structures, In Motion</b> &mdash; the eighth page in this series, linked in the rail. This page&rsquo;s job is the checklist; that page&rsquo;s job is the mechanism.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="patterns">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The fifteen patterns that connect a problem to a structure</h3>
+        <p class="lede">Interview problems are disguised. The disguise is the story; the cue is in the constraints. Learning to read the cue is most of what &ldquo;being good at these&rdquo; means.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 330" role="img" aria-label="Eighteen cues from a problem statement, each paired with the data structure or algorithm family it points to.">
+          <defs>
+            <marker id="iv-p1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHAT THE PROBLEM SAYS &rarr; WHAT TO REACH FOR</text>
+
+          <g class="svg-l2">
+            <text x="20" y="50" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">sorted, or worth sorting</text>
+            <line x1="232" y1="46" x2="252" y2="46" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="262" y="50" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">two pointers, binary search</text>
+            <text x="20" y="80" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">contiguous subarray</text>
+            <line x1="232" y1="76" x2="252" y2="76" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="262" y="80" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">sliding window, prefix sums</text>
+            <text x="20" y="110" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">top k, or a stream</text>
+            <line x1="232" y1="106" x2="252" y2="106" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="262" y="110" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">heap of size k, quickselect</text>
+            <text x="20" y="140" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">next greater or smaller</text>
+            <line x1="232" y1="136" x2="252" y2="136" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="262" y="140" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">monotonic stack</text>
+            <text x="20" y="170" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">counts, seen before, dedupe</text>
+            <line x1="232" y1="166" x2="252" y2="166" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="262" y="170" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">hash map, hash set</text>
+            <text x="20" y="200" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">prefixes, autocomplete</text>
+            <line x1="232" y1="196" x2="252" y2="196" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="262" y="200" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">trie</text>
+            <text x="20" y="230" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">grid, maze, islands</text>
+            <line x1="232" y1="226" x2="252" y2="226" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="262" y="230" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">BFS or DFS, implicit graph</text>
+            <text x="20" y="260" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">fewest steps, shortest path</text>
+            <line x1="232" y1="256" x2="252" y2="256" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="262" y="260" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">BFS; Dijkstra if weighted</text>
+            <text x="20" y="290" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">dependencies, ordering</text>
+            <line x1="232" y1="286" x2="252" y2="286" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="262" y="290" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">topological sort</text>
+          </g>
+
+          <line x1="455" y1="34" x2="455" y2="298" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+
+          <g class="svg-l1">
+            <text x="470" y="50" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">grouping, merging, connectivity</text>
+            <line x1="682" y1="46" x2="702" y2="46" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="712" y="50" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">disjoint set union</text>
+            <text x="470" y="80" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">overlapping ranges</text>
+            <line x1="682" y1="76" x2="702" y2="76" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="712" y="80" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">sort by start, sweep line</text>
+            <text x="470" y="110" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">every arrangement, every board</text>
+            <line x1="682" y1="106" x2="702" y2="106" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="712" y="110" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">backtracking, pruned</text>
+            <text x="470" y="140" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">count the ways, best score</text>
+            <line x1="682" y1="136" x2="702" y2="136" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="712" y="140" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">dynamic programming</text>
+            <text x="470" y="170" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">smallest value that works</text>
+            <line x1="682" y1="166" x2="702" y2="166" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="712" y="170" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">binary search the answer</text>
+            <text x="470" y="200" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">range query plus updates</text>
+            <line x1="682" y1="196" x2="702" y2="196" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="712" y="200" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">Fenwick or segment tree</text>
+            <text x="470" y="230" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">pattern inside text</text>
+            <line x1="682" y1="226" x2="702" y2="226" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="712" y="230" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">rolling hash, KMP</text>
+            <text x="470" y="260" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">n is at most about 20</text>
+            <line x1="682" y1="256" x2="702" y2="256" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="712" y="260" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">bitmask over subsets</text>
+            <text x="470" y="290" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">no extra space allowed</text>
+            <line x1="682" y1="286" x2="702" y2="286" stroke="currentColor" stroke-width="1.2" marker-end="url(#iv-p1)"/>
+            <text x="712" y="290" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">in-place swaps, cyclic sort</text>
+          </g>
+
+          <text x="20" y="322" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The cue is in the <tspan font-weight="600">constraints</tspan>, not the story. Read the bound on n and the memory limit first; between them they usually name the algorithm.</text>
+        </svg>
+        <figcaption><b>Read the bound on n as a complexity budget.</b> n &le; 20 means exponential is expected, so stop looking for the clever polynomial. n &le; 2000 admits O(n&sup2;), which is usually a two-dimensional table. n up to a million rules out anything worse than O(n&nbsp;log&nbsp;n), which leaves sorting, a heap, or one pass with a hash map. This single reading eliminates most wrong turns before you have taken one.</figcaption>
+      </figure>
+
+      <p>Two patterns are worth writing out because candidates who know them by name still get the boundaries wrong under pressure. The first is <b>binary search on the answer</b>: when the question asks for the smallest capacity, the minimum speed or the largest minimum, the search space is not the array &mdash; it is the range of possible answers, and the array only appears inside a feasibility check that is monotone.</p>
+
+<pre class="l1"># feasible.py — binary search over the ANSWER, not over the input.
+# Cue: "minimum capacity", "smallest k such that ...", "maximum minimum".
+def min_capacity(weights: list[int], days: int) -&gt; int:
+    def fits(cap: int) -&gt; bool:
+        # Greedy is safe here only because fits() is monotone in cap:
+        # if a capacity works, every larger capacity works too.
+        used, load = 1, 0
+        for w in weights:
+            if load + w &gt; cap:
+                used, load = used + 1, 0
+            load += w
+        return used &lt;= days
+
+    lo, hi = max(weights), sum(weights)   # lo must itself be feasible-or-not
+    while lo &lt; hi:                        # invariant: answer is in [lo, hi]
+        mid = lo + (hi - lo) // 2         # never (lo+hi)//2 in a fixed-width int
+        if fits(mid):
+            hi = mid                      # mid may be the answer — keep it
+        else:
+            lo = mid + 1                  # mid is definitely not — discard it
+    return lo                             # lo == hi, and it is feasible
+</pre>
+
+      <p>The second is the <b>monotonic stack</b>, which answers &ldquo;for each element, where is the next one bigger than it?&rdquo; in one pass. The trick to state out loud is that each index is pushed once and popped once, so the nested-looking loop is linear, not quadratic &mdash; that sentence is the whole complexity argument and interviewers wait for it.</p>
+
+<pre class="l2"># next_greater.py — one pass, each index pushed once and popped once: O(n).
+def next_greater(nums: list[int]) -&gt; list[int]:
+    out = [-1] * len(nums)
+    stack: list[int] = []              # indices, values strictly decreasing
+    for i, v in enumerate(nums):
+        # Everything smaller than v has just found its answer.
+        while stack and nums[stack[-1]] &lt; v:
+            out[stack.pop()] = v
+        stack.append(i)
+    return out                         # whatever is left never found one: -1
+</pre>
+
+      <div class="syl s1">
+        <div><b>Two pointers</b><i>Opposite ends on sorted data, or same-direction to keep a window. Ask what makes it safe to move each pointer.</i></div>
+        <div><b>Sliding window</b><i>Fixed size is arithmetic; variable size needs a shrink condition. Say which invariant the window maintains.</i></div>
+        <div><b>Fast and slow pointers</b><i>Cycle detection, middle of a list, k-th from the end. One list, one pass, no extra memory.</i></div>
+        <div><b>Prefix sums</b><i>Range queries in O(1) after O(n) setup. With a hash map of seen prefixes it becomes &ldquo;subarrays summing to k&rdquo;.</i></div>
+        <div><b>Binary search</b><i>On a sorted array, on a rotated one, or on the answer. Get the invariant right and the off-by-one disappears.</i></div>
+        <div><b>Heap / top k</b><i>A min-heap of size k for the k largest. O(n&nbsp;log&nbsp;k) beats sorting when k is small; quickselect beats both when you may reorder.</i></div>
+        <div><b>Monotonic stack</b><i>Next greater, largest rectangle, stock span, daily temperatures. Amortised linear.</i></div>
+        <div><b>Interval sweep</b><i>Sort by start, then merge or count. Meeting rooms, calendars, skyline &mdash; all the same three lines.</i></div>
+        <div><b>BFS / DFS</b><i>Grids and boards are graphs with implied edges. BFS for fewest steps, DFS for reachability and structure.</i></div>
+        <div><b>Topological sort</b><i>Anything with prerequisites. Kahn&rsquo;s algorithm also detects the cycle for free, which is usually part two of the question.</i></div>
+        <div><b>Disjoint set union</b><i>Grouping under merges. With both optimisations, near-constant per operation &mdash; say &ldquo;inverse Ackermann&rdquo; once and move on.</i></div>
+        <div><b>Backtracking</b><i>Choose, recurse, un-choose. The score is in the pruning, not the enumeration.</i></div>
+        <div><b>Dynamic programming</b><i>State, transition, base case, order of evaluation. Say all four before writing any of them.</i></div>
+        <div><b>Greedy</b><i>Only correct with an argument. Exchange argument or a counterexample &mdash; produce one or the other.</i></div>
+        <div><b>Bitmask</b><i>Sets of up to about twenty elements as integers. Subsets, assignment problems, travelling salesman on small n.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="complexity">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Complexity, in the way it is actually asked</h3>
+        <p class="lede">Not &ldquo;what is big-O&rdquo;. The real questions are: which class does this fall into, does the bound hold in the worst case as well as on average, what does it cost in space, and would that fit in a second.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 320" role="img" aria-label="A logarithmic bar chart of the largest input size each complexity class can handle in about one second, from constant time down to factorial time.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">HOW BIG CAN n BE AND STILL FINISH IN ABOUT A SECOND</text>
+          <text x="20" y="30" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">COMPLEXITY</text>
+          <text x="118" y="30" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">LARGEST n</text>
+          <text x="200" y="30" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">ONE MARK PER FACTOR OF TEN</text>
+
+          <g class="svg-l1">
+            <text x="20" y="48" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">O(log n)</text>
+            <text x="118" y="48" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">anything</text>
+            <rect x="200" y="36" width="660" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4"/>
+            <text x="20" y="74" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">O(sqrt n)</text>
+            <text x="118" y="74" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">10^16</text>
+            <rect x="200" y="62" width="660" height="16" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="20" y="100" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">O(n)</text>
+            <text x="118" y="100" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">100 million</text>
+            <rect x="200" y="88" width="330" height="16" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="20" y="126" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">O(n log n)</text>
+            <text x="118" y="126" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">5 million</text>
+            <rect x="200" y="114" width="274" height="16" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          </g>
+          <g class="svg-l2">
+            <text x="20" y="152" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">O(n sqrt n)</text>
+            <text x="118" y="152" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">200 000</text>
+            <rect x="200" y="140" width="220" height="16" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="20" y="178" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">O(n^2)</text>
+            <text x="118" y="178" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">10 000</text>
+            <rect x="200" y="166" width="165" height="16" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="20" y="204" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">O(n^3)</text>
+            <text x="118" y="204" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">460</text>
+            <rect x="200" y="192" width="110" height="16" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          </g>
+          <g class="svg-l3">
+            <text x="20" y="230" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">O(2^n)</text>
+            <text x="118" y="230" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">26</text>
+            <rect x="200" y="218" width="58" height="16" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="20" y="256" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">O(n * 2^n)</text>
+            <text x="118" y="256" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">22</text>
+            <rect x="200" y="244" width="55" height="16" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="20" y="282" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">O(n!)</text>
+            <text x="118" y="282" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.75">11</text>
+            <rect x="200" y="270" width="43" height="16" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          </g>
+
+          <text x="20" y="308" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Assumes roughly 10&#8313; simple operations per second &mdash; near enough for a whiteboard, an order of magnitude out for a slow language or cache-hostile access.</text>
+        </svg>
+        <figcaption><b>Run the table backwards.</b> The bound on n in the problem statement tells you which row you are allowed to land in, and therefore which family of algorithm the setter had in mind. It also tells you when to stop optimising: if n is 2000 and O(n&sup2;) fits, spending fifteen minutes hunting for O(n&nbsp;log&nbsp;n) is a worse use of the round than finishing and testing the quadratic one.</figcaption>
+      </figure>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>What they ask</th><th>What a weak answer sounds like</th><th>What lands</th></tr></thead>
+          <tbody>
+            <tr><td>Time complexity</td><td>&ldquo;O(n) I think&rdquo;</td><td>&ldquo;One pass over n, and each step is a hash lookup which is O(1) amortised &mdash; so O(n), and O(n&sup2;) if the hash degenerates.&rdquo;</td></tr>
+            <tr><td>Space complexity</td><td>Silence, or &ldquo;O(1)&rdquo; while holding a map</td><td>The output, the auxiliary structures and the recursion stack, counted separately.</td></tr>
+            <tr><td>Worst vs average</td><td>Quoting the average as if it were the bound</td><td>&ldquo;Quicksort is O(n&nbsp;log&nbsp;n) expected, O(n&sup2;) worst; a random pivot makes the worst case unlikely rather than impossible.&rdquo;</td></tr>
+            <tr><td>Amortised</td><td>&ldquo;Appending is O(1)&rdquo;</td><td>&ldquo;O(1) amortised: doubling makes the occasional copy pay for the cheap appends before it. A single append can still be O(n).&rdquo;</td></tr>
+            <tr><td>Recurrence</td><td>Guessing</td><td>T(n) = 2T(n/2) + O(n) &rarr; O(n&nbsp;log&nbsp;n), by the master theorem or by drawing the tree.</td></tr>
+            <tr><td>Why it is slow in practice</td><td>&ldquo;Big-O says it is fine&rdquo;</td><td>Constant factors, cache locality, allocation, and the difference between a linked list and an array with the same bound.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="chips-h">Also fair game</p>
+      <div class="chips">
+        <span>big-O, big-&Omega;, big-&Theta;</span><span>tight vs loose bound</span><span>amortised analysis</span><span>aggregate method</span><span>potential method</span><span>master theorem</span><span>recursion tree</span><span>substitution method</span><span>space&ndash;time trade-off</span><span>in-place</span><span>stable sort</span><span>online vs offline algorithm</span><span>expected time</span><span>Las Vegas vs Monte Carlo</span><span>NP-completeness</span><span>reduction</span><span>approximation ratio</span><span>cache locality</span><span>constant factors</span>
+      </div>
+    </section>
+
+    <section class="topic" id="correctness">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Correctness: invariants, edge cases, and testing your own code</h3>
+        <p class="lede">The difference between a hire and a no-hire is often not the algorithm &mdash; it is who found the bug. Finding your own scores; having it found for you costs.</p>
+      </div>
+
+      <p>An <b>invariant</b> is a sentence that is true before and after every iteration. Say it out loud and most boundary bugs become impossible to write: &ldquo;everything left of <code>lo</code> is too small, everything from <code>hi</code> on is a candidate&rdquo; determines whether the loop is <code>&lt;</code> or <code>&lt;=</code> and whether you assign <code>mid</code> or <code>mid + 1</code>. Guessing at those two decisions is the single most common source of a failed binary search under time pressure.</p>
+
+      <div class="syl s3">
+        <div><b>Empty and one</b><i>Empty input, one element, two elements. Roughly a third of interview bugs live here.</i></div>
+        <div><b>All the same</b><i>Every element equal &mdash; kills naive partitioning and many two-pointer conditions.</i></div>
+        <div><b>Already sorted, reverse sorted</b><i>The worst case for a fixed pivot, and the best case that hides a bug.</i></div>
+        <div><b>Duplicates</b><i>Ask explicitly. Duplicates change set logic, binary-search bounds and dedupe requirements.</i></div>
+        <div><b>Negatives and zero</b><i>Products, sums, prefix sums and greedy arguments all change sign with them.</i></div>
+        <div><b>Overflow</b><i><code>(lo + hi) / 2</code> in a fixed-width integer, or a sum that exceeds 32 bits. Say it even in Python, where it cannot happen.</i></div>
+        <div><b>Not found</b><i>What does the function return when the answer does not exist? Decide before you write the loop.</i></div>
+        <div><b>Off-by-one</b><i>Inclusive or exclusive bounds. Pick one convention for the whole function and say which.</i></div>
+        <div><b>Cycles and self-loops</b><i>In graph problems, in linked lists, and in anything user-supplied.</i></div>
+        <div><b>Unicode and case</b><i>&ldquo;Reverse a string&rdquo; is a different problem once a code point is not a character.</i></div>
+        <div><b>Mutation of the input</b><i>Are you allowed to sort in place? Ask &mdash; some rounds are entirely about this.</i></div>
+        <div><b>Recursion depth</b><i>A linked list of a million nodes overflows a recursive solution. Mention it and offer the iterative form.</i></div>
+      </div>
+
+      <p>Then run it. Not &ldquo;it looks right&rdquo; &mdash; take a small awkward input, put a finger on the first line, and say what every variable holds after each step. Two minutes of this catches more than ten minutes of re-reading, and it is visible work: the interviewer is writing down that you tested unprompted.</p>
+
+<pre class="l3"># two_sum.py — a dry run is a table, spoken. nums = [2, 1, 2], target = 4
+#
+#   i   v   need   seen                 action
+#   0   2     2    {}                   miss -&gt; seen[2] = 0
+#   1   1     3    {2: 0}               miss -&gt; seen[1] = 1
+#   2   2     2    {2: 0, 1: 1}         hit  -&gt; return (0, 2)
+#
+# Two things this catches that re-reading does not: that `seen` is written
+# AFTER the lookup (otherwise an element pairs with itself), and that the
+# duplicate 2 is fine because the first index is the one still stored.
+def two_sum(nums: list[int], target: int) -&gt; tuple[int, int] | None:
+    seen: dict[int, int] = {}
+    for i, v in enumerate(nums):
+        if (need := target - v) in seen:
+            return seen[need], i
+        seen[v] = i
+    return None
+</pre>
+
+      <ul class="ask">
+        <li><q>What is the complexity?</q><em>both dimensions, and whether the bound you quote is worst case or average. Answer before you are asked and it counts for more.</em></li>
+        <li><q>Can you do it in less space?</q><em>whether you know the standard trade: rolling arrays for dynamic programming, in-place partitioning, pointers instead of a copy.</em></li>
+        <li><q>What breaks if the input does not fit in memory?</q><em>whether you can move from an algorithm to a system: external sort, streaming, sharding by key, a sketch instead of an exact count.</em></li>
+        <li><q>How would you test this?</q><em>named categories rather than examples &mdash; empty, single, duplicates, sorted, adversarial &mdash; plus a property that must hold for any input.</em></li>
+      </ul>
+    </section>
+  </div>
+</section>

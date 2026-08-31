@@ -1,11 +1,11 @@
 # The Backend Ladder
 
-Nine pages on backend engineering, written to be read in order or dipped into.
+Ten pages on backend engineering and the interviews it is tested in, written to be read in order or dipped into.
 Published at **[study.jaspreet.info/software-engineering/](https://study.jaspreet.info/software-engineering/)**.
 
 | Page | What it covers |
 | --- | --- |
-| [The Backend Ladder](index.html) | The overview, and the map of the other seven |
+| [The Backend Ladder](index.html) | The overview, and the map of the other nine |
 | [The Machine Room](foundations.html) | Latency, concurrency, caching, storage, failure, capacity |
 | [Reading Go](go.html) | Slices, escape analysis, context, the timeouts a server is missing |
 | [From Account to Pod](cloud.html) | An AWS account, a VPC, a container, and the path a request takes |
@@ -14,6 +14,7 @@ Published at **[study.jaspreet.info/software-engineering/](https://study.jaspree
 | [AWS, Service by Service](aws.html) | What each service does when your code calls it, in Go and Python |
 | [Data Structures, In Motion](algorithms.html) | Every structure and algorithm worth knowing, with figures that run, in Go, Python and Java |
 | [Prompt to Production](ai-engineering.html) | The concepts an AI engineer is hired for &mdash; tokens, retrieval, agents, evaluation, serving, cost &mdash; with fifteen interactive figures, in Python, TypeScript and Go |
+| [Everything They Ask](interview.html) | Every topic a technical interview can reach &mdash; thirteen areas, forty-six topics, twenty-four figures |
 
 Each page is one self-contained HTML file: no build step, no framework, and no
 JavaScript beyond the contents rail, the glossary tooltips, the language switch

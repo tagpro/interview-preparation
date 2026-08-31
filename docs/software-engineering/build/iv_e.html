@@ -1,0 +1,327 @@
+<section class="part" id="design">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part five</span>
+      <h2>System design</h2>
+      <p>The round with no right answer and a great many wrong ones. You are given three sentences and forty-five minutes, and the grade comes from whether you turned the ambiguity into a set of decisions, each with a reason and a cost. The subject matter is finite &mdash; a dozen building blocks, a page of numbers, four consistency ideas and a catalogue of problems that reuse them.</p>
+    </div>
+
+    <section class="topic" id="sd-method">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The method, and the clock it runs on</h3>
+        <p class="lede">Every good design round has the same six phases in the same order. Skipping the first two is the most common way to fail, and it is invisible until minute thirty when nothing can be justified.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 244" role="img" aria-label="Six phases of a system design round with their minute ranges, and three ways the same forty-five minutes is commonly wasted.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">FORTY-FIVE MINUTES, SIX PHASES</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="34" width="136" height="66" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="28" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">1 requirements</text>
+            <text x="28" y="68" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">0&ndash;5 min</text>
+            <text x="28" y="84" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">who, what, how many,</text>
+            <text x="28" y="96" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">and what is out of scope</text>
+            <rect x="164" y="34" width="136" height="66" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="172" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">2 the envelope</text>
+            <text x="172" y="68" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">5&ndash;10 min</text>
+            <text x="172" y="84" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">requests per second,</text>
+            <text x="172" y="96" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">bytes stored, bandwidth</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="308" y="34" width="136" height="66" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="316" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">3 API and data</text>
+            <text x="316" y="68" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">10&ndash;18 min</text>
+            <text x="316" y="84" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">the four endpoints and</text>
+            <text x="316" y="96" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">the three tables</text>
+            <rect x="452" y="34" width="136" height="66" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="460" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">4 the diagram</text>
+            <text x="460" y="68" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">18&ndash;30 min</text>
+            <text x="460" y="84" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">boxes, arrows, and one</text>
+            <text x="460" y="96" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">request end to end</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="596" y="34" width="136" height="66" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="604" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">5 the deep dive</text>
+            <text x="604" y="68" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">30&ndash;40 min</text>
+            <text x="604" y="84" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">whichever box they</text>
+            <text x="604" y="96" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">point at, to real depth</text>
+            <rect x="740" y="34" width="140" height="66" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="748" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">6 failure and ops</text>
+            <text x="748" y="68" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">40&ndash;45 min</text>
+            <text x="748" y="84" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">what breaks, what you</text>
+            <text x="748" y="96" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">watch, what you page on</text>
+          </g>
+
+          <line x1="20" y1="116" x2="880" y2="116" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="136" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor" opacity="0.65">HOW THE SAME FORTY-FIVE MINUTES GETS WASTED</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="148" width="276" height="62" fill="none" stroke="currentColor" stroke-width="1.3" stroke-dasharray="5 4"/>
+            <text x="30" y="168" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">boxes at minute two</text>
+            <text x="30" y="184" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">Nothing drawn afterwards can be</text>
+            <text x="30" y="198" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">justified, because nothing was required.</text>
+            <rect x="312" y="148" width="276" height="62" fill="none" stroke="currentColor" stroke-width="1.3" stroke-dasharray="5 4"/>
+            <text x="322" y="168" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">everything, equally</text>
+            <text x="322" y="184" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">Twelve components at one sentence</text>
+            <text x="322" y="198" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">each reads as no depth anywhere.</text>
+            <rect x="604" y="148" width="276" height="62" fill="none" stroke="currentColor" stroke-width="1.3" stroke-dasharray="5 4"/>
+            <text x="614" y="168" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">no failure story</text>
+            <text x="614" y="184" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">The single most common senior miss:</text>
+            <text x="614" y="198" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">a design where nothing ever breaks.</text>
+          </g>
+
+          <text x="20" y="234" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Say the phase you are entering out loud. It tells the interviewer you have a method, and it lets them redirect you cheaply.</text>
+        </svg>
+        <figcaption><b>Phase five is where the level is decided.</b> Phases one to four can be rehearsed and mostly look the same across candidates; the deep dive cannot. When the interviewer taps a box and asks &ldquo;how does this actually work?&rdquo;, they are checking whether the diagram was drawn from understanding or from memory of a diagram. Have one box on your canvas you could talk about for ten minutes, and steer the dive there.</figcaption>
+      </figure>
+
+      <ol class="steps">
+        <li><b>Functional requirements, written as a list.</b> Three to five bullet points, agreed out loud. &ldquo;Shorten a URL, resolve one, expire them, count clicks &mdash; is analytics in scope?&rdquo;</li>
+        <li><b>Non-functional requirements, with numbers.</b> Scale, latency target, availability target, consistency needs, retention, cost sensitivity. Ask for them; invent them if the interviewer will not give them; either way, write them down.</li>
+        <li><b>Envelope estimates.</b> Requests per second at peak, storage per year, bandwidth. They decide whether one machine or a hundred, and everything after depends on that answer.</li>
+        <li><b>The interface.</b> The endpoints or the events, with request and response shapes. This is the contract the rest of the design serves.</li>
+        <li><b>The data model.</b> Tables or documents, the primary key, the access patterns, and the index that supports each one.</li>
+        <li><b>The diagram, then one request walked through it.</b> Draw it, then narrate a single write and a single read from the client to storage and back.</li>
+        <li><b>Bottleneck, then scale it.</b> Find the first thing that breaks, fix that one thing, then look again. Scaling everything at once is not a plan.</li>
+        <li><b>Failure and operations.</b> Each component dies in turn: what does the user see, what recovers it, what do you alert on. Finish here even if you have to cut something else short.</li>
+      </ol>
+    </section>
+
+    <section class="topic" id="sd-numbers">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The numbers you should not have to derive</h3>
+        <p class="lede">Estimation is not arithmetic under pressure, it is recall plus one multiplication. These are the values worth knowing cold; everything else you can get from them in a line.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 320" role="img" aria-label="Sixteen back-of-envelope figures in two groups: traffic and storage conversions, and the throughput of a single machine.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">BACK OF THE ENVELOPE, FROM MEMORY</text>
+
+          <text x="20" y="40" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor" opacity="0.7">TRAFFIC AND STORAGE</text>
+          <text x="470" y="40" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor" opacity="0.7">WHAT ONE MACHINE DOES</text>
+
+          <g class="svg-l1">
+            <text x="20" y="66" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">seconds in a day</text>
+            <text x="280" y="66" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">86 400, call it 10^5</text>
+            <text x="20" y="92" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">1 million events a day</text>
+            <text x="280" y="92" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">about 12 per second</text>
+            <text x="20" y="118" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">1 billion requests a day</text>
+            <text x="280" y="118" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">about 12 000 per second</text>
+            <text x="20" y="144" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">peak against average</text>
+            <text x="280" y="144" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">two to three times</text>
+            <text x="20" y="170" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">1 KB rows, a billion of them</text>
+            <text x="280" y="170" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">1 TB, before indexes</text>
+            <text x="20" y="196" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">typical read to write ratio</text>
+            <text x="280" y="196" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">100:1, often worse</text>
+            <text x="20" y="222" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">a year of daily volume</text>
+            <text x="280" y="222" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">multiply by 365</text>
+            <text x="20" y="248" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">a UUID and a timestamp</text>
+            <text x="280" y="248" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">16 bytes and 8 bytes</text>
+          </g>
+
+          <line x1="452" y1="50" x2="452" y2="262" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+
+          <g class="svg-l2">
+            <text x="470" y="66" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">app server, no I/O</text>
+            <text x="730" y="66" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">10 000 req/s</text>
+            <text x="470" y="92" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">app server, one DB call</text>
+            <text x="730" y="92" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">1 000&ndash;5 000 req/s</text>
+            <text x="470" y="118" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">relational DB, simple writes</text>
+            <text x="730" y="118" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">5 000&ndash;15 000 TPS</text>
+            <text x="470" y="144" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">in-memory store, one node</text>
+            <text x="730" y="144" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">100 000+ ops/s</text>
+            <text x="470" y="170" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">NVMe solid-state disk</text>
+            <text x="730" y="170" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">500 MB/s</text>
+            <text x="470" y="196" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">a 10 gigabit network card</text>
+            <text x="730" y="196" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">1.25 GB/s</text>
+            <text x="470" y="222" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">one log partition, ordered</text>
+            <text x="730" y="222" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">about 10 MB/s</text>
+            <text x="470" y="248" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">web request budget</text>
+            <text x="730" y="248" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">200&ndash;300 ms at p99</text>
+          </g>
+
+          <line x1="20" y1="270" x2="880" y2="270" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="290" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Round everything. A billion requests a day is &ldquo;ten thousand a second, thirty thousand at peak&rdquo; &mdash; and that is precise enough to choose an architecture.</text>
+          <text x="20" y="310" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.8">The point of the estimate is the decision it unlocks: one box or fifty, one region or three, a cache or no cache. Say which decision each number is for.</text>
+        </svg>
+        <figcaption><b>State the assumption louder than the arithmetic.</b> &ldquo;Assume a hundred million daily users, ten actions each&rdquo; is a decision the interviewer can correct in one word; the multiplication that follows is not interesting and nobody is checking it. Candidates who get this backwards spend four minutes on long division and still have no agreed scale.</figcaption>
+      </figure>
+    </section>
+
+    <section class="topic" id="sd-blocks">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The building blocks, and what each one costs</h3>
+        <p class="lede">Every design is assembled from about a dozen parts. Knowing what each buys is table stakes; knowing what each costs is the senior signal, because a design with no costs in it has not been thought about.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 452" role="img" aria-label="Twelve components on a request path from client to storage, each annotated with what it buys and what it costs.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE PATH OF ONE REQUEST, AND WHAT EACH HOP IS FOR</text>
+          <line x1="8" y1="32" x2="8" y2="416" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+
+          <g class="svg-l2">
+            <rect x="20" y="32" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="49" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">client</text>
+          </g>
+          <text x="250" y="49" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Retries, timeouts and a local cache live here too &mdash; and a retrying client is a load multiplier.</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="64" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="81" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">DNS and CDN</text>
+          </g>
+          <text x="250" y="81" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Serves the cacheable bytes near the user. Costs you invalidation and a TTL you cannot take back.</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="96" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="28" y="113" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">load balancer</text>
+          </g>
+          <text x="250" y="113" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Spreads traffic and hides a dead instance. Needs health checks that mean something, and draining.</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="128" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="28" y="145" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">API gateway</text>
+          </g>
+          <text x="250" y="145" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Authentication, rate limits, quotas, request IDs. One more hop, and one more thing that can be down.</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="160" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="28" y="177" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">stateless service</text>
+          </g>
+          <text x="250" y="177" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Stateless so you can add another one. Any session state you keep here is a scaling bug in waiting.</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="192" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="209" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">cache</text>
+          </g>
+          <text x="250" y="209" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Cuts latency and load. Costs staleness, invalidation, stampedes, and a cold start that can kill you.</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="224" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="28" y="241" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">primary database</text>
+          </g>
+          <text x="250" y="241" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The source of truth and the thing that is hardest to scale. Every write goes here or it is not real.</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="256" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="273" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">read replicas</text>
+          </g>
+          <text x="250" y="273" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Read capacity, bought with lag. Decide which reads may be stale before you draw the arrow.</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="288" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="305" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">queue or log</text>
+          </g>
+          <text x="250" y="305" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Moves work out of the response and absorbs a burst. Costs ordering, duplicates, and a lag to monitor.</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="320" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="337" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">workers</text>
+          </g>
+          <text x="250" y="337" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Retries, dead letters, poison messages. Handlers must be idempotent because delivery is at-least-once.</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="352" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="369" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">derived stores</text>
+          </g>
+          <text x="250" y="369" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Search index, warehouse, materialised views. Rebuildable by definition &mdash; say how, and how long it takes.</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="384" width="200" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="401" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">object store</text>
+          </g>
+          <text x="250" y="401" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Big immutable things, served by signed URL so the bytes never touch your service at all.</text>
+
+          <text x="20" y="436" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Cutting across all of it: identity, configuration, rate limiting, observability, and a way to turn a feature off without a deploy.</text>
+        </svg>
+        <figcaption><b>Add a box only when you have named the thing it fixes.</b> The most common design-round tell is a queue with nothing slow behind it, or a cache in front of a table that is read twice an hour. Each block in the list above is an answer to a specific pressure &mdash; latency, load, burstiness, durability, blast radius &mdash; and saying which pressure you are relieving turns a generic diagram into a designed one.</figcaption>
+      </figure>
+
+      <p class="chips-h">Named patterns worth being able to define</p>
+      <div class="chips">
+        <span class="hot">horizontal scaling</span><span>stateless service</span><span class="hot">caching</span><span>cache aside</span><span>read through</span><span>write through</span><span>write behind</span><span>cache stampede</span><span>negative caching</span><span class="hot">load balancing</span><span>consistent hashing</span><span>sticky sessions</span><span class="hot">sharding</span><span>replication</span><span>leader election</span><span>quorum</span><span class="hot">message queue</span><span>publish&ndash;subscribe</span><span>event log</span><span>fan-out on write</span><span>fan-out on read</span><span class="hot">idempotency key</span><span>outbox</span><span>saga</span><span>CQRS</span><span>event sourcing</span><span>materialised view</span><span class="hot">rate limiting</span><span>token bucket</span><span>leaky bucket</span><span>sliding window counter</span><span class="hot">circuit breaker</span><span>bulkhead</span><span>backpressure</span><span>load shedding</span><span>graceful degradation</span><span>retry with jitter</span><span>timeout budget</span><span>hedged request</span><span>bloom filter</span><span>CDN</span><span>edge compute</span><span>service discovery</span><span>sidecar</span><span>API gateway</span><span>BFF</span><span>webhook</span><span>long polling</span><span>server-sent events</span><span>WebSocket</span><span>blue&ndash;green</span><span>canary</span><span>feature flag</span><span>multi-tenancy</span><span>geo-replication</span><span>cell-based architecture</span><span>shuffle sharding</span>
+      </div>
+    </section>
+
+    <section class="topic" id="sd-consistency">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Consistency, ordering and delivery</h3>
+        <p class="lede">Four ideas that decide most of the hard follow-up questions: what a reader is promised, what a partition forces, what a message queue really guarantees, and how you make a repeated write harmless.</p>
+      </div>
+
+      <div class="syl s1">
+        <div><b>Strong consistency</b><i>Every read sees the latest committed write. Costs coordination, and therefore latency and availability during a partition.</i></div>
+        <div><b>Eventual consistency</b><i>Reads converge if writes stop. Fine for a like count, wrong for a bank balance &mdash; say which yours is.</i></div>
+        <div><b>Read-your-writes</b><i>The weakest guarantee that stops users thinking the product is broken. Usually the one you actually need.</i></div>
+        <div><b>Monotonic reads</b><i>Time never goes backwards for one reader. Broken by round-robin routing across lagging replicas.</i></div>
+        <div><b>Causal consistency</b><i>Effects never appear before causes. The right model for comments, replies and threads.</i></div>
+        <div><b>CAP and PACELC</b><i>During a partition, choose consistency or availability; when there is no partition, choose latency or consistency. The second half is the everyday one.</i></div>
+        <div><b>Quorums</b><i>R + W &gt; N gives overlap. Tunable per request, which is why some stores let you choose per call.</i></div>
+        <div><b>Linearisability vs serialisability</b><i>One is about single objects in real time, the other about transactions in some order. Not the same word twice.</i></div>
+        <div><b>At-most-once, at-least-once, exactly-once</b><i>The third does not exist on the wire. It is at-least-once delivery plus idempotent processing, and saying so is the answer.</i></div>
+        <div><b>Ordering</b><i>Global order is expensive; per-key order is cheap and usually sufficient. Partition by the key you need ordered.</i></div>
+        <div><b>Idempotency</b><i>A client-supplied key, a uniqueness constraint, and a stored response. Three lines that make retries safe.</i></div>
+        <div><b>Clocks</b><i>Wall clocks drift and jump; use monotonic clocks for durations, logical or hybrid clocks for ordering.</i></div>
+        <div><b>Distributed locks</b><i>Leases with fencing tokens. A lock without a fencing token does not survive a paused process.</i></div>
+        <div><b>Consensus</b><i>Raft or Paxos, and where it hides: leader election, config stores, and the coordination you should try not to need.</i></div>
+        <div><b>The dual write</b><i>Writing to a database and a queue without a transaction. Always broken; the outbox is the standard fix.</i></div>
+        <div><b>Conflict resolution</b><i>Last write wins, version vectors, CRDTs &mdash; and the fact that last write wins silently loses data.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="sd-catalogue">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The problem catalogue, and what each one is really testing</h3>
+        <p class="lede">The list of questions asked is short and stable. Each one exists to force a specific decision &mdash; recognise the decision and the rest of the answer assembles itself.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Problem</th><th>The decision it exists to force</th></tr></thead>
+          <tbody>
+            <tr><td>URL shortener</td><td>Key generation without coordination, and a read path that is almost pure cache.</td></tr>
+            <tr><td>Pastebin / file share</td><td>Where the bytes live versus where the metadata lives, and signed URLs.</td></tr>
+            <tr><td>Rate limiter</td><td>Which algorithm, and where the counter lives when there are fifty API servers.</td></tr>
+            <tr><td>News feed / timeline</td><td>Fan-out on write against fan-out on read, and the celebrity who breaks whichever you chose.</td></tr>
+            <tr><td>Chat / messaging</td><td>Connection state, delivery receipts, ordering per conversation, and offline devices.</td></tr>
+            <tr><td>Notification service</td><td>Fan-out, deduplication, per-channel retries, and user preferences as a filter.</td></tr>
+            <tr><td>Typeahead / autocomplete</td><td>Precomputation, a trie or an index, and a latency budget of tens of milliseconds.</td></tr>
+            <tr><td>Web crawler</td><td>Politeness, frontier scheduling, deduplication at enormous scale, and traps.</td></tr>
+            <tr><td>Search engine</td><td>Inverted index, ranking, sharding by document, and index freshness.</td></tr>
+            <tr><td>Video streaming</td><td>Transcoding pipeline, adaptive bitrate, CDN economics, and cold storage of originals.</td></tr>
+            <tr><td>Cloud drive / sync</td><td>Chunking, deduplication, conflict resolution, and delta sync over a bad network.</td></tr>
+            <tr><td>Ride hailing</td><td>Geospatial indexing, matching under contention, and location updates as a write flood.</td></tr>
+            <tr><td>Food delivery</td><td>Three-sided state machine, and the fact that the real world can reject your transaction.</td></tr>
+            <tr><td>Ticket booking</td><td>Overselling. Holds, expiry, and a transaction boundary you can defend.</td></tr>
+            <tr><td>Payments / ledger</td><td>Double-entry, idempotency, exactly-once as an application property, and reconciliation.</td></tr>
+            <tr><td>Digital wallet</td><td>Balance as a derived value, not a mutable field. Auditability over convenience.</td></tr>
+            <tr><td>Ad click aggregation</td><td>Streaming aggregation, late events, watermarks, and approximate versus exact counts.</td></tr>
+            <tr><td>Metrics / monitoring</td><td>Time-series storage, cardinality, downsampling, and query cost at read time.</td></tr>
+            <tr><td>Log aggregation</td><td>Ingest volume, retention tiers, and search over data you cannot afford to index fully.</td></tr>
+            <tr><td>Distributed cache</td><td>Placement, consistent hashing, eviction, and what happens when a node leaves.</td></tr>
+            <tr><td>Key&ndash;value store</td><td>Replication, quorums, conflict resolution, and the storage engine underneath.</td></tr>
+            <tr><td>Object store</td><td>Durability arithmetic, erasure coding, and metadata as the real scaling problem.</td></tr>
+            <tr><td>Job scheduler</td><td>Exactly-once triggering, clock skew, long-running work, and failure mid-job.</td></tr>
+            <tr><td>Leaderboard</td><td>Sorted sets, approximate ranks at scale, and time-windowed resets.</td></tr>
+            <tr><td>Collaborative editor</td><td>Operational transformation or CRDTs, and presence as a separate problem.</td></tr>
+            <tr><td>Stock exchange</td><td>A single-threaded matching engine, determinism, and why sharding is the wrong instinct here.</td></tr>
+            <tr><td>Proximity search</td><td>Geohashing or quadtrees, and the query that crosses a cell boundary.</td></tr>
+            <tr><td>Recommendation feed</td><td>Offline candidate generation, online ranking, and a latency budget split between them.</td></tr>
+            <tr><td>A/B testing platform</td><td>Deterministic bucketing, exposure logging, and not letting analysis change the assignment.</td></tr>
+            <tr><td>Feature flags</td><td>Propagation delay, fail-open defaults, and a service that must never be down.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>Eight of these are worked out in full</h4>
+        <p>The repository this page belongs to carries long-form written solutions to the news feed, URL shortener, chat, typeahead, cloud drive, ride hailing, rate limiter and video streaming problems. They are Markdown, read on GitHub rather than served here.</p>
+      </div>
+    </section>
+  </div>
+</section>

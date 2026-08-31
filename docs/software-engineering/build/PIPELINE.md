@@ -1,14 +1,16 @@
 # Build pipeline for the Backend Ladder series
 
-Eight pages. Five are assembled from fragments; two carry no code; the hub is
-hand-maintained. Three post-processing passes run over the **built** HTML.
+Ten pages. Six are assembled from fragments, one rebuilds itself, two carry no
+code and the hub is hand-maintained. Three post-processing passes run over the
+**built** HTML.
 
 Node dependencies are in `package.json` (`npm install`). Nothing else is needed;
 the Python scripts use the standard library only.
 
 ## Order
 
-    python3 build_go.py / build_py.py / build_java.py / build_aws.py / build_dsa.py
+    python3 build_go.py / build_py.py / build_java.py / build_aws.py
+    python3 build_dsa.py / build_ai.py / build_iv.py
     python3 series_sync.py    # the cross-link rail, from series.py
     node   hl_inject.mjs      # syntax highlighting  -> <!-- highlight --> block
     node   print_inject.mjs   # print stylesheet      -> <!-- print --> block
@@ -51,7 +53,7 @@ a repository tree, not code, and is left as plaintext.
 
 | `hl_theme.mjs` | Light and dark token palettes drawn from the series' own `--l1/--l2/--l3` |
 | `hl_inject.mjs` | The pass itself |
-| `hl_report.mjs` | Prints the language assigned to all 487 blocks |
+| `hl_report.mjs` | Prints the language assigned to all 528 blocks |
 | `hl_contrast.mjs` | Asserts every token colour clears 4.5:1 (3.5:1 for comments) |
 | `hl_verify_dim.mjs` | Asserts no text the pages used to dim lost its dimming |
 
@@ -77,7 +79,7 @@ a repository tree, not code, and is left as plaintext.
 ### Why there are custom languages
 
 The bundled set is web-oriented and ships neither Go nor Java, which together
-cover 177 of the 334 blocks; `go.mod` and Terraform appear once each. The
+cover 255 of the 528 blocks; `go.mod` and Terraform appear twice and once. The
 bundled `shell` is written for shell *scripts* and lexes a quote as opening a
 string that runs to the next quote anywhere later in the block, so an apostrophe
 in prose output ("the compiler's own lint") swallowed every comment after it.
@@ -222,7 +224,10 @@ else.
 | `ai_ui.py` | Its stages (tokens, matrices, budgets, transcripts, timelines) and its Python/TypeScript/Go switch |
 | `ai_demos.py` | Fifteen demos, and the knob panel the calculators use |
 | `build_ai.py` | The same assertions, plus one that no code block carries unescaped markup |
-| `esc_pre.py` | Escapes bare `<`, `>` and `&` inside `<pre>` bodies in the AI fragments |
+| `esc_pre.py` | Escapes bare `<`, `>` and `&` inside `<pre>` bodies in the fragments that are written with them |
+| `iv_hero.html`, `iv_a.html` .. `iv_i.html`, `iv_foot.html` | The interview map: thirteen parts, forty-six topics, twenty-four figures |
+| `iv_ui.py` | Its three components: the syllabus grid, the term wall, the question list |
+| `build_iv.py` | Assembles the page and asserts the atlas names every part, in order |
 
 Two shapes of figure. On the algorithms page every demo is a **trace**: the
 algorithm runs once, up front, and each interesting moment is recorded as a

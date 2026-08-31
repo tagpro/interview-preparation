@@ -1,0 +1,387 @@
+<section class="part" id="sec">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part ten</span>
+      <h2>Security</h2>
+      <p>Not a specialist subject any more. Every backend loop now contains at least one question about identity, one about input, and one about secrets &mdash; and a design round that never mentions authorisation reads as incomplete. Three topics cover almost all of it: who the caller is, what untrusted input can do, and what cryptography actually promises.</p>
+    </div>
+
+    <section class="topic" id="authn">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Authentication and authorisation</h3>
+        <p class="lede">Two words that are constantly swapped. Authentication is <i>who are you</i>; authorisation is <i>what may you do</i>. Most real breaches are failures of the second while the first worked perfectly.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 356" role="img" aria-label="The eight steps of an OAuth authorisation code flow with PKCE, from the login click to the session cookie.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THE AUTHORISATION CODE FLOW WITH PKCE, STEP BY STEP</text>
+          <line x1="8" y1="32" x2="8" y2="288" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+
+          <g class="svg-l2">
+            <rect x="20" y="32" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="49" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">1 &nbsp;browser &rarr; your app</text>
+          </g>
+          <text x="290" y="49" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">GET /login. Nothing secret has moved yet.</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="64" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="28" y="81" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">2 &nbsp;your app &rarr; browser</text>
+          </g>
+          <text x="290" y="81" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Redirect to the provider, carrying a random <b>state</b> and a hashed <b>code_challenge</b>.</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="96" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="113" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">3 &nbsp;browser &rarr; provider</text>
+          </g>
+          <text x="290" y="113" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The user authenticates and consents. Your service never sees the password.</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="128" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="145" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">4 &nbsp;provider &rarr; browser</text>
+          </g>
+          <text x="290" y="145" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Redirect back to your callback with a short-lived, one-time <b>code</b>.</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="160" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="28" y="177" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">5 &nbsp;browser &rarr; your app</text>
+          </g>
+          <text x="290" y="177" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">GET /callback. Check <b>state</b> here, or you have built a login-CSRF hole.</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="192" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="28" y="209" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">6 &nbsp;your app &rarr; provider</text>
+          </g>
+          <text x="290" y="209" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Back channel only: the code, the <b>code_verifier</b>, and the client secret.</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="224" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="28" y="241" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">7 &nbsp;provider &rarr; your app</text>
+          </g>
+          <text x="290" y="241" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">An ID token, an access token, and usually a refresh token. Verify all of them.</text>
+
+          <g class="svg-l2">
+            <rect x="20" y="256" width="250" height="26" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="273" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">8 &nbsp;your app &rarr; browser</text>
+          </g>
+          <text x="290" y="273" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Set a session cookie: HttpOnly, Secure, SameSite. Not the access token.</text>
+
+          <line x1="20" y1="298" x2="880" y2="298" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="318" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">PKCE exists because steps 4 and 5 travel through a browser. An attacker who steals the code cannot use it without the verifier, which never left your app.</text>
+          <text x="20" y="336" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The implicit flow &mdash; a token straight back in the URL fragment &mdash; skipped all of this, which is why it is deprecated for every kind of client.</text>
+          <text x="20" y="352" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.8">Access tokens are for calling APIs. ID tokens are for knowing who signed in. Sending an ID token to an API is a common and wrong shortcut.</text>
+        </svg>
+        <figcaption><b>The two lines interviewers listen for are &ldquo;check the state parameter&rdquo; and &ldquo;the token exchange happens server to server&rdquo;.</b> Everything else in the flow is redirect plumbing. If a candidate describes a login where the browser ends up holding a long-lived access token in local storage, the follow-up about cross-site scripting writes itself &mdash; any injected script can read it, and there is no way to revoke it in time.</figcaption>
+      </figure>
+
+      <div class="syl s1">
+        <div><b>Sessions vs tokens</b><i>A server-side session can be revoked instantly; a signed token cannot be, which is why it must be short-lived.</i></div>
+        <div><b>Cookies</b><i>HttpOnly, Secure, SameSite, domain and path scope. The four attributes that decide how bad an XSS is.</i></div>
+        <div><b>JWT</b><i>Signed, not encrypted &mdash; anyone can read the claims. Verify the signature, the issuer, the audience, the expiry, and pin the algorithm.</i></div>
+        <div><b>The <code>alg: none</code> trap</b><i>Accepting the algorithm the token names lets the attacker choose it. Pin it server-side.</i></div>
+        <div><b>Refresh tokens</b><i>Long-lived and therefore dangerous. Rotate them, detect reuse, and store them somewhere a script cannot read.</i></div>
+        <div><b>OAuth 2.0 and OIDC</b><i>Delegated authorisation, then identity on top of it. Grant types, scopes, and consent.</i></div>
+        <div><b>SAML and enterprise SSO</b><i>Still everywhere in business software. Assertions, identity providers, and just-in-time provisioning.</i></div>
+        <div><b>Password storage</b><i>Argon2 or bcrypt with a per-user salt. Never a fast hash, never encryption, never your own scheme.</i></div>
+        <div><b>Multi-factor</b><i>TOTP, push, WebAuthn and passkeys. Also account recovery, which is where MFA is usually defeated.</i></div>
+        <div><b>Service-to-service</b><i>mTLS, workload identity, short-lived credentials from a metadata service. Not a shared static key.</i></div>
+        <div><b>Authorisation models</b><i>Role-based, attribute-based, relationship-based. Where the check happens, and whether it can be forgotten.</i></div>
+        <div><b>Least privilege</b><i>Per environment, per service, per table. And the audit that proves it, which is the part that is skipped.</i></div>
+        <div><b>Multi-tenant isolation</b><i>Every query filtered by tenant. Enforced in one place, not in three hundred call sites.</i></div>
+        <div><b>Impersonation and support access</b><i>How staff act as a user, and how that is logged. Asked in product-company loops.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="appsec">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The application attack surface</h3>
+        <p class="lede">Every hop between a user and your data has its own family of attacks. You are not expected to be a penetration tester &mdash; you are expected to know what class of bug lives where, and the standard defence for each.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 226" role="img" aria-label="Five hops of a request, each labelled with the classes of attack that live at that hop, plus the cross-cutting concerns.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHERE EACH FAMILY OF BUG LIVES</text>
+
+          <g class="svg-l3">
+            <rect x="20" y="34" width="160" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="28" y="53" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">browser</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="195" y="34" width="160" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="203" y="53" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">edge and CDN</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="370" y="34" width="160" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="378" y="53" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">API gateway</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="545" y="34" width="160" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="553" y="53" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">your service</text>
+          </g>
+          <g class="svg-l1">
+            <rect x="720" y="34" width="160" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="728" y="53" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">data store</text>
+          </g>
+
+          <text x="22" y="88" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">cross-site scripting</text>
+          <text x="22" y="102" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">request forgery</text>
+          <text x="22" y="116" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">clickjacking</text>
+          <text x="22" y="130" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">tokens in local storage</text>
+
+          <text x="197" y="88" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">volumetric floods</text>
+          <text x="197" y="102" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">cache poisoning</text>
+          <text x="197" y="116" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">open redirects</text>
+          <text x="197" y="130" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">request smuggling</text>
+
+          <text x="372" y="88" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">broken authentication</text>
+          <text x="372" y="102" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">missing rate limits</text>
+          <text x="372" y="116" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">insecure direct refs</text>
+          <text x="372" y="130" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">mass assignment</text>
+
+          <text x="547" y="88" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">server-side forgery</text>
+          <text x="547" y="102" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">unsafe deserialising</text>
+          <text x="547" y="116" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">command injection</text>
+          <text x="547" y="130" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">path traversal</text>
+
+          <text x="722" y="88" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">SQL injection</text>
+          <text x="722" y="102" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">over-broad grants</text>
+          <text x="722" y="116" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">unencrypted at rest</text>
+          <text x="722" y="130" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor">backups nobody guards</text>
+
+          <line x1="20" y1="150" x2="880" y2="150" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="170" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Cutting across every column: vulnerable dependencies, secrets committed to a repository, tokens written to logs, and a build pipeline anyone can change.</text>
+          <text x="20" y="190" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Two defences answer most of the grid: <tspan font-weight="600">never build a command from a string</tspan>, and <tspan font-weight="600">check authorisation on the object, not on the route</tspan>.</text>
+          <text x="20" y="212" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.8">Validate input at the boundary, encode output at the sink. The two are different jobs and doing only the first is the usual mistake.</text>
+        </svg>
+        <figcaption><b>The one that keeps getting through is the third item in the gateway column.</b> An insecure direct object reference is not a clever exploit &mdash; it is changing <code>/invoices/1042</code> to <code>/invoices/1043</code> and being shown someone else&rsquo;s invoice, because the code checked that you were logged in and never checked that the row was yours. It survives code review because the missing line is invisible: nothing is wrong on screen, something is simply absent.</figcaption>
+      </figure>
+
+<pre class="l3"># The two lines that answer half of an application-security question.
+
+# 1. Never build a query by concatenation. The parameter is data, forever,
+#    no matter what it contains.
+cur.execute("SELECT id, email FROM users WHERE tenant_id = %s AND email = %s",
+            (tenant_id, email))          # not f"... email = '{email}'"
+
+# 2. Authorise the object, not the route. A logged-in user is not the same
+#    thing as this user, and the row is where the truth is.
+invoice = repo.get(invoice_id)
+if invoice is None or invoice.tenant_id != caller.tenant_id:
+    raise NotFound()                     # not Forbidden: do not confirm it exists
+</pre>
+
+      <p class="chips-h">The vocabulary</p>
+      <div class="chips">
+        <span class="hot">SQL injection</span><span>NoSQL injection</span><span>command injection</span><span>LDAP injection</span><span class="hot">cross-site scripting</span><span>stored, reflected, DOM</span><span>content security policy</span><span class="hot">cross-site request forgery</span><span>SameSite cookies</span><span class="hot">server-side request forgery</span><span>insecure deserialisation</span><span>XML external entities</span><span>path traversal</span><span class="hot">broken access control</span><span>insecure direct object reference</span><span>privilege escalation</span><span>mass assignment</span><span>open redirect</span><span>clickjacking</span><span>request smuggling</span><span>subdomain takeover</span><span>race condition in checkout</span><span>timing attack</span><span>enumeration</span><span>credential stuffing</span><span>session fixation</span><span>replay attack</span><span>supply chain attack</span><span>typosquatting</span><span>dependency confusion</span><span>secrets in git history</span><span>log injection</span><span>prompt injection</span><span>rate limit bypass</span><span>business logic flaw</span>
+      </div>
+    </section>
+
+    <section class="topic" id="crypto">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Cryptography, at the level you are expected to use it</h3>
+        <p class="lede">Nobody expects you to implement a cipher. They expect you to know which primitive solves which problem, and to never reach for one you have written yourself.</p>
+      </div>
+
+      <div class="syl s2">
+        <div><b>Hashing</b><i>One way, fixed size. For integrity and lookup &mdash; SHA-256. Not for passwords.</i></div>
+        <div><b>Password hashing</b><i>Deliberately slow and memory-hard: Argon2id, scrypt, bcrypt. With a per-user salt, which the library handles.</i></div>
+        <div><b>MAC and HMAC</b><i>Integrity plus authenticity with a shared key. The right tool for webhook signatures.</i></div>
+        <div><b>Symmetric encryption</b><i>AES-GCM or ChaCha20-Poly1305. Authenticated, so tampering is detected. Never reuse a nonce.</i></div>
+        <div><b>Asymmetric encryption</b><i>RSA and elliptic curve. Slow, so used to exchange a symmetric key rather than to encrypt data.</i></div>
+        <div><b>Signatures</b><i>Prove origin and integrity without a shared secret. What a JWT and a code-signing certificate both rely on.</i></div>
+        <div><b>TLS and PKI</b><i>Certificates, chains, roots, revocation, pinning, and what a certificate actually proves.</i></div>
+        <div><b>Key management</b><i>Where keys live, how they rotate, envelope encryption, and a hardware module for the root.</i></div>
+        <div><b>Randomness</b><i>Cryptographically secure generators only. A token from <code>Math.random</code> is a predictable token.</i></div>
+        <div><b>Encryption at rest and in transit</b><i>Two different threats. Disk encryption does nothing against a compromised application.</i></div>
+        <div><b>Tokenisation and masking</b><i>Keeping regulated data out of your systems entirely, which is cheaper than protecting it.</i></div>
+        <div><b>Privacy obligations</b><i>Data minimisation, retention limits, the right to deletion, and where the data may physically live.</i></div>
+      </div>
+
+      <ul class="ask">
+        <li><q>How would you store passwords?</q><em>a slow hash by name, a per-user salt, and the reason a fast hash fails. Mentioning a pepper or a work factor is a bonus, not the point.</em></li>
+        <li><q>A user reports seeing another user&rsquo;s data. What happened?</q><em>a missing object-level authorisation check, a cache keyed without the tenant, or a connection pool leaking context. All three are worth naming.</em></li>
+        <li><q>How do you handle secrets in this design?</q><em>a secret manager, short-lived credentials, rotation, and nothing in the repository or the image.</em></li>
+        <li><q>What does TLS actually protect against here?</q><em>the distinction between transport security and everything else. It does not authenticate the user or protect the data once it arrives.</em></li>
+      </ul>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="tracks">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part eleven</span>
+      <h2>The other loops</h2>
+      <p>Everything up to here is the shared core. A specialist loop keeps most of it and swaps one or two rounds for something domain-specific. This part says what each track adds, so that a backend engineer interviewing for a platform role knows what the fourth round is going to be.</p>
+    </div>
+
+    <section class="topic" id="track-shape">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Which rounds each track actually runs</h3>
+        <p class="lede">The mix changes more than the subject. A frontend loop keeps the coding round but is likely to make it a component; an infrastructure loop replaces low-level design with a practical exercise on a broken machine.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 302" role="img" aria-label="Seven engineering tracks against six round types, showing which rounds are core, which appear sometimes, and which do not appear.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">WHICH ROUNDS EACH TRACK RUNS</text>
+
+          <text x="170" y="44" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">CODING</text>
+          <text x="290" y="44" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">SYSTEM</text>
+          <text x="410" y="44" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">LOW-LEVEL</text>
+          <text x="530" y="44" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">DOMAIN</text>
+          <text x="650" y="44" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">PRACTICAL</text>
+          <text x="770" y="44" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">BEHAVIOURAL</text>
+
+          <text x="20" y="72" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">backend</text>
+          <g class="svg-l1">
+            <rect x="170" y="54" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="180" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="290" y="54" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="300" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="770" y="54" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="780" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="410" y="54" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="420" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+            <rect x="530" y="54" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="540" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+            <rect x="650" y="54" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="660" y="72" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+          </g>
+
+          <text x="20" y="106" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">frontend</text>
+          <g class="svg-l1">
+            <rect x="170" y="88" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="180" y="106" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="530" y="88" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="540" y="106" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="650" y="88" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="660" y="106" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="770" y="88" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="780" y="106" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="290" y="88" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="300" y="106" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+            <rect x="410" y="88" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="420" y="106" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+          </g>
+
+          <text x="20" y="140" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">mobile</text>
+          <g class="svg-l1">
+            <rect x="170" y="122" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="180" y="140" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="410" y="122" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="420" y="140" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="530" y="122" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="540" y="140" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="770" y="122" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="780" y="140" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="290" y="122" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="300" y="140" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+            <rect x="650" y="122" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="660" y="140" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+          </g>
+
+          <text x="20" y="174" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">data engineering</text>
+          <g class="svg-l1">
+            <rect x="170" y="156" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="180" y="174" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="290" y="156" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="300" y="174" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="530" y="156" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="540" y="174" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="770" y="156" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="780" y="174" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="650" y="156" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="660" y="174" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+          </g>
+
+          <text x="20" y="208" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">machine learning</text>
+          <g class="svg-l1">
+            <rect x="170" y="190" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="180" y="208" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="290" y="190" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="300" y="208" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="530" y="190" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="540" y="208" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="770" y="190" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="780" y="208" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="650" y="190" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="660" y="208" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+          </g>
+
+          <text x="20" y="242" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">infrastructure</text>
+          <g class="svg-l1">
+            <rect x="290" y="224" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="300" y="242" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="530" y="224" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="540" y="242" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="650" y="224" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="660" y="242" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="770" y="224" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="780" y="242" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="170" y="224" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="180" y="242" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+          </g>
+
+          <text x="20" y="276" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">security</text>
+          <g class="svg-l1">
+            <rect x="530" y="258" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="540" y="276" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="650" y="258" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="660" y="276" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+            <rect x="770" y="258" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="780" y="276" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">core</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="170" y="258" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="180" y="276" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+            <rect x="290" y="258" width="110" height="24" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="300" y="276" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">sometimes</text>
+          </g>
+
+          <text x="20" y="298" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">An empty cell is not a promise. Ask the recruiter for the round list &mdash; every company will tell you, and most will tell you the format too.</text>
+        </svg>
+        <figcaption><b>The domain round is the one that varies most, and it is the one candidates prepare least.</b> For a frontend engineer it is rendering, state and accessibility; for a data engineer it is pipelines and correctness under replay; for an infrastructure engineer it is a broken machine and a terminal. Preparing the shared core and skipping this column is how strong generalists fail specialist loops.</figcaption>
+      </figure>
+    </section>
+
+    <section class="topic" id="track-detail">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>What each track adds on top</h3>
+        <p class="lede">The subjects below are additional to everything in parts two to ten &mdash; not a replacement for them. A frontend loop still asks about hash maps.</p>
+      </div>
+
+      <div class="syl s1">
+        <div><b>Frontend</b><i>The browser rendering path, reflow and repaint, the critical path, bundle size, code splitting, hydration. State management, reactivity, virtual DOM diffing. Accessibility: semantics, focus order, ARIA, keyboard-only use. Core Web Vitals. CSS layout and specificity. Forms, validation and optimistic updates. Cross-browser and internationalisation.</i></div>
+        <div><b>Mobile</b><i>The activity or view-controller lifecycle, and the state you lose on rotation or backgrounding. Memory pressure and being killed. Offline-first storage and sync. Background execution limits. Push notifications. Battery and network cost. App size, store review, staged rollout and the fact that you cannot force an update.</i></div>
+        <div><b>Data engineering</b><i>Batch against streaming, and event time against processing time. Watermarks and late data. Idempotent, replayable pipelines. Partitioning, file formats, compaction and small-file problems. Schema evolution. Orchestration and backfills. Data quality tests, lineage, and the cost of a full reprocess.</i></div>
+        <div><b>Machine learning</b><i>Training and serving skew, feature stores, offline and online evaluation, drift. Model deployment, shadow traffic and rollback. Latency and cost per inference, batching, quantisation. For language-model work: context, retrieval, tool use, evaluation harnesses, prompt injection and guardrails.</i></div>
+        <div><b>Infrastructure and SRE</b><i>A terminal and a broken host. Linux internals, networking, DNS and TLS debugging under time pressure. Capacity planning and load testing. Terraform and configuration drift. Kubernetes internals, not just its YAML. On-call practice, error budgets, and the failure injection you have actually run.</i></div>
+        <div><b>Security engineering</b><i>Threat modelling a design out loud. Reading code for vulnerabilities. Attack chains rather than isolated bugs. Detection and response, log sources, and what an attacker does after the first foothold. Compliance frameworks as a constraint on architecture.</i></div>
+        <div><b>Test and quality</b><i>Test strategy across a system rather than a file. Automation frameworks, page objects, flakiness at scale, test data management, and a considered position on what should never be automated.</i></div>
+        <div><b>Embedded and systems</b><i>Memory constraints, interrupts and real-time deadlines, fixed-point arithmetic, hardware interfaces, cross-compilation, and firmware update that cannot brick the device.</i></div>
+        <div><b>Platform and developer tooling</b><i>Build systems and caching, monorepo tooling, developer experience as a product, migration of hundreds of teams, and API design where the users are engineers who will not read the documentation.</i></div>
+      </div>
+
+      <div class="note">
+        <h4>The machine-learning column has a page in this series</h4>
+        <p><b>Prompt to Production</b> covers what an AI engineer is hired to know &mdash; tokens, embeddings, retrieval, agents, evaluation, serving and cost &mdash; with fifteen interactive figures. It is the deep dive behind one line of the grid above.</p>
+      </div>
+    </section>
+  </div>
+</section>

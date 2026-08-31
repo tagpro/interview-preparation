@@ -1,0 +1,344 @@
+<section class="part" id="craft">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part eight</span>
+      <h2>Craft: testing, debugging, review, refactoring</h2>
+      <p>The rounds that look at how you work rather than what you know. They are increasingly common because they are harder to prepare for by memorisation &mdash; a debugging round with a real repository and a failing test tells an interviewer more in twenty minutes than an algorithm question tells them in forty-five.</p>
+    </div>
+
+    <section class="topic" id="testing">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Testing, and what each layer is actually for</h3>
+        <p class="lede">&ldquo;How would you test this?&rdquo; follows almost every coding answer. The good response names layers and categories, not examples.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 262" role="img" aria-label="A test pyramid of four layers from unit tests at the base to end-to-end tests at the top, each annotated with what it catches and what it costs.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">FOUR LAYERS, AND WHAT EACH ONE IS THE ONLY WAY TO CATCH</text>
+          <text x="20" y="42" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">FEWER &middot; SLOWER &middot; BROADER</text>
+
+          <g class="svg-l3">
+            <rect x="245" y="52" width="110" height="34" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="255" y="74" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">end to end</text>
+          </g>
+          <text x="560" y="74" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Catches wiring, config and deploys. Costs minutes and flakiness.</text>
+
+          <g class="svg-l2">
+            <rect x="200" y="90" width="200" height="34" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="210" y="112" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">contract</text>
+          </g>
+          <text x="560" y="112" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Catches two teams disagreeing about a payload, before production does.</text>
+
+          <g class="svg-l1">
+            <rect x="150" y="128" width="300" height="34" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="160" y="150" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">integration</text>
+          </g>
+          <text x="560" y="150" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Catches SQL, serialisation, migrations and the framework&rsquo;s defaults.</text>
+
+          <g class="svg-l1">
+            <rect x="90" y="166" width="420" height="34" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="100" y="188" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor">unit</text>
+          </g>
+          <text x="560" y="188" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Catches logic and edge cases. Runs in milliseconds, so it runs often.</text>
+
+          <text x="20" y="220" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.6">MORE &middot; FASTER &middot; NARROWER</text>
+          <text x="20" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The shape is a consequence, not a goal: you write more of the tests that are cheap to run and quick to diagnose.</text>
+        </svg>
+        <figcaption><b>Containers moved the line between unit and integration.</b> Spinning a real database up for a test suite now costs seconds, so &ldquo;the unit test mocks the repository&rdquo; is a weaker answer than it was &mdash; a test against the real engine catches the SQL a mock cannot. The honest position: mock what you do not own and cannot run; use the real thing for everything else.</figcaption>
+      </figure>
+
+      <div class="syl s1">
+        <div><b>Unit</b><i>One behaviour, no I/O, named after the behaviour. If the name has &ldquo;and&rdquo; in it, it is two tests.</i></div>
+        <div><b>Integration</b><i>Your code plus something real: a database, a queue, an HTTP server. Where most production bugs actually live.</i></div>
+        <div><b>Contract</b><i>Consumer-driven checks that a provider still speaks the payload you rely on.</i></div>
+        <div><b>End to end</b><i>A user journey through the deployed system. Few, and treated as a smoke test rather than a safety net.</i></div>
+        <div><b>Property-based</b><i>Assert a law over generated inputs. Finds the case you never thought of, and shrinks it for you.</i></div>
+        <div><b>Fuzzing</b><i>Random and mutated input against a parser or a decoder. Cheap and startlingly effective.</i></div>
+        <div><b>Golden / snapshot</b><i>Compare against a recorded output. Useful and dangerous &mdash; a wrong snapshot gets blessed in one keystroke.</i></div>
+        <div><b>Load and soak</b><i>Throughput, latency percentiles and what leaks after six hours. Nothing else finds a slow leak.</i></div>
+        <div><b>Chaos</b><i>Inject the failure you claim to survive, on purpose, in a controlled window.</i></div>
+        <div><b>Test doubles</b><i>Dummy, stub, spy, mock, fake. Be able to distinguish a stub from a mock &mdash; it is asked directly.</i></div>
+        <div><b>Fixtures and factories</b><i>Building test data without a hundred lines of setup. Builders beat shared fixtures.</i></div>
+        <div><b>Determinism</b><i>Inject the clock, seed the randomness, control the ordering. Flakiness is nearly always one of these three.</i></div>
+        <div><b>Coverage</b><i>A tool for finding untested branches, not a target. Say that explicitly &mdash; it is a values question in disguise.</i></div>
+        <div><b>TDD</b><i>Red, green, refactor. Worth having an opinion on, including where it does not fit.</i></div>
+        <div><b>Test pyramid vs trophy</b><i>Where the weight sits, and why front-end and back-end answers differ.</i></div>
+        <div><b>Testing in production</b><i>Canaries, shadow traffic, synthetic probes. Not an excuse &mdash; an extra layer with its own guardrails.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="debugging">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>The debugging round</h3>
+        <p class="lede">A repository you have never seen, a failing test or a broken endpoint, and someone watching how you narrow it down. Method is the whole score; finding the bug quickly with no visible method scores worse than finding it slowly with one.</p>
+      </div>
+
+      <ol class="steps">
+        <li><b>Reproduce it first.</b> A bug you cannot reproduce is a bug you cannot confirm you fixed. Get it failing on demand before you change anything.</li>
+        <li><b>Read the error.</b> All of it, including the frames in the middle. An astonishing number of debugging rounds are won here and lost by skimming.</li>
+        <li><b>Say what you expect before you look.</b> &ldquo;If the parser is at fault, this value will be empty here.&rdquo; Now the observation means something either way.</li>
+        <li><b>Bisect.</b> In the code path, in the input, or in history with <code>git bisect</code>. Halving the search space beats inspecting it.</li>
+        <li><b>Change one thing at a time,</b> and put it back if it was not the cause. A pile of speculative edits destroys the evidence.</li>
+        <li><b>Find the cause, not the symptom.</b> Then say what class of bug it was and what would have caught it &mdash; that sentence is the senior signal in this round.</li>
+      </ol>
+
+      <div class="syl s2">
+        <div><b>The tools</b><i>A debugger and breakpoints, not just print statements. Also <code>git bisect</code>, <code>git blame</code>, and the profiler.</i></div>
+        <div><b>Reading a stack trace</b><i>Where it was thrown, where it was caught, and what &ldquo;caused by&rdquo; really means.</i></div>
+        <div><b>Logs</b><i>Correlating by request ID across services, and turning the level up on one component only.</i></div>
+        <div><b>Production debugging</b><i>Heap dumps, thread dumps, flame graphs, <code>strace</code>, packet capture &mdash; when you cannot attach a debugger.</i></div>
+        <div><b>Heisenbugs</b><i>Timing, ordering, uninitialised memory, and the log line that makes it disappear.</i></div>
+        <div><b>Bisecting history</b><i>The fastest route when it worked last week and nobody knows what changed.</i></div>
+        <div><b>The three usual suspects</b><i>Configuration, data, and the last deploy. Check them before you suspect the algorithm.</i></div>
+        <div><b>Knowing when to stop</b><i>Time-box, then ask for a hint. Interviewers score the escalation, not the stubbornness.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="review">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Code review, as a round and as a skill</h3>
+        <p class="lede">You are handed a pull request and asked what you think. The trap is spending ten minutes on naming and never mentioning the missing transaction.</p>
+      </div>
+
+      <p>Review in a fixed order and say the order out loud, because it demonstrates a system rather than a set of reactions: <b>correctness</b>, then <b>security and data safety</b>, then <b>failure behaviour</b>, then <b>tests</b>, then <b>design and naming</b>, then <b>style</b>. Style last, and only where a tool cannot enforce it. Distinguish blocking comments from suggestions explicitly &mdash; a reviewer who marks everything as equally important is a reviewer nobody can act on.</p>
+
+      <div class="syl s3">
+        <div><b>Correctness</b><i>Does it do what the description says? Off-by-one, null, empty collection, error path.</i></div>
+        <div><b>Concurrency</b><i>Shared mutable state, a check-then-act, a lock held across I/O, an unbounded queue.</i></div>
+        <div><b>Data safety</b><i>A migration that locks a big table, a delete with no filter, a write with no transaction.</i></div>
+        <div><b>Security</b><i>Injection, missing authorisation, a secret in the diff, unvalidated input, a logged token.</i></div>
+        <div><b>Failure behaviour</b><i>Timeouts, retries, what happens on partial failure, and whether the retry is safe.</i></div>
+        <div><b>Tests</b><i>Do they test the behaviour or the implementation? Would they fail if the code were wrong?</i></div>
+        <div><b>Observability</b><i>Can you tell from the outside whether this works? Is there anything to alert on?</i></div>
+        <div><b>Design</b><i>Is the boundary in the right place? Is this the third copy of something that wants extracting?</i></div>
+        <div><b>Readability</b><i>Names, function length, comments that say why rather than what.</i></div>
+        <div><b>Tone</b><i>Ask questions rather than issue verdicts, praise what is good, and be specific. This is scored too.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="refactor">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Refactoring, legacy code and the take-home</h3>
+        <p class="lede">&ldquo;Here is some working but unpleasant code &mdash; improve it.&rdquo; The failure mode is rewriting it. The pass is small, safe, reversible steps with the tests green after every one.</p>
+      </div>
+
+      <div class="syl s1">
+        <div><b>Characterisation tests</b><i>Pin the current behaviour before you change it, bugs included. This is the whole technique for legacy code.</i></div>
+        <div><b>Seams</b><i>Find the place you can substitute a dependency without editing the logic. Usually a constructor argument.</i></div>
+        <div><b>The catalogue</b><i>Extract function, extract class, inline, rename, replace conditional with polymorphism, introduce parameter object.</i></div>
+        <div><b>Strangler fig</b><i>Route slices of traffic to the new implementation while the old one still serves the rest.</i></div>
+        <div><b>Branch by abstraction</b><i>Refactor a system you cannot stop, without a long-lived branch.</i></div>
+        <div><b>Code smells</b><i>Long method, large class, feature envy, shotgun surgery, primitive obsession, duplicated logic.</i></div>
+        <div><b>Technical debt</b><i>Deliberate versus accidental. Being able to argue for paying some down, with a business reason, is a senior signal.</i></div>
+        <div><b>Knowing when not to</b><i>Code that is ugly, correct and never touched is not a priority. Saying so is judgement, not laziness.</i></div>
+      </div>
+
+      <div class="note">
+        <h4>The take-home is graded on the parts you might skip</h4>
+        <p>Reviewers look for a README that says how to run it and what you traded away, a commit history that shows the order you worked in, tests that fail when the code is wrong, and error handling on the unhappy path. Scope it to the time given and write down what you would do with more &mdash; an unfinished feature you named beats a finished one that was never mentioned. Then expect the follow-up conversation to ask why every interesting line is the way it is; that conversation, not the code, is the round.</p>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="part" id="ops">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part nine</span>
+      <h2>Shipping it and running it</h2>
+      <p>Everything between a commit and a user. These questions have grown from a niche for infrastructure roles into a standard part of every backend loop, because the industry decided that writing the code is roughly half of the job.</p>
+    </div>
+
+    <section class="topic" id="vcs-ci">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Version control and continuous integration</h3>
+        <p class="lede">Git questions are practical, not theoretical: they want to hear that you have recovered from a mistake, not that you can recite the object model &mdash; though the object model is what makes the recovery obvious.</p>
+      </div>
+
+      <div class="syl s2">
+        <div><b>The object model</b><i>Blobs, trees, commits, refs. Once you see that a branch is a pointer, most git questions answer themselves.</i></div>
+        <div><b>Merge vs rebase</b><i>What each does to history, and why you do not rebase a branch other people have pulled.</i></div>
+        <div><b>Cherry-pick, revert, reset</b><i>Soft, mixed and hard &mdash; and which of the three loses work.</i></div>
+        <div><b>Recovering</b><i><code>git reflog</code>, and the fact that almost nothing committed is ever really lost.</i></div>
+        <div><b>Conflict resolution</b><i>Including lock files and generated files, where the answer is to regenerate rather than hand-merge.</i></div>
+        <div><b>Branching strategies</b><i>Trunk-based, GitHub flow, git flow &mdash; and the relationship between branch lifetime and merge pain.</i></div>
+        <div><b>Pull requests</b><i>Size, description, stacked changes, and why a 2000-line review gets a rubber stamp.</i></div>
+        <div><b>Monorepo vs polyrepo</b><i>Atomic cross-project changes against build times and tooling investment.</i></div>
+        <div><b>CI</b><i>What runs on every commit, how long it may take, and what makes a pipeline trustworthy rather than ignored.</i></div>
+        <div><b>Build reproducibility</b><i>Lock files, pinned base images, hermetic builds, and the artifact promoted between environments unchanged.</i></div>
+        <div><b>Caching in CI</b><i>Dependency caches and layer caches, and the correctness risk of a stale one.</i></div>
+        <div><b>Static analysis</b><i>Linters, type checkers, dependency and secret scanning &mdash; the checks that are cheaper than a review comment.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="deploy">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Deployment, containers and rollback</h3>
+        <p class="lede">The question behind all of them: how does a bad version stop hurting people, and how fast? Every strategy below is a different answer to that.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 268" role="img" aria-label="Three deployment strategies as timelines: rolling, blue-green and canary, showing what is live at each step.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THREE WAYS TO REPLACE A RUNNING VERSION</text>
+
+          <text x="20" y="64" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">rolling</text>
+          <g class="svg-l1">
+            <rect x="180" y="44" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="188" y="63" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">4 old</text>
+            <rect x="320" y="44" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="328" y="63" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">3 old + 1 new</text>
+            <rect x="460" y="44" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="468" y="63" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">2 old + 2 new</text>
+            <rect x="600" y="44" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="608" y="63" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">1 old + 3 new</text>
+            <rect x="740" y="44" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="748" y="63" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">4 new</text>
+          </g>
+
+          <text x="20" y="124" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">blue&ndash;green</text>
+          <g class="svg-l2">
+            <rect x="180" y="104" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="188" y="123" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">blue serves all</text>
+            <rect x="320" y="104" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="328" y="123" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">green built</text>
+            <rect x="460" y="104" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="468" y="123" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">green smoke tested</text>
+            <rect x="600" y="104" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="608" y="123" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">switch, all at once</text>
+            <rect x="740" y="104" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="748" y="123" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">blue kept warm</text>
+          </g>
+
+          <text x="20" y="184" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">canary</text>
+          <g class="svg-l3">
+            <rect x="180" y="164" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="188" y="183" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">1% of traffic</text>
+            <rect x="320" y="164" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="328" y="183" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">watch the metrics</text>
+            <rect x="460" y="164" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="468" y="183" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">10%</text>
+            <rect x="600" y="164" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="608" y="183" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">50%</text>
+            <rect x="740" y="164" width="134" height="30" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="748" y="183" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">100%</text>
+          </g>
+
+          <line x1="20" y1="208" x2="880" y2="208" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="228" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Rolling is cheapest and means two versions are live at once &mdash; so the database must satisfy both, which is why migrations expand before they contract.</text>
+          <text x="20" y="246" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">Blue&ndash;green rolls back in seconds and costs double the capacity. Canary limits the blast radius but needs metrics good enough to decide on.</text>
+          <text x="20" y="264" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.8">None of the three protects you from a migration that has already dropped a column. That one is not a deployment problem.</text>
+        </svg>
+        <figcaption><b>The question under the question is schema change.</b> Every strategy here has old and new code live at the same moment, or at least a moment where you might want the old code back. That is the whole argument for expand&ndash;migrate&ndash;contract: add the column, write both, backfill, switch reads, and only then drop the old one &mdash; several deploys apart, so that any single one of them is reversible.</figcaption>
+      </figure>
+
+      <div class="syl s2">
+        <div><b>Containers</b><i>Images, layers, the build cache, a small base, and running as a non-root user.</i></div>
+        <div><b>Orchestration</b><i>Pods, deployments, services, probes, requests and limits, and what actually happens on a rollout.</i></div>
+        <div><b>Configuration</b><i>Environment variables, config maps, secrets, and the twelve-factor separation of config from code.</i></div>
+        <div><b>Infrastructure as code</b><i>Declarative state, plans and drift. The review of an infrastructure change is the safety mechanism.</i></div>
+        <div><b>Immutable infrastructure</b><i>Replace, never patch. Makes rollback a deploy of an old artifact rather than an operation.</i></div>
+        <div><b>Migrations</b><i>Expand, migrate, contract. Backfills in batches, and never a lock on a hot table at peak.</i></div>
+        <div><b>Feature flags</b><i>Decouple deploy from release, and give yourself a rollback that needs no deploy at all.</i></div>
+        <div><b>Rollback</b><i>The plan, not the hope. Know how long it takes and whether it has been tried this quarter.</i></div>
+        <div><b>Secrets management</b><i>Where they live, how they rotate, and why an environment variable in a repository is an incident.</i></div>
+        <div><b>Autoscaling</b><i>What signal it scales on, how fast, and the cold start that makes it useless during a spike.</i></div>
+        <div><b>Environments</b><i>Dev, staging, production &mdash; and the honest admission that staging is never the same.</i></div>
+        <div><b>Cost</b><i>What the architecture costs per month, and which line dominates. Increasingly asked at senior level.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="observability">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Observability and service levels</h3>
+        <p class="lede">Three signals, one budget. The senior version of this question is not &ldquo;what do you log&rdquo; but &ldquo;how do you know it is working, and what number tells you when to stop shipping features&rdquo;.</p>
+      </div>
+
+      <figure>
+        <svg viewBox="0 0 900 302" role="img" aria-label="The three telemetry signals with what each answers, and a burn-down of a monthly error budget interrupted by one incident.">
+          <text x="20" y="18" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" fill="currentColor" opacity="0.65">THREE SIGNALS, EACH ANSWERING A DIFFERENT QUESTION</text>
+
+          <g class="svg-l1">
+            <rect x="20" y="32" width="276" height="80" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <text x="30" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">metrics</text>
+            <text x="30" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">Is it healthy, right now, in</text>
+            <text x="30" y="84" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">aggregate? Cheap, bounded,</text>
+            <text x="30" y="98" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">the only thing you alert on.</text>
+          </g>
+          <g class="svg-l2">
+            <rect x="312" y="32" width="276" height="80" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="322" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">traces</text>
+            <text x="322" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">Where did this one request</text>
+            <text x="322" y="84" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">spend its time? Sampled,</text>
+            <text x="322" y="98" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">and the only cross-service view.</text>
+          </g>
+          <g class="svg-l3">
+            <rect x="604" y="32" width="276" height="80" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="614" y="52" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor">logs</text>
+            <text x="614" y="70" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">What exactly happened here?</text>
+            <text x="614" y="84" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">Structured, correlated by</text>
+            <text x="614" y="98" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">request id, and expensive.</text>
+          </g>
+
+          <line x1="20" y1="126" x2="880" y2="126" stroke="currentColor" stroke-width="1" opacity="0.2"/>
+          <text x="20" y="146" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="currentColor" opacity="0.65">ONE MONTH OF ERROR BUDGET AT A 99.9% OBJECTIVE &mdash; 43 MINUTES IN TOTAL</text>
+
+          <line x1="60" y1="160" x2="60" y2="252" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+          <line x1="60" y1="252" x2="880" y2="252" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+          <polyline points="60,164 220,172 320,176 336,218 520,224 700,230 880,236" fill="none" stroke="currentColor" stroke-width="1.8" class="svg-l1"/>
+          <line x1="60" y1="228" x2="880" y2="228" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4" opacity="0.6"/>
+          <text x="368" y="200" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor">one 40-minute incident spends most of the month</text>
+          <text x="660" y="222" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.8">policy: freeze features here</text>
+          <text x="70" y="268" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">day 1</text>
+          <text x="820" y="268" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity="0.7">day 30</text>
+
+          <text x="20" y="294" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor">The budget is what makes reliability a decision rather than an argument: while there is budget left you ship, and when there is not, you stop.</text>
+        </svg>
+        <figcaption><b>Notice how little 99.9% is.</b> Three nines allows about forty-three minutes of failure a month, which one bad deploy can spend in a single afternoon; four nines allows four minutes, which is less than most human response times, so it can only be achieved by automation. This arithmetic is why &ldquo;what availability do you need?&rdquo; belongs in the requirements phase of a design round &mdash; the answer changes the architecture, not just the dashboard.</figcaption>
+      </figure>
+
+      <div class="syl s1">
+        <div><b>The four golden signals</b><i>Latency, traffic, errors, saturation. A dashboard that shows these four is most of the job.</i></div>
+        <div><b>Percentiles</b><i>Averages hide everything. p50, p95, p99, and why you cannot average percentiles across instances.</i></div>
+        <div><b>SLI, SLO, SLA</b><i>The measurement, the target you manage to, and the contract with penalties. Three different things.</i></div>
+        <div><b>Error budget</b><i>The permitted unreliability, spent deliberately. Also a rule about when to stop deploying.</i></div>
+        <div><b>Structured logging</b><i>Fields, not sentences. A request ID on every line, and no secrets on any of them.</i></div>
+        <div><b>Distributed tracing</b><i>Spans, context propagation across process boundaries, and sampling that keeps the interesting ones.</i></div>
+        <div><b>Cardinality</b><i>A label with a user ID in it will bankrupt your metrics system. Asked as a trap.</i></div>
+        <div><b>Alerting</b><i>Alert on symptoms users feel, not on causes. Every page should have an action attached.</i></div>
+        <div><b>Health checks</b><i>Liveness and readiness are different questions, and conflating them causes restart loops.</i></div>
+        <div><b>Dashboards</b><i>One per service that answers &ldquo;is it fine?&rdquo; in five seconds, and one per incident type.</i></div>
+      </div>
+    </section>
+
+    <section class="topic" id="incident">
+      <div class="topic-head">
+        <span class="kicker">Topic &middot; xx</span>
+        <h3>Incidents, on-call and the postmortem</h3>
+        <p class="lede">Often asked as a story question &mdash; &ldquo;tell me about an outage&rdquo; &mdash; and scored on whether you separate mitigation from diagnosis, and blame from cause.</p>
+      </div>
+
+      <ol class="steps">
+        <li><b>Stop the bleeding first.</b> Roll back, fail over, shed load, turn the flag off. Understanding can wait; the users cannot.</li>
+        <li><b>Declare it and take a role.</b> Someone commands, someone communicates, someone investigates. One person doing all three is how incidents get longer.</li>
+        <li><b>Keep a timeline as you go.</b> Written afterwards it is fiction. Written live it is the postmortem&rsquo;s spine.</li>
+        <li><b>Communicate on a fixed cadence,</b> even with nothing new. Silence generates a second incident made of people asking questions.</li>
+        <li><b>Find the cause afterwards,</b> not during. The pressure to explain while mitigating is what produces the wrong fix.</li>
+        <li><b>Write it up blamelessly,</b> with contributing factors rather than a culprit, and action items that have owners and dates. A postmortem with no changed defaults changed nothing.</li>
+      </ol>
+
+      <ul class="ask">
+        <li><q>Tell me about the worst outage you were part of.</q><em>whether you can separate what you did to stop it from what caused it, and whether you say what you would do differently.</em></li>
+        <li><q>You are paged at 3am: error rate is 40%. First five minutes?</q><em>a triage order &mdash; what changed, is it all users or some, roll back if a deploy is in the window &mdash; not a debugging session.</em></li>
+        <li><q>How do you decide what to alert on?</q><em>symptoms over causes, an action per page, and a stated view on alert fatigue.</em></li>
+        <li><q>What did you change after the last incident?</q><em>whether the follow-up actually shipped. Most postmortem items do not, and admitting that is more credible than claiming otherwise.</em></li>
+      </ul>
+    </section>
+  </div>
+</section>

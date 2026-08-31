@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 export const PAGES = [
   'backend-go-ladder.html', 'pillar-a-foundations.html', 'pillar-b-go.html',
   'pillar-c-cloud.html', 'python-foundations.html', 'java-spring.html',
-  'aws-deep-dive.html', 'dsa.html', 'ai.html',
+  'aws-deep-dive.html', 'dsa.html', 'ai.html', 'interview-map.html',
 ];
 
 const ENT = { '&lt;': '<', '&gt;': '>', '&amp;': '&', '&quot;': '"', '&#39;': "'",

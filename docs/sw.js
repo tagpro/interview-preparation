@@ -5,7 +5,7 @@
  * activation. That is the whole update story: there is no manual versioning to
  * forget, and no way to serve a stale page from a previous deploy.
  */
-const CACHE = 'ladder-5064912d6e9a';
+const CACHE = 'ladder-342354e7d158';
 
 const PRECACHE = [
   '.',
@@ -31,6 +31,7 @@ const PRECACHE = [
   'software-engineering/foundations.html',
   'software-engineering/go.html',
   'software-engineering/index.html',
+  'software-engineering/interview.html',
   'software-engineering/java.html',
   'software-engineering/python.html',
 ];
