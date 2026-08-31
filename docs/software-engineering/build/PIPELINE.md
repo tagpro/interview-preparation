@@ -68,8 +68,8 @@ a repository tree, not code, and is left as plaintext.
 | --- | --- |
 | `series.py` | The one list of pages in the series, and the rail that renders it |
 | `series_sync.py` | Writes that rail into all eight pages, including the ones with no build script |
-| `site_build.mjs` | Wraps the fragments as standalone HTML and rewrites cross-links |
-| `site_check.mjs` | Loads every built page and checks structure, links and the passes |
+| `site_build.mjs` | Wraps the fragments as standalone HTML, rewrites cross-links, and adds the site-only chrome: local fonts, the theme switch, the home link, the cache registration |
+| `site_check.mjs` | Loads every built page and checks structure, links, the home link and the passes |
 | `sw_build.mjs` | Generates the service worker, its cache named by a content hash |
 | `sw_check.mjs` | Installs it, stops the server, and walks every page |
 | `offline_check.mjs` | Asserts no page reaches for the network in the first place |

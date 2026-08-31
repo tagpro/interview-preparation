@@ -126,6 +126,15 @@ Run what the change touches; run all of them before publishing.
   nine `build/*.html` pages never carry it. `theme_sync.py` writes it into the
   site's two hand-written pages and regenerates `theme_block.html`, which
   `site_build.mjs` reads and refuses to build without.
+- **The way home is a site feature too.** These pages are also published as
+  artifacts, where there is no front page to go back to, so `site_build.mjs`
+  splices the home link into the top bar as it writes the site -- beside the font
+  swap, the service-worker registration and the theme switch. It is a plain
+  anchor rather than a scripted control, so it survives JavaScript being off, and
+  it is sticky to the left edge for the same reason Contents is sticky to the
+  right: the bar scrolls sideways on a phone and the two ways out of a page
+  should not be what scrolls away. `site_check.mjs` asserts every built page
+  carries exactly one and that it resolves to a file that exists.
 - **Chrome rewrites some colours on the way to the printer.** `#6F42AF` lands at
   half its brightness, which is why `print_theme.mjs` uses `#6A3FA8` instead.
   That was measured; the tooling that measured it is gone, so a new print colour

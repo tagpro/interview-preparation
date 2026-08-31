@@ -33,6 +33,7 @@ for (const f of files) {
       lang: document.documentElement.lang,
       desc: (document.querySelector('meta[name=description]') || {}).content || '',
       icon: !!document.querySelector('link[rel=icon]'),
+      home: [...document.querySelectorAll('a.homelink')].map(a => a.getAttribute('href')),
       styles: document.styleSheets.length,
       bodyBg: getComputedStyle(document.body).backgroundColor,
       // the three runtime passes
@@ -58,6 +59,10 @@ for (const f of files) {
   if (r.lang !== 'en') issues.push('no lang');
   if (!r.desc) issues.push('no description');
   if (!r.icon) issues.push('no favicon');
+  // The way back to the site's front page. Spliced in by site_build.mjs, so it
+  // is exactly the kind of thing that can go missing without anything failing.
+  if (r.home.length !== 1) issues.push(`${r.home.length} home link(s), expected 1`);
+  else if (!fs.existsSync(path.resolve(DIR, r.home[0]))) issues.push(`home link goes nowhere: ${r.home[0]}`);
   if (r.styles < 2) issues.push(`only ${r.styles} stylesheet(s)`);
   if (r.tocLinks === 0) issues.push('contents rail empty');
   if (r.abbrs === 0) issues.push('glossary did not run');

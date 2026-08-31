@@ -143,6 +143,17 @@
 </script>
 <!-- /theme -->
 <style>
+.homelink{display:inline-flex;align-items:center;justify-content:center;
+  width:31px;height:26px;flex:0 0 auto;border:1px solid var(--line);
+  color:var(--ink-faint);text-decoration:none;line-height:0;
+  position:sticky;left:0;background:color-mix(in srgb,var(--ground) 88%, var(--surface))}
+.homelink:hover{color:var(--ink);border-color:var(--accent)}
+.homelink:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+.homelink svg{width:14px;height:14px;display:block;fill:none;stroke:currentColor;
+  stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+@media print{.homelink{display:none!important}}
+</style>
+<style>
 :root{
   --ground:#F2F5F7; --surface:#FFFFFF; --surface-2:#E8EEF1; --line:#CFDAE1;
   --ink:#101A22; --ink-soft:#42545F; --ink-faint:#6E808B;
@@ -631,6 +642,7 @@ document.documentElement.classList.add("lang-"+l);})();
 
 <div class="topbar">
   <div class="shell topbar-in">
+    <a class="homelink" href="../index.html" title="Back to the notes" aria-label="Back to the notes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11 12 4l8.5 7M5.8 9.3V20h12.4V9.3M10 20v-5.4h4V20"/></svg></a>
     <span class="mark"><span class="m-full">Data Structures &amp; Algorithms</span><span class="m-short">DSA</span></span>
     <div class="progress" role="progressbar" aria-label="Reading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="prog">
       <div class="progress-fill" id="prog-fill"></div>
