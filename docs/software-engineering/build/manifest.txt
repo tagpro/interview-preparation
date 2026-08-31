@@ -99,6 +99,7 @@ py_d.html
 py_e.html
 py_foot.html
 py_hero.html
+py_svc.html
 python-foundations.html
 requirements.txt
 series.py

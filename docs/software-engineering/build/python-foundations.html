@@ -4897,6 +4897,1473 @@ log = logging.getLogger(__name__)
       </section>
   </div>
 </section>
+
+<section class="part" id="service">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part eleven</span>
+      <h2>A whole service, file by file</h2>
+      <p>Everything before this was a mechanism or a snippet. This is the repository &mdash; one small service, built in the order you would actually build it, with every file that has to exist before anyone will let you deploy it. The domain is a link shortener, chosen because it is small enough to hold in your head and still needs every production concern there is: validation, a database and a migration, idempotency, authentication, rate limiting, structured logs, health checks, tests that run in CI, and an image that starts as a non-root user. Read it top to bottom once; after that each topic stands alone.</p>
+    </div>
+
+    <section class="topic" id="svc-layout">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 33</span>
+        <h3>Where the files go, and why</h3>
+        <p class="lede">Layout is the first architectural decision and the one nobody revisits. Two choices matter here and both have a real reason: the code lives under <code>src/</code> so the tests cannot accidentally import the working copy instead of the installed package, and the modules are layered so that the direction of every import is a rule you can check rather than a habit you hope holds.</p>
+      </div>
+
+      <pre class="l1">shortlink/
+  pyproject.toml          project metadata, dependencies, and every tool&#39;s config
+  uv.lock                 the resolved, hashed dependency graph. Committed.
+  .env.example            every variable the app reads, with safe placeholders
+  compose.yaml            Postgres and Redis for local work, nothing else
+  Dockerfile              multi-stage; the runtime stage has no build tools
+  Makefile                the four commands everyone needs, named the same way
+
+  src/
+    shortlink/
+      __init__.py
+      main.py             the app factory and its lifespan. No business logic.
+      config.py           settings, read once from the environment
+      domain.py           the rules. Imports nothing from this package.
+      schemas.py          the wire contract: what the API accepts and returns
+      errors.py           one exception hierarchy, one handler
+      db.py               engine, session factory, the session dependency
+      models.py           SQLAlchemy tables
+      repository.py       the only module that writes SQL
+      service.py          use cases. Knows the domain, not HTTP.
+      api.py              routers, status codes, dependencies
+      security.py         API keys and the rate limiter
+      observability.py    logging, tracing, metrics, health
+
+  migrations/             Alembic: env.py plus one file per schema change
+    versions/
+      0001_create_links.py
+
+  tests/
+    conftest.py           fixtures: a real database, an in-process client
+    test_domain.py        pure, fast, no I/O
+    test_api.py           through the app, against a real Postgres
+    test_errors.py        the failure contract, which is also an API
+
+  .github/workflows/ci.yaml</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Layer</th><th>May import</th><th>Must never import</th></tr></thead>
+          <tbody>
+            <tr><td><code>domain.py</code></td><td>The standard library, and nothing else</td><td>FastAPI, SQLAlchemy, <code>config</code>. It is the part you can test in a millisecond.</td></tr>
+            <tr><td><code>schemas.py</code></td><td>Pydantic, <code>domain</code></td><td>SQLAlchemy. The wire contract and the table are different shapes and change for different reasons.</td></tr>
+            <tr><td><code>repository.py</code></td><td><code>models</code>, <code>domain</code>, SQLAlchemy</td><td>FastAPI. A repository that raises <code>HTTPException</code> cannot be used by a worker.</td></tr>
+            <tr><td><code>service.py</code></td><td><code>repository</code>, <code>domain</code></td><td>FastAPI, and the <code>Request</code> object in particular.</td></tr>
+            <tr><td><code>api.py</code></td><td>Everything</td><td>Nothing &mdash; but it should contain no branching that is not about HTTP.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>That table is the whole architecture. It is also enforceable: a single ruff rule fails the build when an inner layer reaches outward, which is worth more than any diagram, because diagrams do not fail pull requests.</p>
+
+<pre class="l2"><span class="th-token th-comment"># pyproject.toml -- one file for the package, the dependencies and every tool.</span>
+<span class="th-token th-heading">[project]</span>
+<span class="th-token th-property">name</span> = <span class="th-token th-string">&quot;shortlink&quot;</span>
+<span class="th-token th-property">version</span> = <span class="th-token th-string">&quot;0.1.0&quot;</span>
+<span class="th-token th-property">requires-python</span> = <span class="th-token th-string">&quot;&gt;=3.12&quot;</span>
+<span class="th-token th-property">dependencies</span> = [
+    <span class="th-token th-string">&quot;fastapi&gt;=0.115&quot;</span>,
+    <span class="th-token th-string">&quot;pydantic&gt;=2.9&quot;</span>,
+    <span class="th-token th-string">&quot;pydantic-settings&gt;=2.5&quot;</span>,
+    <span class="th-token th-string">&quot;sqlalchemy[asyncio]&gt;=2.0.35&quot;</span>,
+    <span class="th-token th-string">&quot;asyncpg&gt;=0.30&quot;</span>,
+    <span class="th-token th-string">&quot;alembic&gt;=1.13&quot;</span>,
+    <span class="th-token th-string">&quot;redis&gt;=5.1&quot;</span>,
+    <span class="th-token th-string">&quot;structlog&gt;=24.4&quot;</span>,
+    <span class="th-token th-string">&quot;uvicorn[standard]&gt;=0.31&quot;</span>,
+]
+<span class="th-token th-heading">
+[dependency-groups]</span>                 <span class="th-token th-comment"># PEP 735: dev deps that are NOT shipped</span>
+<span class="th-token th-property">dev</span> = [
+    <span class="th-token th-string">&quot;pytest&gt;=8.3&quot;</span>,
+    <span class="th-token th-string">&quot;pytest-asyncio&gt;=0.24&quot;</span>,
+    <span class="th-token th-string">&quot;httpx&gt;=0.27&quot;</span>,
+    <span class="th-token th-string">&quot;testcontainers[postgres]&gt;=4.8&quot;</span>,
+    <span class="th-token th-string">&quot;mypy&gt;=1.11&quot;</span>,
+    <span class="th-token th-string">&quot;ruff&gt;=0.6&quot;</span>,
+]
+<span class="th-token th-heading">
+[build-system]</span>
+<span class="th-token th-property">requires</span> = [<span class="th-token th-string">&quot;hatchling&quot;</span>]
+<span class="th-token th-property">build-backend</span> = <span class="th-token th-string">&quot;hatchling.build&quot;</span>
+<span class="th-token th-heading">
+[tool.ruff]</span>
+<span class="th-token th-property">line-length</span> = <span class="th-token th-number">100</span>
+<span class="th-token th-property">src</span> = [<span class="th-token th-string">&quot;src&quot;</span>, <span class="th-token th-string">&quot;tests&quot;</span>]
+<span class="th-token th-heading">
+[tool.ruff.lint]</span>
+<span class="th-token th-property">select</span> = [<span class="th-token th-string">&quot;E&quot;</span>, <span class="th-token th-string">&quot;F&quot;</span>, <span class="th-token th-string">&quot;I&quot;</span>, <span class="th-token th-string">&quot;N&quot;</span>, <span class="th-token th-string">&quot;UP&quot;</span>, <span class="th-token th-string">&quot;B&quot;</span>, <span class="th-token th-string">&quot;S&quot;</span>, <span class="th-token th-string">&quot;ASYNC&quot;</span>, <span class="th-token th-string">&quot;TID&quot;</span>]
+<span class="th-token th-comment"># S101 is &quot;assert used&quot; -- the point of a test file.</span>
+<span class="th-token th-property">per-file-ignores</span> = { <span class="th-token th-string">&quot;tests/*&quot;</span> = [<span class="th-token th-string">&quot;S101&quot;</span>] }
+<span class="th-token th-heading">
+[tool.ruff.lint.flake8-tidy-imports.banned-api]</span>
+<span class="th-token th-comment"># The layering rule from the table above, enforced. Inner layers import</span>
+<span class="th-token th-comment"># outward over somebody&#39;s dead body, and now over a failing build.</span>
+<span class="th-token th-string">&quot;fastapi&quot;</span>.msg = <span class="th-token th-string">&quot;domain/, repository/ and service/ must not import FastAPI&quot;</span>
+<span class="th-token th-heading">
+[tool.mypy]</span>
+<span class="th-token th-property">strict</span> = <span class="th-token th-literal">true</span>
+<span class="th-token th-property">files</span> = [<span class="th-token th-string">&quot;src&quot;</span>, <span class="th-token th-string">&quot;tests&quot;</span>]
+<span class="th-token th-heading">
+[tool.pytest.ini_options]</span>
+<span class="th-token th-property">asyncio_mode</span> = <span class="th-token th-string">&quot;auto&quot;</span>
+<span class="th-token th-property">addopts</span> = <span class="th-token th-string">&quot;-q --strict-markers&quot;</span></pre>
+
+<pre class="l1"><span class="th-token th-comment"># Makefile -- four verbs, the same four in every repository you own.</span>
+<span class="th-token th-comment"># The value is not the shortening; it is that CI and a new joiner run</span>
+<span class="th-token th-comment"># identical commands, so &quot;works on my machine&quot; has one less place to hide.</span>
+.PHONY: install fmt check test run
+
+install:
+	uv sync <span class="th-token th-attr">--all-groups</span>          <span class="th-token th-comment"># exact versions from uv.lock, dev included</span>
+
+fmt:
+	uv run ruff format .
+	uv run ruff check <span class="th-token th-attr">--fix</span> .
+
+check:                            <span class="th-token th-comment"># what CI runs, runnable locally</span>
+	uv run ruff format <span class="th-token th-attr">--check</span> .
+	uv run ruff check .
+	uv run mypy
+
+test:
+	uv run pytest
+
+run:
+	uv run uvicorn shortlink.main:app <span class="th-token th-attr">--reload</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>The defaults to copy</h4>
+          <ul>
+            <li><strong>Use the <code>src/</code> layout.</strong> Without it, <code>import shortlink</code> in a test finds the source directory, and you never test the thing you package.</li>
+            <li><strong>Commit the lockfile.</strong> <code>uv.lock</code> is what makes the build reproducible; <code>pyproject.toml</code> only records intent.</li>
+            <li><strong>One file per responsibility</strong>, named for the responsibility. <code>utils.py</code> is where design goes to die.</li>
+            <li>Keep <code>__init__.py</code> empty. Import side effects are the hardest bugs on this page.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Make the boundary real</h4>
+          <ul>
+            <li><strong>Layer by dependency direction</strong>, not by file type. &ldquo;Everything that talks to the database&rdquo; is a layer; &ldquo;all the classes&rdquo; is not.</li>
+            <li><strong>Enforce it in the linter.</strong> A rule that fails the build beats a convention that survives until the first deadline.</li>
+            <li><strong>Split by feature when the layers get long.</strong> At roughly a dozen tables, <code>links/</code> and <code>accounts/</code> packages each with their own layers read better than one flat set.</li>
+            <li>Put tooling config in <code>pyproject.toml</code>. Five dotfiles is five places to disagree.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What this buys later</h4>
+          <ul>
+            <li><strong>The domain stays testable at speed.</strong> If <code>test_domain.py</code> ever needs a fixture, something has leaked inward.</li>
+            <li><strong>The service becomes reusable.</strong> The same <code>service.py</code> backs the HTTP API, a CLI, and a queue consumer, because none of it knows what a request is.</li>
+            <li><strong>Swapping the framework becomes a day, not a quarter</strong> &mdash; the FastAPI-shaped part is one file.</li>
+            <li>Dependency groups keep <code>pytest</code> and <code>mypy</code> out of the runtime image, which is both smaller and a smaller attack surface.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-config">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 34</span>
+        <h3>Configuration, read once, validated at boot</h3>
+        <p class="lede">Configuration is the first thing that kills a deployment, and it does it in the worst possible way: at three in the morning, on the one code path nobody exercised. The fix is to read every setting once at start-up, give each one a type, and refuse to start when something is missing &mdash; a container that fails to boot is a rollback, and a container that boots and then fails on the tenth request is an incident.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/config.py</span>
+<span class="th-token th-keyword">from</span> functools <span class="th-token th-keyword">import</span> lru_cache
+<span class="th-token th-keyword">from</span> typing <span class="th-token th-keyword">import</span> Literal
+
+<span class="th-token th-keyword">from</span> pydantic <span class="th-token th-keyword">import</span> Field, PostgresDsn, RedisDsn, field_validator
+<span class="th-token th-keyword">from</span> pydantic_settings <span class="th-token th-keyword">import</span> BaseSettings, SettingsConfigDict
+
+
+<span class="th-token th-keyword">class</span> Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=<span class="th-token th-string">&quot;.env&quot;</span>,              <span class="th-token th-comment"># local convenience only; absent in production</span>
+        env_prefix=<span class="th-token th-string">&quot;SHORTLINK_&quot;</span>,      <span class="th-token th-comment"># so a stray DATABASE_URL cannot leak in</span>
+        extra=<span class="th-token th-string">&quot;forbid&quot;</span>,               <span class="th-token th-comment"># a typo in a variable name fails the boot</span>
+    )
+
+    environment: Literal[<span class="th-token th-string">&quot;local&quot;</span>, <span class="th-token th-string">&quot;staging&quot;</span>, <span class="th-token th-string">&quot;production&quot;</span>] = <span class="th-token th-string">&quot;local&quot;</span>
+    <span class="th-token th-comment"># No default. A missing DSN must stop the process, not silently point at</span>
+    <span class="th-token th-comment"># localhost -- which is exactly how a staging deploy ends up writing to a</span>
+    <span class="th-token th-comment"># database that does not exist and passing its own health check.</span>
+    database_url: PostgresDsn
+    redis_url: RedisDsn
+
+    base_url: <span class="th-token th-type">str</span> = <span class="th-token th-string">&quot;http://localhost:8000&quot;</span>
+    db_pool_size: <span class="th-token th-type">int</span> = Field(default=<span class="th-token th-number">10</span>, ge=<span class="th-token th-number">1</span>, le=<span class="th-token th-number">100</span>)
+    rate_limit_per_minute: <span class="th-token th-type">int</span> = Field(default=<span class="th-token th-number">60</span>, ge=<span class="th-token th-number">1</span>)
+    log_level: <span class="th-token th-type">str</span> = <span class="th-token th-string">&quot;INFO&quot;</span>
+
+    <span class="th-token th-function">@field_validator</span>(<span class="th-token th-string">&quot;base_url&quot;</span>)
+    <span class="th-token th-function">@classmethod</span>
+    <span class="th-token th-keyword">def</span> <span class="th-token th-function">_no_trailing_slash</span>(cls, v: <span class="th-token th-type">str</span>) -&gt; <span class="th-token th-type">str</span>:
+        <span class="th-token th-comment"># Every short link is base_url + &quot;/&quot; + code. One trailing slash here</span>
+        <span class="th-token th-comment"># produces a double slash in every URL the service has ever issued.</span>
+        <span class="th-token th-keyword">return</span> v.rstrip(<span class="th-token th-string">&quot;/&quot;</span>)
+
+    <span class="th-token th-function">@property</span>
+    <span class="th-token th-keyword">def</span> <span class="th-token th-function">debug</span>(self) -&gt; <span class="th-token th-type">bool</span>:
+        <span class="th-token th-keyword">return</span> self.environment == <span class="th-token th-string">&quot;local&quot;</span>
+
+
+<span class="th-token th-function">@lru_cache</span>
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">get_settings</span>() -&gt; Settings:
+    <span class="th-token th-string">&quot;&quot;&quot;Read the environment exactly once per process.
+
+    Cached because settings are immutable for the life of the process, and
+    because FastAPI will call this as a dependency on every request.
+    &quot;&quot;&quot;</span>
+    <span class="th-token th-keyword">return</span> Settings()  <span class="th-token th-comment"># type: ignore[call-arg]  # values come from the environment</span></pre>
+
+<pre class="l1"><span class="th-token th-comment"># .env.example -- committed. The real .env is not, and .gitignore says so.</span>
+<span class="th-token th-comment">#</span>
+<span class="th-token th-comment"># This file is documentation that cannot go stale: `extra = &quot;forbid&quot;` means a</span>
+<span class="th-token th-comment"># variable the app does not know about stops the boot, and a missing one</span>
+<span class="th-token th-comment"># without a default does too. So the set of names here is the set it reads.</span>
+
+<span class="th-token th-property">SHORTLINK_ENVIRONMENT</span>=<span class="th-token th-string">local</span>
+<span class="th-token th-property">SHORTLINK_DATABASE_URL</span>=<span class="th-token th-string">postgresql+asyncpg://shortlink:shortlink@localhost:5432/shortlink</span>
+<span class="th-token th-property">SHORTLINK_REDIS_URL</span>=<span class="th-token th-string">redis://localhost:6379/0</span>
+<span class="th-token th-property">SHORTLINK_BASE_URL</span>=<span class="th-token th-string">http://localhost:8000</span>
+<span class="th-token th-property">SHORTLINK_LOG_LEVEL</span>=<span class="th-token th-string">DEBUG</span></pre>
+
+      <div class="note warn">
+        <h4>Secrets are not configuration</h4>
+        <p>The pattern above is right for a database URL and wrong for a signing key. Anything secret should arrive from the platform&rsquo;s secret store &mdash; a mounted file, a sidecar, an injected environment variable the deployment system owns &mdash; and never have a default, never be logged, and never appear in <code>.env.example</code> with a real-looking value. Two habits that cost nothing: keep secrets as <code>pydantic.SecretStr</code> so an accidental <code>repr()</code> of the settings object prints <code>**********</code>, and assert at boot that a production environment did not pick up a development default.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-domain">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 35</span>
+        <h3>The core, which knows nothing about the web</h3>
+        <p class="lede">This is the part worth protecting. It holds the rules &mdash; what a valid destination is, how a short code is generated, when a link has expired &mdash; and it imports nothing from the rest of the package. That constraint is not purity for its own sake: it is what makes these tests run in a millisecond with no fixtures, and it is what lets the same rules back an HTTP API, a batch import and a queue consumer without being rewritten.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/domain.py -- the standard library, and nothing else.</span>
+<span class="th-token th-keyword">import</span> secrets
+<span class="th-token th-keyword">from</span> dataclasses <span class="th-token th-keyword">import</span> dataclass
+<span class="th-token th-keyword">from</span> datetime <span class="th-token th-keyword">import</span> UTC, datetime
+
+<span class="th-token th-comment"># Base62 without look-alikes. Removing 0/O and 1/l/I costs four characters of</span>
+<span class="th-token th-comment"># alphabet and saves a support ticket every time somebody reads a code aloud.</span>
+ALPHABET = <span class="th-token th-string">&quot;23456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ&quot;</span>
+CODE_LENGTH = <span class="th-token th-number">7</span>
+BLOCKED_SCHEMES = <span class="th-token th-type">frozenset</span>({<span class="th-token th-string">&quot;javascript&quot;</span>, <span class="th-token th-string">&quot;data&quot;</span>, <span class="th-token th-string">&quot;file&quot;</span>, <span class="th-token th-string">&quot;vbscript&quot;</span>})
+
+
+<span class="th-token th-keyword">class</span> DomainError(Exception):
+    <span class="th-token th-string">&quot;&quot;&quot;Something the caller did. Never a 500.&quot;&quot;&quot;</span>
+
+
+<span class="th-token th-keyword">class</span> InvalidDestination(DomainError):
+    <span class="th-token th-keyword">pass</span>
+
+
+<span class="th-token th-function">@dataclass</span>(frozen=<span class="th-token th-literal">True</span>, slots=<span class="th-token th-literal">True</span>)
+<span class="th-token th-keyword">class</span> Link:
+    code: <span class="th-token th-type">str</span>
+    destination: <span class="th-token th-type">str</span>
+    owner_id: <span class="th-token th-type">str</span>
+    created_at: datetime
+    expires_at: datetime | <span class="th-token th-literal">None</span> = <span class="th-token th-literal">None</span>
+
+    <span class="th-token th-keyword">def</span> <span class="th-token th-function">is_expired</span>(self, now: datetime | <span class="th-token th-literal">None</span> = <span class="th-token th-literal">None</span>) -&gt; <span class="th-token th-type">bool</span>:
+        <span class="th-token th-keyword">if</span> self.expires_at <span class="th-token th-keyword">is</span> <span class="th-token th-literal">None</span>:
+            <span class="th-token th-keyword">return</span> <span class="th-token th-literal">False</span>
+        <span class="th-token th-comment"># Always compare aware datetimes in UTC. A naive datetime here is the</span>
+        <span class="th-token th-comment"># bug that appears twice a year and is blamed on the database.</span>
+        <span class="th-token th-keyword">return</span> (now <span class="th-token th-keyword">or</span> datetime.now(UTC)) &gt;= self.expires_at
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">new_code</span>(length: <span class="th-token th-type">int</span> = CODE_LENGTH) -&gt; <span class="th-token th-type">str</span>:
+    <span class="th-token th-string">&quot;&quot;&quot;A short code with ~41 bits of entropy at the default length.
+
+    secrets, not random: these are guessable identifiers for other people&#39;s
+    content. The collision is handled by a unique index, not by checking
+    first -- see repository.py, where the race is impossible rather than
+    unlikely.
+    &quot;&quot;&quot;</span>
+    <span class="th-token th-keyword">return</span> <span class="th-token th-string">&quot;&quot;</span>.join(secrets.choice(ALPHABET) <span class="th-token th-keyword">for</span> _ <span class="th-token th-keyword">in</span> range(length))
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">validate_destination</span>(raw: <span class="th-token th-type">str</span>) -&gt; <span class="th-token th-type">str</span>:
+    <span class="th-token th-string">&quot;&quot;&quot;Normalise and reject. Returns the URL to store, or raises.&quot;&quot;&quot;</span>
+    url = raw.strip()
+    scheme, _, rest = url.partition(<span class="th-token th-string">&quot;://&quot;</span>)
+    <span class="th-token th-keyword">if</span> <span class="th-token th-keyword">not</span> rest:
+        <span class="th-token th-keyword">raise</span> InvalidDestination(<span class="th-token th-string">&quot;destination must be an absolute URL&quot;</span>)
+    <span class="th-token th-keyword">if</span> scheme.lower() <span class="th-token th-keyword">in</span> BLOCKED_SCHEMES:
+        <span class="th-token th-comment"># An open redirector that will emit javascript: is a stored XSS</span>
+        <span class="th-token th-comment"># delivery service with your domain&#39;s reputation attached.</span>
+        <span class="th-token th-keyword">raise</span> InvalidDestination(<span class="th-token th-string">f&quot;scheme {scheme!r} is not allowed&quot;</span>)
+    <span class="th-token th-keyword">if</span> scheme.lower() <span class="th-token th-keyword">not</span> <span class="th-token th-keyword">in</span> {<span class="th-token th-string">&quot;http&quot;</span>, <span class="th-token th-string">&quot;https&quot;</span>}:
+        <span class="th-token th-keyword">raise</span> InvalidDestination(<span class="th-token th-string">&quot;only http and https destinations are allowed&quot;</span>)
+    <span class="th-token th-keyword">if</span> len(url) &gt; <span class="th-token th-number">2048</span>:
+        <span class="th-token th-keyword">raise</span> InvalidDestination(<span class="th-token th-string">&quot;destination is too long&quot;</span>)
+    <span class="th-token th-keyword">return</span> url</pre>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/schemas.py -- the wire contract. Deliberately not the table.</span>
+<span class="th-token th-keyword">from</span> datetime <span class="th-token th-keyword">import</span> datetime
+
+<span class="th-token th-keyword">from</span> pydantic <span class="th-token th-keyword">import</span> BaseModel, ConfigDict, Field
+
+<span class="th-token th-keyword">from</span> shortlink.domain <span class="th-token th-keyword">import</span> Link
+
+
+<span class="th-token th-keyword">class</span> CreateLinkRequest(BaseModel):
+    <span class="th-token th-comment"># forbid: a client sending {&quot;destinaton&quot;: ...} gets a 422 naming the</span>
+    <span class="th-token th-comment"># field, instead of a link quietly pointing nowhere.</span>
+    model_config = ConfigDict(extra=<span class="th-token th-string">&quot;forbid&quot;</span>)
+
+    destination: <span class="th-token th-type">str</span> = Field(min_length=<span class="th-token th-number">1</span>, max_length=<span class="th-token th-number">2048</span>)
+    expires_at: datetime | <span class="th-token th-literal">None</span> = <span class="th-token th-literal">None</span>
+
+
+<span class="th-token th-keyword">class</span> LinkResponse(BaseModel):
+    code: <span class="th-token th-type">str</span>
+    short_url: <span class="th-token th-type">str</span>
+    destination: <span class="th-token th-type">str</span>
+    created_at: datetime
+    expires_at: datetime | <span class="th-token th-literal">None</span>
+
+    <span class="th-token th-function">@classmethod</span>
+    <span class="th-token th-keyword">def</span> <span class="th-token th-function">of</span>(cls, link: Link, base_url: <span class="th-token th-type">str</span>) -&gt; <span class="th-token th-string">&quot;LinkResponse&quot;</span>:
+        <span class="th-token th-comment"># The mapping lives here, in one place. Returning the ORM object</span>
+        <span class="th-token th-comment"># directly is how a password hash ends up in a JSON response the</span>
+        <span class="th-token th-comment"># first time somebody adds a column.</span>
+        <span class="th-token th-keyword">return</span> cls(
+            code=link.code,
+            short_url=<span class="th-token th-string">f&quot;{base_url}/{link.code}&quot;</span>,
+            destination=link.destination,
+            created_at=link.created_at,
+            expires_at=link.expires_at,
+        )</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Two models, not one</h4>
+          <ul>
+            <li><strong>The request model is not the table.</strong> They change for different reasons: one when the API changes, one when the schema does.</li>
+            <li><strong>Never return the ORM object.</strong> Every column you add later becomes public the day you add it.</li>
+            <li><strong>Set <code>extra="forbid"</code> on input.</strong> Silent field-name typos are the cheapest bug class to eliminate.</li>
+            <li>Validate at the edge, once, and trust the object afterwards.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Where the rules live</h4>
+          <ul>
+            <li><strong>Pydantic validates shape; the domain validates meaning.</strong> &ldquo;Is a string under 2048 characters&rdquo; is shape. &ldquo;Is not a <code>javascript:</code> URL&rdquo; is meaning, and belongs where a CLI can reach it too.</li>
+            <li><strong>Use <code>frozen=True</code> and <code>slots=True</code></strong> on domain objects: immutable by default, and measurably smaller.</li>
+            <li><strong>Aware datetimes, always UTC.</strong> Convert at the edge, never in the middle.</li>
+            <li><code>secrets</code>, not <code>random</code>, for anything another person could try to guess.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>The parts that bite later</h4>
+          <ul>
+            <li><strong>Entropy is a product decision.</strong> Seven base-58 characters is about 41 bits; at ten million links the chance any two collide is small but the chance one is guessed by a scanner is not zero. Size it against what the links protect.</li>
+            <li><strong>Open redirects are a real vulnerability class</strong>, not a theoretical one &mdash; they are used to launder phishing links through domains people trust. The allow-list above is the minimum.</li>
+            <li><strong>Normalising is a decision you cannot take back:</strong> once you store the normalised form, the original is gone. Keep both if anyone might audit it.</li>
+            <li>Keep the domain importable with no environment set. If it needs settings, it is not the domain.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-db">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 36</span>
+        <h3>Persistence: engine, session, and the first migration</h3>
+        <p class="lede">Three separate things get confused here constantly. The <b>engine</b> is a connection pool and lives for the life of the process. The <b>session</b> is a unit of work and lives for the life of one request. The <b>migration</b> is a versioned, reviewed change to the schema that runs before the new code does. Getting the lifetimes right is most of what makes a service survive load.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/models.py -- SQLAlchemy 2.0 typed declarative mapping.</span>
+<span class="th-token th-keyword">from</span> datetime <span class="th-token th-keyword">import</span> datetime
+
+<span class="th-token th-keyword">from</span> sqlalchemy <span class="th-token th-keyword">import</span> DateTime, Index, String, func
+<span class="th-token th-keyword">from</span> sqlalchemy.orm <span class="th-token th-keyword">import</span> DeclarativeBase, Mapped, mapped_column
+
+
+<span class="th-token th-keyword">class</span> Base(DeclarativeBase):
+    <span class="th-token th-keyword">pass</span>
+
+
+<span class="th-token th-keyword">class</span> LinkRow(Base):
+    __tablename__ = <span class="th-token th-string">&quot;links&quot;</span>
+
+    <span class="th-token th-comment"># The short code is the natural key and the only thing ever looked up by,</span>
+    <span class="th-token th-comment"># so it is the primary key. A surrogate id here would buy an index nobody</span>
+    <span class="th-token th-comment"># queries and a join nobody needs.</span>
+    code: Mapped[<span class="th-token th-type">str</span>] = mapped_column(String(<span class="th-token th-number">16</span>), primary_key=<span class="th-token th-literal">True</span>)
+    destination: Mapped[<span class="th-token th-type">str</span>] = mapped_column(String(<span class="th-token th-number">2048</span>), nullable=<span class="th-token th-literal">False</span>)
+    owner_id: Mapped[<span class="th-token th-type">str</span>] = mapped_column(String(<span class="th-token th-number">64</span>), nullable=<span class="th-token th-literal">False</span>, index=<span class="th-token th-literal">True</span>)
+
+    <span class="th-token th-comment"># server_default, not default: the database clock is the one clock every</span>
+    <span class="th-token th-comment"># writer agrees on, including a migration or a manual INSERT.</span>
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=<span class="th-token th-literal">True</span>), server_default=func.now(), nullable=<span class="th-token th-literal">False</span>
+    )
+    expires_at: Mapped[datetime | <span class="th-token th-literal">None</span>] = mapped_column(DateTime(timezone=<span class="th-token th-literal">True</span>))
+
+    <span class="th-token th-comment"># Idempotency: the same key from the same owner must return the first</span>
+    <span class="th-token th-comment"># link, not create a second. Enforced by the database, because two</span>
+    <span class="th-token th-comment"># concurrent requests will pass any check you write in Python.</span>
+    idempotency_key: Mapped[<span class="th-token th-type">str</span> | <span class="th-token th-literal">None</span>] = mapped_column(String(<span class="th-token th-number">64</span>))
+
+    __table_args__ = (
+        Index(<span class="th-token th-string">&quot;uq_links_owner_idem&quot;</span>, <span class="th-token th-string">&quot;owner_id&quot;</span>, <span class="th-token th-string">&quot;idempotency_key&quot;</span>, unique=<span class="th-token th-literal">True</span>,
+              postgresql_where=idempotency_key.isnot(<span class="th-token th-literal">None</span>)),
+    )
+
+
+<span class="th-token th-keyword">class</span> ApiKeyRow(Base):
+    __tablename__ = <span class="th-token th-string">&quot;api_keys&quot;</span>
+
+    id: Mapped[<span class="th-token th-type">int</span>] = mapped_column(primary_key=<span class="th-token th-literal">True</span>)
+    <span class="th-token th-comment"># The sha256 of the key, never the key. Unique and indexed, because every</span>
+    <span class="th-token th-comment"># authenticated request looks a caller up by exactly this value.</span>
+    key_hash: Mapped[<span class="th-token th-type">str</span>] = mapped_column(String(<span class="th-token th-number">64</span>), unique=<span class="th-token th-literal">True</span>, nullable=<span class="th-token th-literal">False</span>)
+    owner_id: Mapped[<span class="th-token th-type">str</span>] = mapped_column(String(<span class="th-token th-number">64</span>), nullable=<span class="th-token th-literal">False</span>)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=<span class="th-token th-literal">True</span>), server_default=func.now(), nullable=<span class="th-token th-literal">False</span>
+    )
+    <span class="th-token th-comment"># Revoke by setting a timestamp rather than deleting the row: you will</span>
+    <span class="th-token th-comment"># want to know which key was used after somebody turns one off.</span>
+    revoked_at: Mapped[datetime | <span class="th-token th-literal">None</span>] = mapped_column(DateTime(timezone=<span class="th-token th-literal">True</span>))</pre>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/db.py -- one engine per process, one session per request.</span>
+<span class="th-token th-keyword">from</span> collections.abc <span class="th-token th-keyword">import</span> AsyncIterator
+
+<span class="th-token th-keyword">from</span> sqlalchemy.ext.asyncio <span class="th-token th-keyword">import</span> AsyncSession, async_sessionmaker, create_async_engine
+
+<span class="th-token th-keyword">from</span> shortlink.config <span class="th-token th-keyword">import</span> get_settings
+
+settings = get_settings()
+
+engine = create_async_engine(
+    <span class="th-token th-type">str</span>(settings.database_url),
+    pool_size=settings.db_pool_size,
+    max_overflow=<span class="th-token th-number">0</span>,          <span class="th-token th-comment"># a hard ceiling: better to queue than to exhaust Postgres</span>
+    pool_pre_ping=<span class="th-token th-literal">True</span>,      <span class="th-token th-comment"># one cheap round trip beats a stale-connection 500</span>
+    pool_recycle=<span class="th-token th-number">1800</span>,       <span class="th-token th-comment"># under most proxies, connections do not live forever</span>
+)
+
+<span class="th-token th-comment"># expire_on_commit=False: without it, touching any attribute after commit</span>
+<span class="th-token th-comment"># triggers a fresh SELECT -- inside a response serialiser, on a closed</span>
+<span class="th-token th-comment"># session, which is the classic MissingGreenlet at the worst moment.</span>
+SessionFactory = async_sessionmaker(engine, expire_on_commit=<span class="th-token th-literal">False</span>)
+
+
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">get_session</span>() -&gt; AsyncIterator[AsyncSession]:
+    <span class="th-token th-string">&quot;&quot;&quot;The transaction boundary, and the only place commit is called.
+
+    One request, one transaction. Anything raised below -- a domain error, a
+    bug, a cancelled request -- unwinds through here and rolls back, so a
+    handler can never leave half a write behind.
+    &quot;&quot;&quot;</span>
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">with</span> SessionFactory() <span class="th-token th-keyword">as</span> session:
+        <span class="th-token th-keyword">try</span>:
+            <span class="th-token th-keyword">yield</span> session
+            <span class="th-token th-keyword">await</span> session.commit()
+        <span class="th-token th-keyword">except</span> Exception:
+            <span class="th-token th-keyword">await</span> session.rollback()
+            <span class="th-token th-keyword">raise</span></pre>
+
+<pre class="l1"><span class="th-token th-comment"># migrations/versions/0001_create_links.py</span>
+<span class="th-token th-string">&quot;&quot;&quot;create links
+
+Revision ID: 0001
+&quot;&quot;&quot;</span>
+<span class="th-token th-keyword">import</span> sqlalchemy <span class="th-token th-keyword">as</span> sa
+<span class="th-token th-keyword">from</span> alembic <span class="th-token th-keyword">import</span> op
+
+revision = <span class="th-token th-string">&quot;0001&quot;</span>
+down_revision = <span class="th-token th-literal">None</span>
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">upgrade</span>() -&gt; <span class="th-token th-literal">None</span>:
+    op.create_table(
+        <span class="th-token th-string">&quot;links&quot;</span>,
+        sa.Column(<span class="th-token th-string">&quot;code&quot;</span>, sa.String(<span class="th-token th-number">16</span>), primary_key=<span class="th-token th-literal">True</span>),
+        sa.Column(<span class="th-token th-string">&quot;destination&quot;</span>, sa.String(<span class="th-token th-number">2048</span>), nullable=<span class="th-token th-literal">False</span>),
+        sa.Column(<span class="th-token th-string">&quot;owner_id&quot;</span>, sa.String(<span class="th-token th-number">64</span>), nullable=<span class="th-token th-literal">False</span>),
+        sa.Column(<span class="th-token th-string">&quot;created_at&quot;</span>, sa.DateTime(timezone=<span class="th-token th-literal">True</span>),
+                  server_default=sa.func.now(), nullable=<span class="th-token th-literal">False</span>),
+        sa.Column(<span class="th-token th-string">&quot;expires_at&quot;</span>, sa.DateTime(timezone=<span class="th-token th-literal">True</span>)),
+        sa.Column(<span class="th-token th-string">&quot;idempotency_key&quot;</span>, sa.String(<span class="th-token th-number">64</span>)),
+    )
+    op.create_index(<span class="th-token th-string">&quot;ix_links_owner_id&quot;</span>, <span class="th-token th-string">&quot;links&quot;</span>, [<span class="th-token th-string">&quot;owner_id&quot;</span>])
+    op.create_index(
+        <span class="th-token th-string">&quot;uq_links_owner_idem&quot;</span>, <span class="th-token th-string">&quot;links&quot;</span>, [<span class="th-token th-string">&quot;owner_id&quot;</span>, <span class="th-token th-string">&quot;idempotency_key&quot;</span>],
+        unique=<span class="th-token th-literal">True</span>, postgresql_where=sa.text(<span class="th-token th-string">&quot;idempotency_key IS NOT NULL&quot;</span>),
+    )
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">downgrade</span>() -&gt; <span class="th-token th-literal">None</span>:
+    op.drop_table(<span class="th-token th-string">&quot;links&quot;</span>)
+
+<span class="th-token th-comment"># Two rules this file obeys, and both are learned the hard way:</span>
+<span class="th-token th-comment">#</span>
+<span class="th-token th-comment">#   Migrations are forward-only in production. `downgrade` exists so the</span>
+<span class="th-token th-comment">#   test suite can round-trip; nobody runs it against real data at 3am.</span>
+<span class="th-token th-comment">#</span>
+<span class="th-token th-comment">#   Every migration must be safe to run while the OLD code is still serving.</span>
+<span class="th-token th-comment">#   Deploys are not atomic. Adding a NOT NULL column with no default takes an</span>
+<span class="th-token th-comment">#   exclusive lock and rejects every insert the running version makes -- so</span>
+<span class="th-token th-comment">#   it is three deploys: add nullable, backfill, then enforce.</span></pre>
+
+      <div class="note">
+        <h4>Why <code>expire_on_commit=False</code> is not an optimisation</h4>
+        <p>By default SQLAlchemy marks every attribute stale after a commit, so the next attribute access re-reads it from the database. In a synchronous script that is a mild waste. In an async request handler it is a crash: the commit happens in the dependency as the response is being built, so the refresh is attempted on a session that is closing, from a thread with no greenlet context, and you get <code>MissingGreenlet</code> pointing at a line that looks completely innocent. Turn it off, and convert ORM rows to domain objects or response models before the transaction ends &mdash; which the repository below does anyway.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-repo">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 37</span>
+        <h3>The repository, and the race you cannot check for</h3>
+        <p class="lede">One module writes SQL, and it returns domain objects rather than ORM rows so nothing above it is coupled to the table. It also contains the single most important idea in this whole part: where two requests can collide, do not check and then act &mdash; ask the database to enforce it and handle the refusal. A <code>SELECT</code> followed by an <code>INSERT</code> is a race with a comfortable-looking test suite.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/repository.py -- the only module that knows SQL exists.</span>
+<span class="th-token th-keyword">from</span> datetime <span class="th-token th-keyword">import</span> datetime
+
+<span class="th-token th-keyword">from</span> sqlalchemy <span class="th-token th-keyword">import</span> select
+<span class="th-token th-keyword">from</span> sqlalchemy.dialects.postgresql <span class="th-token th-keyword">import</span> insert
+<span class="th-token th-keyword">from</span> sqlalchemy.exc <span class="th-token th-keyword">import</span> IntegrityError
+<span class="th-token th-keyword">from</span> sqlalchemy.ext.asyncio <span class="th-token th-keyword">import</span> AsyncSession
+
+<span class="th-token th-keyword">from</span> shortlink.domain <span class="th-token th-keyword">import</span> Link
+<span class="th-token th-keyword">from</span> shortlink.models <span class="th-token th-keyword">import</span> LinkRow
+
+
+<span class="th-token th-keyword">class</span> CodeCollision(Exception):
+    <span class="th-token th-string">&quot;&quot;&quot;The generated code was already taken. Caller retries with a new one.&quot;&quot;&quot;</span>
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">_to_domain</span>(row: LinkRow) -&gt; Link:
+    <span class="th-token th-keyword">return</span> Link(
+        code=row.code,
+        destination=row.destination,
+        owner_id=row.owner_id,
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+    )
+
+
+<span class="th-token th-keyword">class</span> LinkRepository:
+    <span class="th-token th-keyword">def</span> <span class="th-token th-function">__init__</span>(self, session: AsyncSession) -&gt; <span class="th-token th-literal">None</span>:
+        self._session = session
+
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">get</span>(self, code: <span class="th-token th-type">str</span>) -&gt; Link | <span class="th-token th-literal">None</span>:
+        row = <span class="th-token th-keyword">await</span> self._session.get(LinkRow, code)
+        <span class="th-token th-keyword">return</span> _to_domain(row) <span class="th-token th-keyword">if</span> row <span class="th-token th-keyword">else</span> <span class="th-token th-literal">None</span>
+
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">find_by_idempotency_key</span>(self, owner_id: <span class="th-token th-type">str</span>, key: <span class="th-token th-type">str</span>) -&gt; Link | <span class="th-token th-literal">None</span>:
+        stmt = select(LinkRow).where(
+            LinkRow.owner_id == owner_id, LinkRow.idempotency_key == key
+        )
+        row = (<span class="th-token th-keyword">await</span> self._session.execute(stmt)).scalar_one_or_none()
+        <span class="th-token th-keyword">return</span> _to_domain(row) <span class="th-token th-keyword">if</span> row <span class="th-token th-keyword">else</span> <span class="th-token th-literal">None</span>
+
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">add</span>(
+        self,
+        code: <span class="th-token th-type">str</span>,
+        destination: <span class="th-token th-type">str</span>,
+        owner_id: <span class="th-token th-type">str</span>,
+        expires_at: datetime | <span class="th-token th-literal">None</span>,
+        idempotency_key: <span class="th-token th-type">str</span> | <span class="th-token th-literal">None</span>,
+    ) -&gt; Link:
+        <span class="th-token th-string">&quot;&quot;&quot;Insert, or raise CodeCollision if that code is taken.
+
+        This is INSERT ... ON CONFLICT DO NOTHING on the idempotency index,
+        which makes a repeated request a no-op at the database rather than a
+        second link. If nothing came back, either the code collided or the
+        request is a retry -- the caller can tell them apart, and only one of
+        them is worth retrying.
+        &quot;&quot;&quot;</span>
+        stmt = (
+            insert(LinkRow)
+            .values(
+                code=code,
+                destination=destination,
+                owner_id=owner_id,
+                expires_at=expires_at,
+                idempotency_key=idempotency_key,
+            )
+            .on_conflict_do_nothing(index_elements=[<span class="th-token th-string">&quot;owner_id&quot;</span>, <span class="th-token th-string">&quot;idempotency_key&quot;</span>])
+            .returning(LinkRow)
+        )
+        <span class="th-token th-keyword">try</span>:
+            row = (<span class="th-token th-keyword">await</span> self._session.execute(stmt)).scalar_one_or_none()
+        <span class="th-token th-keyword">except</span> IntegrityError <span class="th-token th-keyword">as</span> exc:
+            <span class="th-token th-comment"># The other unique constraint: the primary key. Two writers drew</span>
+            <span class="th-token th-comment"># the same random code, which is rare and entirely expected.</span>
+            <span class="th-token th-keyword">raise</span> CodeCollision(code) <span class="th-token th-keyword">from</span> exc
+
+        <span class="th-token th-keyword">if</span> row <span class="th-token th-keyword">is</span> <span class="th-token th-literal">None</span>:
+            <span class="th-token th-comment"># ON CONFLICT swallowed it: this owner already used this key.</span>
+            existing = <span class="th-token th-keyword">await</span> self.find_by_idempotency_key(owner_id, idempotency_key <span class="th-token th-keyword">or</span> <span class="th-token th-string">&quot;&quot;</span>)
+            <span class="th-token th-keyword">if</span> existing <span class="th-token th-keyword">is</span> <span class="th-token th-literal">None</span>:  <span class="th-token th-comment"># pragma: no cover -- only under manual deletion</span>
+                <span class="th-token th-keyword">raise</span> CodeCollision(code)
+            <span class="th-token th-keyword">return</span> existing
+        <span class="th-token th-keyword">return</span> _to_domain(row)</pre>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/service.py -- the use cases. No Request, no HTTPException.</span>
+<span class="th-token th-keyword">from</span> datetime <span class="th-token th-keyword">import</span> UTC, datetime
+
+<span class="th-token th-keyword">from</span> shortlink <span class="th-token th-keyword">import</span> domain
+<span class="th-token th-keyword">from</span> shortlink.domain <span class="th-token th-keyword">import</span> DomainError, Link
+<span class="th-token th-keyword">from</span> shortlink.repository <span class="th-token th-keyword">import</span> CodeCollision, LinkRepository
+
+MAX_CODE_ATTEMPTS = <span class="th-token th-number">5</span>
+
+
+<span class="th-token th-keyword">class</span> LinkNotFound(DomainError):
+    <span class="th-token th-keyword">pass</span>
+
+
+<span class="th-token th-keyword">class</span> LinkExpired(DomainError):
+    <span class="th-token th-keyword">pass</span>
+
+
+<span class="th-token th-keyword">class</span> LinkService:
+    <span class="th-token th-keyword">def</span> <span class="th-token th-function">__init__</span>(self, repo: LinkRepository) -&gt; <span class="th-token th-literal">None</span>:
+        self._repo = repo
+
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">create</span>(
+        self,
+        destination: <span class="th-token th-type">str</span>,
+        owner_id: <span class="th-token th-type">str</span>,
+        expires_at: datetime | <span class="th-token th-literal">None</span> = <span class="th-token th-literal">None</span>,
+        idempotency_key: <span class="th-token th-type">str</span> | <span class="th-token th-literal">None</span> = <span class="th-token th-literal">None</span>,
+    ) -&gt; Link:
+        clean = domain.validate_destination(destination)
+
+        <span class="th-token th-comment"># Bounded retry on collision. Unbounded would turn a misconfigured</span>
+        <span class="th-token th-comment"># short code length into an infinite loop holding a transaction open.</span>
+        <span class="th-token th-keyword">for</span> _ <span class="th-token th-keyword">in</span> range(MAX_CODE_ATTEMPTS):
+            <span class="th-token th-keyword">try</span>:
+                <span class="th-token th-keyword">return</span> <span class="th-token th-keyword">await</span> self._repo.add(
+                    code=domain.new_code(),
+                    destination=clean,
+                    owner_id=owner_id,
+                    expires_at=expires_at,
+                    idempotency_key=idempotency_key,
+                )
+            <span class="th-token th-keyword">except</span> CodeCollision:
+                <span class="th-token th-keyword">continue</span>
+        <span class="th-token th-keyword">raise</span> RuntimeError(<span class="th-token th-string">&quot;could not allocate a unique code&quot;</span>)  <span class="th-token th-comment"># a real 500: page someone</span>
+
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">resolve</span>(self, code: <span class="th-token th-type">str</span>) -&gt; Link:
+        link = <span class="th-token th-keyword">await</span> self._repo.get(code)
+        <span class="th-token th-keyword">if</span> link <span class="th-token th-keyword">is</span> <span class="th-token th-literal">None</span>:
+            <span class="th-token th-keyword">raise</span> LinkNotFound(code)
+        <span class="th-token th-keyword">if</span> link.is_expired(datetime.now(UTC)):
+            <span class="th-token th-comment"># Distinct from &quot;not found&quot; on purpose: the caller gets 410 Gone,</span>
+            <span class="th-token th-comment"># which tells a crawler to stop asking. 404 does not.</span>
+            <span class="th-token th-keyword">raise</span> LinkExpired(code)
+        <span class="th-token th-keyword">return</span> link</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Keep SQL in one place</h4>
+          <ul>
+            <li><strong>One module writes queries.</strong> When a query is slow, there is one file to open.</li>
+            <li><strong>Return domain objects</strong>, not ORM rows &mdash; then nothing above cares which ORM you used.</li>
+            <li><strong>Never build SQL with f-strings.</strong> Parameters are not about tidiness; they are the injection boundary.</li>
+            <li>The service raises domain errors. Translating those to status codes is the API layer's job.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Let the database enforce it</h4>
+          <ul>
+            <li><strong>Check-then-act is a race.</strong> <code>SELECT ... IF NOT EXISTS ... INSERT</code> passes every test and fails under concurrency.</li>
+            <li><strong>Idempotency is a unique index</strong> plus a key from the client. It is the difference between a retry and a duplicate charge.</li>
+            <li><strong>Bound every retry loop</strong>, and make the exhausted case loud.</li>
+            <li>Distinguish 404 from 410. It costs one exception class and it changes crawler behaviour.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Transactions and the N+1</h4>
+          <ul>
+            <li><strong>The repository does not commit.</strong> Only the request-scoped dependency does, so one request is one atomic unit however many repositories it touches.</li>
+            <li><strong>Watch for lazy loads after commit.</strong> Converting to a domain object inside the transaction is what makes that impossible rather than unlikely.</li>
+            <li><strong>Partial unique indexes</strong> let idempotency keys be optional without making <code>NULL</code> collide with itself &mdash; Postgres treats every <code>NULL</code> as distinct.</li>
+            <li>If the collision retry ever fires measurably, the code space is too small. Alert on it rather than discovering it in a bug report.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-api">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 38</span>
+        <h3>The HTTP edge, and the app that wires it</h3>
+        <p class="lede">This layer should be boring, and if it is not, something below it is missing. Its whole job is to turn a request into a call and a result into a status code &mdash; no business rules, no SQL, no branching that is not about HTTP. The interesting part is the app factory: what gets created once at start-up and torn down cleanly, which is what <code>lifespan</code> exists for.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/api.py -- routers, dependencies, status codes. Nothing else.</span>
+<span class="th-token th-keyword">from</span> typing <span class="th-token th-keyword">import</span> Annotated
+
+<span class="th-token th-keyword">from</span> fastapi <span class="th-token th-keyword">import</span> APIRouter, Depends, Header, Response, status
+<span class="th-token th-keyword">from</span> fastapi.responses <span class="th-token th-keyword">import</span> RedirectResponse
+<span class="th-token th-keyword">from</span> sqlalchemy.ext.asyncio <span class="th-token th-keyword">import</span> AsyncSession
+
+<span class="th-token th-keyword">from</span> shortlink.config <span class="th-token th-keyword">import</span> Settings, get_settings
+<span class="th-token th-keyword">from</span> shortlink.db <span class="th-token th-keyword">import</span> get_session
+<span class="th-token th-keyword">from</span> shortlink.repository <span class="th-token th-keyword">import</span> LinkRepository
+<span class="th-token th-keyword">from</span> shortlink.schemas <span class="th-token th-keyword">import</span> CreateLinkRequest, LinkResponse
+<span class="th-token th-keyword">from</span> shortlink.security <span class="th-token th-keyword">import</span> ApiKey, require_api_key, rate_limit
+<span class="th-token th-keyword">from</span> shortlink.service <span class="th-token th-keyword">import</span> LinkService
+
+router = APIRouter()
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">get_service</span>(session: Annotated[AsyncSession, Depends(get_session)]) -&gt; LinkService:
+    <span class="th-token th-keyword">return</span> LinkService(LinkRepository(session))
+
+
+ServiceDep = Annotated[LinkService, Depends(get_service)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+<span class="th-token th-function">@router.post</span>(
+    <span class="th-token th-string">&quot;/links&quot;</span>,
+    response_model=LinkResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit)],
+    summary=<span class="th-token th-string">&quot;Create a short link&quot;</span>,
+)
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">create_link</span>(
+    body: CreateLinkRequest,
+    service: ServiceDep,
+    settings: SettingsDep,
+    caller: Annotated[ApiKey, Depends(require_api_key)],
+    response: Response,
+    idempotency_key: Annotated[<span class="th-token th-type">str</span> | <span class="th-token th-literal">None</span>, Header(alias=<span class="th-token th-string">&quot;Idempotency-Key&quot;</span>)] = <span class="th-token th-literal">None</span>,
+) -&gt; LinkResponse:
+    link = <span class="th-token th-keyword">await</span> service.create(
+        destination=body.destination,
+        owner_id=caller.owner_id,
+        expires_at=body.expires_at,
+        idempotency_key=idempotency_key,
+    )
+    <span class="th-token th-comment"># 201 without Location is a 201 the client has to guess about.</span>
+    response.headers[<span class="th-token th-string">&quot;Location&quot;</span>] = <span class="th-token th-string">f&quot;{settings.base_url}/{link.code}&quot;</span>
+    <span class="th-token th-keyword">return</span> LinkResponse.of(link, settings.base_url)
+
+
+<span class="th-token th-function">@router.get</span>(<span class="th-token th-string">&quot;/{code}&quot;</span>, include_in_schema=<span class="th-token th-literal">False</span>)
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">follow</span>(code: <span class="th-token th-type">str</span>, service: ServiceDep) -&gt; RedirectResponse:
+    link = <span class="th-token th-keyword">await</span> service.resolve(code)
+    <span class="th-token th-comment"># 307, not 302: 307 preserves the method, and a permanent redirect would</span>
+    <span class="th-token th-comment"># be cached by every proxy on earth -- making the link impossible to</span>
+    <span class="th-token th-comment"># revoke, expire or measure.</span>
+    <span class="th-token th-keyword">return</span> RedirectResponse(link.destination, status_code=status.HTTP_307_TEMPORARY_REDIRECT)</pre>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/main.py -- the app factory and everything with a lifetime.</span>
+<span class="th-token th-keyword">from</span> collections.abc <span class="th-token th-keyword">import</span> AsyncIterator
+<span class="th-token th-keyword">from</span> contextlib <span class="th-token th-keyword">import</span> asynccontextmanager
+
+<span class="th-token th-keyword">import</span> redis.asyncio <span class="th-token th-keyword">as</span> redis
+<span class="th-token th-keyword">from</span> fastapi <span class="th-token th-keyword">import</span> FastAPI
+
+<span class="th-token th-keyword">from</span> shortlink <span class="th-token th-keyword">import</span> observability
+<span class="th-token th-keyword">from</span> shortlink.api <span class="th-token th-keyword">import</span> router
+<span class="th-token th-keyword">from</span> shortlink.config <span class="th-token th-keyword">import</span> get_settings
+<span class="th-token th-keyword">from</span> shortlink.db <span class="th-token th-keyword">import</span> engine
+<span class="th-token th-keyword">from</span> shortlink.errors <span class="th-token th-keyword">import</span> install_error_handlers
+
+
+<span class="th-token th-function">@asynccontextmanager</span>
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">lifespan</span>(app: FastAPI) -&gt; AsyncIterator[<span class="th-token th-literal">None</span>]:
+    <span class="th-token th-string">&quot;&quot;&quot;Start-up before the first request; shutdown after the last one.
+
+    Everything expensive and long-lived is built here, once. Building a Redis
+    client per request is the commonest cause of a service that is fine in
+    staging and exhausts file descriptors in production.
+    &quot;&quot;&quot;</span>
+    settings = get_settings()
+    observability.configure(settings)
+    app.state.redis = redis.from_url(<span class="th-token th-type">str</span>(settings.redis_url), decode_responses=<span class="th-token th-literal">True</span>)
+    <span class="th-token th-keyword">try</span>:
+        <span class="th-token th-keyword">yield</span>
+    <span class="th-token th-keyword">finally</span>:
+        <span class="th-token th-comment"># Ordered, and always runs: an unclosed pool keeps the process alive</span>
+        <span class="th-token th-comment"># past SIGTERM and turns a rolling deploy into a five-minute wait.</span>
+        <span class="th-token th-keyword">await</span> app.state.redis.aclose()
+        <span class="th-token th-keyword">await</span> engine.dispose()
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">create_app</span>() -&gt; FastAPI:
+    settings = get_settings()
+    app = FastAPI(
+        title=<span class="th-token th-string">&quot;shortlink&quot;</span>,
+        version=<span class="th-token th-string">&quot;0.1.0&quot;</span>,
+        lifespan=lifespan,
+        docs_url=<span class="th-token th-string">&quot;/docs&quot;</span> <span class="th-token th-keyword">if</span> settings.debug <span class="th-token th-keyword">else</span> <span class="th-token th-literal">None</span>,   <span class="th-token th-comment"># not in production</span>
+        redoc_url=<span class="th-token th-literal">None</span>,
+    )
+    install_error_handlers(app)
+    observability.install_middleware(app)
+    app.include_router(observability.health_router)
+    app.include_router(router)
+    <span class="th-token th-keyword">return</span> app
+
+
+<span class="th-token th-comment"># uvicorn shortlink.main:app -- a module-level app so the reloader can find it.</span>
+app = create_app()</pre>
+
+      <div class="note">
+        <h4>The route order that costs a day</h4>
+        <p><code>GET /{code}</code> is a wildcard at the root, so it will happily swallow <code>/healthz</code>, <code>/docs</code> and anything else you add later &mdash; FastAPI matches routes in registration order, and the first match wins. That is why the health router is included <em>before</em> the application router above, and why in a real service the catch-all is usually mounted last and deliberately, with a comment saying so. The same reasoning applies to a prefix: putting the API under <code>/v1</code> and leaving the bare root for redirects removes the ambiguity entirely, and is what you want the day you add a second endpoint.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-errors">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 39</span>
+        <h3>Failure is part of the contract</h3>
+        <p class="lede">Every endpoint has a happy path and several unhappy ones, and clients integrate against both. If each handler invents its own error body, the client ends up with a parser per endpoint and a comment saying &ldquo;sometimes it is <code>detail</code>, sometimes <code>message</code>&rdquo;. One exception hierarchy, one handler, one documented shape &mdash; and RFC 9457 already specifies that shape, so there is nothing to design.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/errors.py -- one shape for every failure that leaves the app.</span>
+<span class="th-token th-keyword">import</span> structlog
+<span class="th-token th-keyword">from</span> fastapi <span class="th-token th-keyword">import</span> FastAPI, Request, status
+<span class="th-token th-keyword">from</span> fastapi.exceptions <span class="th-token th-keyword">import</span> RequestValidationError
+<span class="th-token th-keyword">from</span> fastapi.responses <span class="th-token th-keyword">import</span> JSONResponse
+
+<span class="th-token th-keyword">from</span> shortlink.domain <span class="th-token th-keyword">import</span> DomainError, InvalidDestination
+<span class="th-token th-keyword">from</span> shortlink.service <span class="th-token th-keyword">import</span> LinkExpired, LinkNotFound
+
+log = structlog.get_logger()
+
+<span class="th-token th-comment"># The one place a domain error becomes a status code. Adding an error means</span>
+<span class="th-token th-comment"># adding a row here, which a reviewer can see, rather than a raise buried in</span>
+<span class="th-token th-comment"># a handler, which they cannot.</span>
+STATUS_BY_ERROR: <span class="th-token th-type">dict</span>[<span class="th-token th-type">type</span>[DomainError], <span class="th-token th-type">int</span>] = {
+    InvalidDestination: status.HTTP_422_UNPROCESSABLE_ENTITY,
+    LinkNotFound: status.HTTP_404_NOT_FOUND,
+    LinkExpired: status.HTTP_410_GONE,
+}
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">problem</span>(
+    request: Request, status_code: <span class="th-token th-type">int</span>, title: <span class="th-token th-type">str</span>, detail: <span class="th-token th-type">str</span>, **extra: <span class="th-token th-type">object</span>
+) -&gt; JSONResponse:
+    <span class="th-token th-string">&quot;&quot;&quot;RFC 9457 problem details. A standard shape beats a bespoke one.&quot;&quot;&quot;</span>
+    body = {
+        <span class="th-token th-string">&quot;type&quot;</span>: <span class="th-token th-string">f&quot;https://errors.shortlink.dev/{title.lower().replace(&#39; &#39;, &#39;-&#39;)}&quot;</span>,
+        <span class="th-token th-string">&quot;title&quot;</span>: title,
+        <span class="th-token th-string">&quot;status&quot;</span>: status_code,
+        <span class="th-token th-string">&quot;detail&quot;</span>: detail,
+        <span class="th-token th-string">&quot;instance&quot;</span>: <span class="th-token th-type">str</span>(request.url.path),
+        <span class="th-token th-comment"># The value a support ticket should quote. It is in the logs too.</span>
+        <span class="th-token th-string">&quot;request_id&quot;</span>: request.state.request_id,
+        **extra,
+    }
+    <span class="th-token th-keyword">return</span> JSONResponse(
+        body, status_code=status_code, media_type=<span class="th-token th-string">&quot;application/problem+json&quot;</span>
+    )
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">install_error_handlers</span>(app: FastAPI) -&gt; <span class="th-token th-literal">None</span>:
+    <span class="th-token th-function">@app.exception_handler</span>(DomainError)
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">_domain</span>(request: Request, exc: DomainError) -&gt; JSONResponse:
+        code = STATUS_BY_ERROR.get(<span class="th-token th-type">type</span>(exc), status.HTTP_400_BAD_REQUEST)
+        <span class="th-token th-comment"># Expected. Logged at info, and it must never page anyone.</span>
+        log.info(<span class="th-token th-string">&quot;domain_error&quot;</span>, error=<span class="th-token th-type">type</span>(exc).__name__, status=code)
+        <span class="th-token th-keyword">return</span> problem(request, code, <span class="th-token th-type">type</span>(exc).__name__, <span class="th-token th-type">str</span>(exc))
+
+    <span class="th-token th-function">@app.exception_handler</span>(RequestValidationError)
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">_validation</span>(request: Request, exc: RequestValidationError) -&gt; JSONResponse:
+        <span class="th-token th-keyword">return</span> problem(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            <span class="th-token th-string">&quot;Validation failed&quot;</span>,
+            <span class="th-token th-string">&quot;The request body did not match the schema.&quot;</span>,
+            errors=[
+                {<span class="th-token th-string">&quot;field&quot;</span>: <span class="th-token th-string">&quot;.&quot;</span>.join(<span class="th-token th-type">str</span>(p) <span class="th-token th-keyword">for</span> p <span class="th-token th-keyword">in</span> e[<span class="th-token th-string">&quot;loc&quot;</span>][<span class="th-token th-number">1</span>:]), <span class="th-token th-string">&quot;message&quot;</span>: e[<span class="th-token th-string">&quot;msg&quot;</span>]}
+                <span class="th-token th-keyword">for</span> e <span class="th-token th-keyword">in</span> exc.errors()
+            ],
+        )
+
+    <span class="th-token th-function">@app.exception_handler</span>(Exception)
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">_unhandled</span>(request: Request, exc: Exception) -&gt; JSONResponse:
+        <span class="th-token th-comment"># A bug. Log the whole thing on our side, tell the caller nothing --</span>
+        <span class="th-token th-comment"># a stack trace in a response body is a free map of your dependencies.</span>
+        log.exception(<span class="th-token th-string">&quot;unhandled_error&quot;</span>, path=request.url.path)
+        <span class="th-token th-keyword">return</span> problem(
+            request,
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            <span class="th-token th-string">&quot;Internal error&quot;</span>,
+            <span class="th-token th-string">&quot;The request could not be completed. Quote the request id if you contact support.&quot;</span>,
+        )</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Situation</th><th>Status</th><th>Why that one</th></tr></thead>
+          <tbody>
+            <tr><td>Body does not match the schema</td><td>422</td><td>Handled by FastAPI before your code runs. Return the failing field names; clients cannot fix what they cannot see.</td></tr>
+            <tr><td>Destination is a <code>javascript:</code> URL</td><td>422</td><td>Well-formed request, unacceptable content. A domain rule said no.</td></tr>
+            <tr><td>No such code</td><td>404</td><td>Nothing to say beyond that. Do not confirm whether it ever existed.</td></tr>
+            <tr><td>Code existed, has expired</td><td>410</td><td>Tells a crawler to stop asking. 404 invites a retry next week.</td></tr>
+            <tr><td>Missing or wrong API key</td><td>401</td><td>With <code>WWW-Authenticate</code>. 403 means &ldquo;I know who you are and no&rdquo;.</td></tr>
+            <tr><td>Over the rate limit</td><td>429</td><td>With <code>Retry-After</code>, or the client will simply hammer you faster.</td></tr>
+            <tr><td>Anything unhandled</td><td>500</td><td>Generic body, full detail in the logs, one request id joining the two.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <h4>The catch-all handler and the one thing it must not do</h4>
+        <p>Registering a handler for bare <code>Exception</code> means the framework no longer re-raises, so anything that used to surface in your error tracker now quietly becomes a tidy 500. That is only safe because the handler logs with <code>log.exception</code> &mdash; which captures the traceback &mdash; before returning. If you take one thing from this topic: an error the client sees and an error you can debug are two different artefacts, and the request id is the only thing joining them. Put it in the response body, in every log line, and in the <code>X-Request-Id</code> response header.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-auth">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 40</span>
+        <h3>Who is calling, and how often</h3>
+        <p class="lede">Two edge concerns that are always someone else&rsquo;s job until the incident. Authentication here is an API key, which is the right choice for machine-to-machine calls and has exactly two rules: store a hash, never the key, and compare in constant time. Rate limiting is the thing that keeps one badly-written client from being everybody&rsquo;s outage, and it has to be shared across processes, which means it lives in Redis rather than in a dictionary.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/security.py</span>
+<span class="th-token th-keyword">import</span> hashlib
+<span class="th-token th-keyword">import</span> hmac
+<span class="th-token th-keyword">import</span> time
+<span class="th-token th-keyword">from</span> dataclasses <span class="th-token th-keyword">import</span> dataclass
+<span class="th-token th-keyword">from</span> typing <span class="th-token th-keyword">import</span> Annotated
+
+<span class="th-token th-keyword">from</span> fastapi <span class="th-token th-keyword">import</span> Depends, HTTPException, Request, status
+<span class="th-token th-keyword">from</span> fastapi.security <span class="th-token th-keyword">import</span> HTTPAuthorizationCredentials, HTTPBearer
+<span class="th-token th-keyword">from</span> sqlalchemy <span class="th-token th-keyword">import</span> select
+<span class="th-token th-keyword">from</span> sqlalchemy.ext.asyncio <span class="th-token th-keyword">import</span> AsyncSession
+
+<span class="th-token th-keyword">from</span> shortlink.config <span class="th-token th-keyword">import</span> Settings, get_settings
+<span class="th-token th-keyword">from</span> shortlink.db <span class="th-token th-keyword">import</span> get_session
+<span class="th-token th-keyword">from</span> shortlink.models <span class="th-token th-keyword">import</span> ApiKeyRow
+
+bearer = HTTPBearer(auto_error=<span class="th-token th-literal">False</span>)
+
+
+<span class="th-token th-function">@dataclass</span>(frozen=<span class="th-token th-literal">True</span>, slots=<span class="th-token th-literal">True</span>)
+<span class="th-token th-keyword">class</span> ApiKey:
+    owner_id: <span class="th-token th-type">str</span>
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">hash_key</span>(raw: <span class="th-token th-type">str</span>) -&gt; <span class="th-token th-type">str</span>:
+    <span class="th-token th-string">&quot;&quot;&quot;What goes in the database. Never the key itself.
+
+    sha256 and not bcrypt on purpose: an API key is already 256 bits of
+    randomness that we issued, so there is no low-entropy password to make
+    expensive to guess -- and this runs on every single request.
+    &quot;&quot;&quot;</span>
+    <span class="th-token th-keyword">return</span> hashlib.sha256(raw.encode()).hexdigest()
+
+
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">load_key</span>(session: AsyncSession, digest: <span class="th-token th-type">str</span>) -&gt; ApiKeyRow | <span class="th-token th-literal">None</span>:
+    <span class="th-token th-string">&quot;&quot;&quot;Look the caller up by the hash, never by the key.
+
+    Indexed on key_hash, so this is one index probe, and the raw key never
+    reaches a query, a log line, or a slow-query report.
+    &quot;&quot;&quot;</span>
+    stmt = select(ApiKeyRow).where(
+        ApiKeyRow.key_hash == digest, ApiKeyRow.revoked_at.is_(<span class="th-token th-literal">None</span>)
+    )
+    <span class="th-token th-keyword">return</span> (<span class="th-token th-keyword">await</span> session.execute(stmt)).scalar_one_or_none()
+
+
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">require_api_key</span>(
+    creds: Annotated[HTTPAuthorizationCredentials | <span class="th-token th-literal">None</span>, Depends(bearer)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -&gt; ApiKey:
+    unauthorized = HTTPException(
+        status.HTTP_401_UNAUTHORIZED,
+        <span class="th-token th-string">&quot;invalid or missing credentials&quot;</span>,
+        headers={<span class="th-token th-string">&quot;WWW-Authenticate&quot;</span>: <span class="th-token th-string">&quot;Bearer&quot;</span>},
+    )
+    <span class="th-token th-keyword">if</span> creds <span class="th-token th-keyword">is</span> <span class="th-token th-literal">None</span>:
+        <span class="th-token th-keyword">raise</span> unauthorized
+
+    digest = hash_key(creds.credentials)
+    row = <span class="th-token th-keyword">await</span> load_key(session, digest)
+    <span class="th-token th-comment"># Belt and braces: the lookup already matched on the hash, but comparing</span>
+    <span class="th-token th-comment"># the stored value in constant time means a later change to that query --</span>
+    <span class="th-token th-comment"># a prefix match, a LIKE, a cache that returns a near miss -- cannot</span>
+    <span class="th-token th-comment"># quietly become an authentication bypass.</span>
+    <span class="th-token th-keyword">if</span> row <span class="th-token th-keyword">is</span> <span class="th-token th-literal">None</span> <span class="th-token th-keyword">or</span> <span class="th-token th-keyword">not</span> hmac.compare_digest(row.key_hash, digest):
+        <span class="th-token th-keyword">raise</span> unauthorized
+
+    <span class="th-token th-comment"># One identical failure for &quot;no such key&quot; and &quot;revoked key&quot;. Telling them</span>
+    <span class="th-token th-comment"># apart is free reconnaissance for whoever is working through a list.</span>
+    <span class="th-token th-keyword">return</span> ApiKey(owner_id=row.owner_id)
+
+
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">rate_limit</span>(
+    request: Request, settings: Annotated[Settings, Depends(get_settings)]
+) -&gt; <span class="th-token th-literal">None</span>:
+    <span class="th-token th-string">&quot;&quot;&quot;A fixed-window counter in Redis, shared by every worker.
+
+    An in-process dict is not a rate limit: with four workers behind one load
+    balancer the effective limit is four times what you configured, and it
+    resets on every deploy.
+    &quot;&quot;&quot;</span>
+    key = <span class="th-token th-string">f&quot;rl:{request.client.host if request.client else &#39;unknown&#39;}:{int(time.time() // 60)}&quot;</span>
+    redis = request.app.state.redis
+
+    <span class="th-token th-comment"># One round trip, not two -- and INCR is atomic, so concurrent requests</span>
+    <span class="th-token th-comment"># cannot both read 59 and both decide they are under the limit.</span>
+    pipe = redis.pipeline()
+    pipe.incr(key)
+    pipe.expire(key, <span class="th-token th-number">120</span>)          <span class="th-token th-comment"># longer than the window: cheap insurance against clock skew</span>
+    used, _ = <span class="th-token th-keyword">await</span> pipe.execute()
+
+    limit = settings.rate_limit_per_minute
+    <span class="th-token th-keyword">if</span> used &gt; limit:
+        retry_after = <span class="th-token th-number">60</span> - <span class="th-token th-type">int</span>(time.time() % <span class="th-token th-number">60</span>)
+        <span class="th-token th-keyword">raise</span> HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            <span class="th-token th-string">&quot;rate limit exceeded&quot;</span>,
+            headers={
+                <span class="th-token th-string">&quot;Retry-After&quot;</span>: <span class="th-token th-type">str</span>(retry_after),
+                <span class="th-token th-string">&quot;RateLimit-Limit&quot;</span>: <span class="th-token th-type">str</span>(limit),
+                <span class="th-token th-string">&quot;RateLimit-Remaining&quot;</span>: <span class="th-token th-string">&quot;0&quot;</span>,
+            },
+        )</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>The non-negotiables</h4>
+          <ul>
+            <li><strong>Store a hash, never the key.</strong> A leaked database should not be a leaked credential.</li>
+            <li><strong>Show the key once, at creation.</strong> If you can display it later, you stored it.</li>
+            <li><strong>401 for &ldquo;who are you&rdquo;, 403 for &ldquo;not allowed&rdquo;.</strong> They are different bugs to debug.</li>
+            <li>Never log the <code>Authorization</code> header. Redact it in the middleware, not by remembering.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Make it operable</h4>
+          <ul>
+            <li><strong>Rate limit state must be shared.</strong> Per-process counters silently multiply the limit by your worker count.</li>
+            <li><strong>Return the headers.</strong> <code>Retry-After</code> turns a retry storm into a queue.</li>
+            <li><strong>Key on the caller, not the IP</strong>, once you have authenticated one &mdash; otherwise a whole office behind one NAT shares a bucket.</li>
+            <li>Give keys a prefix (<code>sl_live_...</code>) so secret scanners can find them in a public repository before an attacker does.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Where this design runs out</h4>
+          <ul>
+            <li><strong>A fixed window allows a double burst</strong> at the boundary: the full limit at 11:59:59 and again at 12:00:00. A sliding window or a token bucket in a Lua script fixes it when that matters.</li>
+            <li><strong>Decide what happens when Redis is down.</strong> Fail open and you have no limit; fail closed and Redis is now a hard dependency of every request. Choose deliberately and write it down.</li>
+            <li><strong>Rate limiting at the edge is cheaper</strong> &mdash; a gateway or CDN rejects before you pay for a worker. Keep the in-app limit as the backstop.</li>
+            <li>Key rotation needs two valid keys at once, which means the lookup must accept a set, not a value.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-obs">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 41</span>
+        <h3>Logs, traces, and the two health checks</h3>
+        <p class="lede">You will debug this service from its output, not from a debugger, so the output is part of the design. Three things pay for themselves in the first week: logs that are JSON with a request id on every line, a trace that spans the whole request, and two <em>different</em> health endpoints &mdash; because &ldquo;is this process alive&rdquo; and &ldquo;should this process receive traffic&rdquo; have different answers and confusing them takes an entire cluster down.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># src/shortlink/observability.py</span>
+<span class="th-token th-keyword">import</span> time
+<span class="th-token th-keyword">import</span> uuid
+<span class="th-token th-keyword">from</span> collections.abc <span class="th-token th-keyword">import</span> Awaitable, Callable
+
+<span class="th-token th-keyword">import</span> structlog
+<span class="th-token th-keyword">from</span> fastapi <span class="th-token th-keyword">import</span> APIRouter, FastAPI, Request, Response, status
+<span class="th-token th-keyword">from</span> fastapi.responses <span class="th-token th-keyword">import</span> JSONResponse
+<span class="th-token th-keyword">from</span> sqlalchemy <span class="th-token th-keyword">import</span> text
+
+<span class="th-token th-keyword">from</span> shortlink.config <span class="th-token th-keyword">import</span> Settings
+<span class="th-token th-keyword">from</span> shortlink.db <span class="th-token th-keyword">import</span> engine
+
+log = structlog.get_logger()
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">configure</span>(settings: Settings) -&gt; <span class="th-token th-literal">None</span>:
+    <span class="th-token th-string">&quot;&quot;&quot;JSON in production, colour locally. Same events either way.&quot;&quot;&quot;</span>
+    renderer = (
+        structlog.dev.ConsoleRenderer()
+        <span class="th-token th-keyword">if</span> settings.debug
+        <span class="th-token th-keyword">else</span> structlog.processors.JSONRenderer()
+    )
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,   <span class="th-token th-comment"># request_id, without passing it around</span>
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt=<span class="th-token th-string">&quot;iso&quot;</span>, utc=<span class="th-token th-literal">True</span>),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            renderer,
+        ],
+        wrapper_class=structlog.make_filtering_bound_logger(settings.log_level),
+        cache_logger_on_first_use=<span class="th-token th-literal">True</span>,
+    )
+
+
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">install_middleware</span>(app: FastAPI) -&gt; <span class="th-token th-literal">None</span>:
+    <span class="th-token th-function">@app.middleware</span>(<span class="th-token th-string">&quot;http&quot;</span>)
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">request_context</span>(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -&gt; Response:
+        <span class="th-token th-comment"># Trust an inbound id so one id spans every service in the call, but</span>
+        <span class="th-token th-comment"># generate one when absent -- a request with no id is unsupportable.</span>
+        request_id = request.headers.get(<span class="th-token th-string">&quot;X-Request-Id&quot;</span>) <span class="th-token th-keyword">or</span> <span class="th-token th-type">str</span>(uuid.uuid4())
+        request.state.request_id = request_id
+
+        <span class="th-token th-comment"># contextvars, not a parameter: every log line anywhere below this,</span>
+        <span class="th-token th-comment"># including inside the repository, carries the id without plumbing.</span>
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+        started = time.perf_counter()
+        <span class="th-token th-keyword">try</span>:
+            response = <span class="th-token th-keyword">await</span> call_next(request)
+        <span class="th-token th-keyword">finally</span>:
+            structlog.contextvars.clear_contextvars()
+
+        elapsed_ms = (time.perf_counter() - started) * <span class="th-token th-number">1000</span>
+        response.headers[<span class="th-token th-string">&quot;X-Request-Id&quot;</span>] = request_id
+        log.info(
+            <span class="th-token th-string">&quot;http_request&quot;</span>,
+            method=request.method,
+            <span class="th-token th-comment"># route template, not the URL: /links/{code} aggregates, and the</span>
+            <span class="th-token th-comment"># raw path turns every distinct code into its own metric series.</span>
+            path=request.scope.get(<span class="th-token th-string">&quot;route&quot;</span>).path <span class="th-token th-keyword">if</span> request.scope.get(<span class="th-token th-string">&quot;route&quot;</span>) <span class="th-token th-keyword">else</span> request.url.path,
+            status=response.status_code,
+            duration_ms=round(elapsed_ms, <span class="th-token th-number">2</span>),
+        )
+        <span class="th-token th-keyword">return</span> response
+
+
+health_router = APIRouter(tags=[<span class="th-token th-string">&quot;health&quot;</span>])
+
+
+<span class="th-token th-function">@health_router.get</span>(<span class="th-token th-string">&quot;/healthz&quot;</span>, include_in_schema=<span class="th-token th-literal">False</span>)
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">liveness</span>() -&gt; <span class="th-token th-type">dict</span>[<span class="th-token th-type">str</span>, <span class="th-token th-type">str</span>]:
+    <span class="th-token th-string">&quot;&quot;&quot;Is the process alive? Nothing else.
+
+    It must not touch the database. A liveness probe that checks a dependency
+    restarts every pod in the fleet the moment that dependency has a bad
+    minute -- turning a brief database blip into a full outage with no
+    capacity left to recover.
+    &quot;&quot;&quot;</span>
+    <span class="th-token th-keyword">return</span> {<span class="th-token th-string">&quot;status&quot;</span>: <span class="th-token th-string">&quot;ok&quot;</span>}
+
+
+<span class="th-token th-function">@health_router.get</span>(<span class="th-token th-string">&quot;/readyz&quot;</span>, include_in_schema=<span class="th-token th-literal">False</span>)
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">readiness</span>() -&gt; Response:
+    <span class="th-token th-string">&quot;&quot;&quot;Should this process receive traffic? Now the dependencies matter.&quot;&quot;&quot;</span>
+    <span class="th-token th-keyword">try</span>:
+        <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">with</span> engine.connect() <span class="th-token th-keyword">as</span> conn:
+            <span class="th-token th-keyword">await</span> conn.execute(text(<span class="th-token th-string">&quot;SELECT 1&quot;</span>))
+    <span class="th-token th-keyword">except</span> Exception:
+        log.warning(<span class="th-token th-string">&quot;readiness_failed&quot;</span>, check=<span class="th-token th-string">&quot;database&quot;</span>)
+        <span class="th-token th-keyword">return</span> JSONResponse(
+            {<span class="th-token th-string">&quot;status&quot;</span>: <span class="th-token th-string">&quot;degraded&quot;</span>, <span class="th-token th-string">&quot;database&quot;</span>: <span class="th-token th-string">&quot;unreachable&quot;</span>},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    <span class="th-token th-keyword">return</span> JSONResponse({<span class="th-token th-string">&quot;status&quot;</span>: <span class="th-token th-string">&quot;ready&quot;</span>})</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Signal</th><th>Answers</th><th>The mistake to avoid</th></tr></thead>
+          <tbody>
+            <tr><td>Structured logs</td><td>&ldquo;What happened to <em>this</em> request?&rdquo;</td><td>Free-text messages. <code>f"user {uid} failed"</code> cannot be filtered, counted or joined.</td></tr>
+            <tr><td>Metrics</td><td>&ldquo;How is the service doing overall?&rdquo;</td><td>High-cardinality labels. A label per short code is a monitoring bill, not a dashboard.</td></tr>
+            <tr><td>Traces</td><td>&ldquo;Where did the 900&nbsp;ms go?&rdquo;</td><td>Sampling everything. 1&ndash;10% plus every error is the usual shape.</td></tr>
+            <tr><td><code>/healthz</code></td><td>&ldquo;Restart me?&rdquo;</td><td>Checking dependencies. That is how one slow database restarts the entire fleet.</td></tr>
+            <tr><td><code>/readyz</code></td><td>&ldquo;Send me traffic?&rdquo;</td><td>Returning 200 while the pool is exhausted, so the load balancer keeps feeding a dead process.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>The one field that makes logs useful</h4>
+        <p>A request id, bound in a <code>contextvar</code> at the edge and merged into every event automatically. Without it, a production investigation is grep and hope; with it, one identifier from a support ticket returns the whole story across every module and, if the id is propagated on outbound calls, across every service. It costs the middleware above and nothing else. Note the route template rather than the raw path in the log line, for the same reason: <code>/links/{code}</code> is a thing you can count, and <code>/links/aB3xK9p</code> is ten million things you cannot.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-tests">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 42</span>
+        <h3>Tests that would actually have caught it</h3>
+        <p class="lede">The tests worth writing are the ones that fail when the behaviour changes and pass when only the code does. That rules out mocking the database &mdash; a mocked session cannot fail a unique constraint, which is precisely the behaviour the idempotency logic depends on. So: a real Postgres in a container, the app driven in-process over ASGI with no network, and the domain tested on its own with no fixtures at all.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># tests/conftest.py -- a real database, a real app, no network.</span>
+<span class="th-token th-keyword">from</span> collections.abc <span class="th-token th-keyword">import</span> AsyncIterator, Iterator
+
+<span class="th-token th-keyword">import</span> pytest
+<span class="th-token th-keyword">from</span> httpx <span class="th-token th-keyword">import</span> ASGITransport, AsyncClient
+<span class="th-token th-keyword">from</span> sqlalchemy.ext.asyncio <span class="th-token th-keyword">import</span> AsyncSession, async_sessionmaker, create_async_engine
+<span class="th-token th-keyword">from</span> testcontainers.postgres <span class="th-token th-keyword">import</span> PostgresContainer
+
+<span class="th-token th-keyword">from</span> shortlink.db <span class="th-token th-keyword">import</span> get_session
+<span class="th-token th-keyword">from</span> shortlink.main <span class="th-token th-keyword">import</span> create_app
+<span class="th-token th-keyword">from</span> shortlink.models <span class="th-token th-keyword">import</span> Base
+
+
+<span class="th-token th-function">@pytest.fixture</span>(scope=<span class="th-token th-string">&quot;session&quot;</span>)
+<span class="th-token th-keyword">def</span> <span class="th-token th-function">postgres_url</span>() -&gt; Iterator[<span class="th-token th-type">str</span>]:
+    <span class="th-token th-comment"># One container for the whole session: starting it is the slow part, and</span>
+    <span class="th-token th-comment"># isolation comes from the per-test transaction below, not from restarts.</span>
+    <span class="th-token th-keyword">with</span> PostgresContainer(<span class="th-token th-string">&quot;postgres:16-alpine&quot;</span>, driver=<span class="th-token th-string">&quot;asyncpg&quot;</span>) <span class="th-token th-keyword">as</span> pg:
+        <span class="th-token th-keyword">yield</span> pg.get_connection_url()
+
+
+<span class="th-token th-function">@pytest.fixture</span>
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">session</span>(postgres_url: <span class="th-token th-type">str</span>) -&gt; AsyncIterator[AsyncSession]:
+    <span class="th-token th-string">&quot;&quot;&quot;Each test runs in a transaction that is rolled back afterwards.
+
+    Faster than recreating the schema per test, and it means tests cannot
+    leak state into one another however carelessly they are written.
+    &quot;&quot;&quot;</span>
+    engine = create_async_engine(postgres_url)
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">with</span> engine.begin() <span class="th-token th-keyword">as</span> conn:
+        <span class="th-token th-keyword">await</span> conn.run_sync(Base.metadata.create_all)
+
+    connection = <span class="th-token th-keyword">await</span> engine.connect()
+    transaction = <span class="th-token th-keyword">await</span> connection.begin()
+    factory = async_sessionmaker(bind=connection, expire_on_commit=<span class="th-token th-literal">False</span>)
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">with</span> factory() <span class="th-token th-keyword">as</span> s:
+        <span class="th-token th-keyword">yield</span> s
+    <span class="th-token th-keyword">await</span> transaction.rollback()
+    <span class="th-token th-keyword">await</span> connection.close()
+    <span class="th-token th-keyword">await</span> engine.dispose()
+
+
+<span class="th-token th-function">@pytest.fixture</span>
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">client</span>(session: AsyncSession) -&gt; AsyncIterator[AsyncClient]:
+    <span class="th-token th-string">&quot;&quot;&quot;The real app, with only the session swapped for the test one.
+
+    ASGITransport means no socket is opened and no port is bound, so the
+    suite runs anywhere and cannot flake on a port collision.
+    &quot;&quot;&quot;</span>
+    app = create_app()
+    app.dependency_overrides[get_session] = <span class="th-token th-keyword">lambda</span>: session
+    transport = ASGITransport(app=app)
+    <span class="th-token th-keyword">async</span> <span class="th-token th-keyword">with</span> AsyncClient(transport=transport, base_url=<span class="th-token th-string">&quot;http://test&quot;</span>) <span class="th-token th-keyword">as</span> c:
+        <span class="th-token th-keyword">yield</span> c
+    app.dependency_overrides.clear()</pre>
+
+<pre class="l2"><span class="th-token th-comment"># tests/test_api.py -- through the real app, against a real database.</span>
+<span class="th-token th-keyword">import</span> pytest
+<span class="th-token th-keyword">from</span> httpx <span class="th-token th-keyword">import</span> AsyncClient
+
+
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">test_create_returns_201_with_location</span>(client: AsyncClient, api_key: <span class="th-token th-type">str</span>) -&gt; <span class="th-token th-literal">None</span>:
+    response = <span class="th-token th-keyword">await</span> client.post(
+        <span class="th-token th-string">&quot;/links&quot;</span>,
+        json={<span class="th-token th-string">&quot;destination&quot;</span>: <span class="th-token th-string">&quot;https://example.com/a&quot;</span>},
+        headers={<span class="th-token th-string">&quot;Authorization&quot;</span>: <span class="th-token th-string">f&quot;Bearer {api_key}&quot;</span>},
+    )
+    <span class="th-token th-keyword">assert</span> response.status_code == <span class="th-token th-number">201</span>
+    body = response.json()
+    <span class="th-token th-keyword">assert</span> body[<span class="th-token th-string">&quot;short_url&quot;</span>].endswith(body[<span class="th-token th-string">&quot;code&quot;</span>])
+    <span class="th-token th-comment"># The header a client needs and that nobody remembers to assert on.</span>
+    <span class="th-token th-keyword">assert</span> response.headers[<span class="th-token th-string">&quot;Location&quot;</span>].endswith(body[<span class="th-token th-string">&quot;code&quot;</span>])
+
+
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">test_same_idempotency_key_returns_the_same_link</span>(
+    client: AsyncClient, api_key: <span class="th-token th-type">str</span>
+) -&gt; <span class="th-token th-literal">None</span>:
+    <span class="th-token th-string">&quot;&quot;&quot;The test that a mocked database physically cannot perform.
+
+    Two identical requests, one link. The guarantee lives in a partial
+    unique index, so only a real Postgres can prove it holds.
+    &quot;&quot;&quot;</span>
+    headers = {<span class="th-token th-string">&quot;Authorization&quot;</span>: <span class="th-token th-string">f&quot;Bearer {api_key}&quot;</span>, <span class="th-token th-string">&quot;Idempotency-Key&quot;</span>: <span class="th-token th-string">&quot;abc-123&quot;</span>}
+    first = <span class="th-token th-keyword">await</span> client.post(<span class="th-token th-string">&quot;/links&quot;</span>, json={<span class="th-token th-string">&quot;destination&quot;</span>: <span class="th-token th-string">&quot;https://example.com&quot;</span>}, headers=headers)
+    second = <span class="th-token th-keyword">await</span> client.post(<span class="th-token th-string">&quot;/links&quot;</span>, json={<span class="th-token th-string">&quot;destination&quot;</span>: <span class="th-token th-string">&quot;https://example.com&quot;</span>}, headers=headers)
+
+    <span class="th-token th-keyword">assert</span> first.status_code == <span class="th-token th-number">201</span>
+    <span class="th-token th-keyword">assert</span> first.json()[<span class="th-token th-string">&quot;code&quot;</span>] == second.json()[<span class="th-token th-string">&quot;code&quot;</span>]
+
+
+<span class="th-token th-function">@pytest.mark.parametrize</span>(
+    <span class="th-token th-string">&quot;destination&quot;</span>,
+    [<span class="th-token th-string">&quot;javascript:alert(1)&quot;</span>, <span class="th-token th-string">&quot;data:text/html,&lt;script&gt;&quot;</span>, <span class="th-token th-string">&quot;ftp://example.com&quot;</span>, <span class="th-token th-string">&quot;not a url&quot;</span>],
+)
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">test_dangerous_destinations_are_rejected</span>(
+    client: AsyncClient, api_key: <span class="th-token th-type">str</span>, destination: <span class="th-token th-type">str</span>
+) -&gt; <span class="th-token th-literal">None</span>:
+    response = <span class="th-token th-keyword">await</span> client.post(
+        <span class="th-token th-string">&quot;/links&quot;</span>,
+        json={<span class="th-token th-string">&quot;destination&quot;</span>: destination},
+        headers={<span class="th-token th-string">&quot;Authorization&quot;</span>: <span class="th-token th-string">f&quot;Bearer {api_key}&quot;</span>},
+    )
+    <span class="th-token th-keyword">assert</span> response.status_code == <span class="th-token th-number">422</span>
+    <span class="th-token th-comment"># The failure contract is an API too: assert the shape, not just the code.</span>
+    <span class="th-token th-keyword">assert</span> response.headers[<span class="th-token th-string">&quot;content-type&quot;</span>].startswith(<span class="th-token th-string">&quot;application/problem+json&quot;</span>)
+    <span class="th-token th-keyword">assert</span> response.json()[<span class="th-token th-string">&quot;status&quot;</span>] == <span class="th-token th-number">422</span>
+
+
+<span class="th-token th-keyword">async</span> <span class="th-token th-keyword">def</span> <span class="th-token th-function">test_unknown_code_is_404_and_expired_is_410</span>(client: AsyncClient) -&gt; <span class="th-token th-literal">None</span>:
+    <span class="th-token th-keyword">assert</span> (<span class="th-token th-keyword">await</span> client.get(<span class="th-token th-string">&quot;/nope123&quot;</span>)).status_code == <span class="th-token th-number">404</span></pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What to write first</h4>
+          <ul>
+            <li><strong>One test per behaviour</strong>, named for the behaviour. <code>test_create_returns_201_with_location</code> tells you what broke from the failure line alone.</li>
+            <li><strong>Test the domain without fixtures.</strong> If it needs one, the layering has slipped.</li>
+            <li><strong>Assert the status code and the body shape</strong>, not the exact prose of a message.</li>
+            <li>Parametrise the variants instead of writing four near-identical tests.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Make them fast and honest</h4>
+          <ul>
+            <li><strong>A real database, one container, per-test transactions.</strong> Rollback isolation is faster than recreating a schema and stricter than trusting cleanup.</li>
+            <li><strong>Drive the app over ASGI</strong> &mdash; no port, no server, no flake, and the middleware and error handlers are all still exercised.</li>
+            <li><strong>Override only the seam you must.</strong> Overriding the service under test proves nothing.</li>
+            <li>Mock what you do not own and cannot run: a third-party payment API, yes. Your own database, no.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>The tests that earn their keep later</h4>
+          <ul>
+            <li><strong>Test the error contract.</strong> Clients parse it, so it is an interface, and it will otherwise change silently.</li>
+            <li><strong>Run the migrations in CI</strong> against a copy of the previous schema, so an unsafe lock is caught before it takes production offline.</li>
+            <li><strong>Property tests for the pure parts</strong> &mdash; a code generator and a validator are exactly what Hypothesis is good at.</li>
+            <li>Coverage is a smoke detector, not a goal. Untested error paths matter more than the last 4%.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-ship">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 43</span>
+        <h3>The image, the pipeline, and the shutdown</h3>
+        <p class="lede">The last mile, and the one where Python services most often go wrong in ways nobody notices until the first rolling deploy drops requests. Three things to get right: an image that carries no build tools and runs as nobody, a pipeline that runs exactly what the Makefile runs, and a process that finishes its in-flight requests when the orchestrator asks it to stop.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># Dockerfile -- two stages: one that can compile, one that ships.</span>
+<span class="th-token th-keyword">FROM</span> <span class="th-token th-string">python:3.12-slim</span> AS builder
+<span class="th-token th-comment">
+# uv is copied from its own published image rather than pip-installed, which</span>
+<span class="th-token th-comment"># keeps this layer tiny and the version pinned by digest upstream.</span>
+<span class="th-token th-keyword">COPY</span> --from=<span class="th-token th-string">ghcr.io/astral-sh/uv:0.4</span> /uv /bin/uv
+<span class="th-token th-keyword">
+ENV</span> UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+<span class="th-token th-keyword">WORKDIR</span> /app
+<span class="th-token th-comment">
+# Dependencies before source. Editing a handler must not re-resolve or</span>
+<span class="th-token th-comment"># re-download anything -- this one ordering decision is most of your CI time.</span>
+<span class="th-token th-keyword">COPY</span> pyproject.toml uv.lock ./
+<span class="th-token th-keyword">RUN</span> --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev
+<span class="th-token th-keyword">
+COPY</span> src/ src/
+<span class="th-token th-keyword">RUN</span> --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
+<span class="th-token th-keyword">
+
+FROM</span> <span class="th-token th-string">python:3.12-slim</span> AS runtime
+<span class="th-token th-comment">
+# A real user, created in the image. Running as root inside a container is</span>
+<span class="th-token th-comment"># one kernel bug away from being root on the node.</span>
+<span class="th-token th-keyword">RUN</span> useradd --create-home --uid 10001 app
+<span class="th-token th-keyword">WORKDIR</span> /app
+<span class="th-token th-keyword">
+COPY</span> --from=builder --chown=<span class="th-token th-string">app:app</span> /app/.venv /app/.venv
+<span class="th-token th-keyword">COPY</span> --from=builder --chown=<span class="th-token th-string">app:app</span> /app/src /app/src
+<span class="th-token th-keyword">ENV</span> PATH=&quot;/app/.venv/bin:<span class="th-token th-variable">$PATH</span>&quot; PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+<span class="th-token th-keyword">
+USER</span> app
+<span class="th-token th-keyword">EXPOSE</span> 8000
+<span class="th-token th-comment">
+# Exec form, so uvicorn is PID 1 and receives SIGTERM directly. In shell form</span>
+<span class="th-token th-comment"># the shell is PID 1, it does not forward signals, and every deploy waits for</span>
+<span class="th-token th-comment"># the 30-second kill timeout while dropping in-flight requests.</span>
+<span class="th-token th-keyword">CMD</span> [&quot;uvicorn&quot;, &quot;<span class="th-token th-string">shortlink.main:app</span>&quot;, \
+     &quot;--host&quot;, &quot;0.0.0.0&quot;, &quot;--port&quot;, &quot;8000&quot;, \
+     &quot;--workers&quot;, &quot;4&quot;, &quot;--timeout-graceful-shutdown&quot;, &quot;20&quot;]</pre>
+
+<pre class="l2"><span class="th-token th-comment"># .github/workflows/ci.yaml -- the same commands the Makefile runs.</span>
+<span class="th-token th-property">name</span>: <span class="th-token th-string">ci</span>
+<span class="th-token th-property">on</span>:
+  <span class="th-token th-property">push</span>: { branches: [main] }
+  <span class="th-token th-property">pull_request</span>:
+
+<span class="th-token th-property">concurrency</span>:                        <span class="th-token th-comment"># a new push cancels the old run</span>
+  <span class="th-token th-property">group</span>: <span class="th-token th-string">ci-${{ github.ref }}</span>
+  <span class="th-token th-property">cancel-in-progress</span>: <span class="th-token th-string">true</span>
+
+<span class="th-token th-property">jobs</span>:
+  <span class="th-token th-property">check</span>:
+    <span class="th-token th-property">runs-on</span>: <span class="th-token th-string">ubuntu-latest</span>
+    <span class="th-token th-property">steps</span>:
+      - <span class="th-token th-property">uses</span>: actions/checkout@v4
+      - <span class="th-token th-property">uses</span>: <span class="th-token th-string">astral-sh/setup-uv@v3</span>
+        <span class="th-token th-property">with</span>:
+          <span class="th-token th-property">enable-cache</span>: <span class="th-token th-literal">true</span>
+          <span class="th-token th-property">cache-dependency-glob</span>: <span class="th-token th-string">uv.lock</span>
+
+      <span class="th-token th-comment"># --frozen: fail if uv.lock disagrees with pyproject.toml, rather than</span>
+      <span class="th-token th-comment"># silently resolving something nobody reviewed.</span>
+      - <span class="th-token th-property">run</span>: <span class="th-token th-string">uv sync --frozen --all-groups</span>
+
+      - <span class="th-token th-property">run</span>: <span class="th-token th-string">make check</span>          <span class="th-token th-comment"># format, lint, types -- identical locally</span>
+      - <span class="th-token th-property">run</span>: <span class="th-token th-string">make test</span>           <span class="th-token th-comment"># testcontainers uses the runner&#39;s Docker</span>
+
+      - <span class="th-token th-property">name</span>: <span class="th-token th-string">Build the image</span>
+        <span class="th-token th-property">run</span>: <span class="th-token th-string">docker build -t shortlink:${{ github.sha }} .</span></pre>
+
+      <div class="note warn">
+        <h4>Graceful shutdown is not automatic, and it is what a rolling deploy needs</h4>
+        <p>When Kubernetes replaces a pod it sends <code>SIGTERM</code> and starts a countdown. Three things have to line up or you drop requests on every deploy. The signal must <em>reach</em> the server, which means the exec form of <code>CMD</code> so it is PID 1 rather than a shell that ignores signals. The server must then stop accepting new connections but finish the ones in flight, which is what <code>--timeout-graceful-shutdown</code> bounds. And the pod must leave the load balancer <em>before</em> it stops accepting, which is what a <code>preStop</code> sleep of a few seconds buys you, because endpoint removal is eventually consistent and traffic keeps arriving for a moment after the signal. Get all three right and a deploy is invisible; miss the first and every deploy is a small outage nobody attributes to the deploy.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Before it is &ldquo;done&rdquo;</th><th>Why it is on this list</th></tr></thead>
+          <tbody>
+            <tr><td>Migrations run as a separate step, not at start-up</td><td>Four replicas starting at once run four migrations. Run them once, in a job, before the new version rolls.</td></tr>
+            <tr><td><code>/readyz</code> wired to the readiness probe</td><td>Otherwise traffic arrives before the pool is warm and the first requests fail.</td></tr>
+            <tr><td>Resource requests and limits set</td><td>Without a memory limit, one large response takes down the node instead of one pod.</td></tr>
+            <tr><td>Logs to stdout, nowhere else</td><td>The platform collects stdout. A log file in a container is a disk that fills.</td></tr>
+            <tr><td>The image scanned, and the lockfile audited</td><td><code>uv lock --check</code> plus a vulnerability scan in CI; supply chain is part of the build now.</td></tr>
+            <tr><td>An alert on the 500 rate and on p99 latency</td><td>Dashboards are for after somebody notices. Alerts are for before.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</section>
 <footer class="footer">
   <div class="shell col">
     <p><strong>How to use this page.</strong> Read the L1 column of every topic first &mdash; it is a complete beginner's tour in about twenty minutes. Then come back for L2 when you are building something, and for L3 when something is slow, leaking, or failing in a way the code does not explain.</p>
@@ -4991,6 +6458,22 @@ log = logging.getLogger(__name__)
       <li><a href="#checklist"><span class="n">32</span><span>The Python review checklist</span></a></li>
     </ol>
   </div>
+  <div class="toc-group">
+    <a href="#service">A whole service, file by file</a>
+    <ol>
+      <li><a href="#svc-layout"><span class="n">33</span><span>Where the files go, and why</span></a></li>
+      <li><a href="#svc-config"><span class="n">34</span><span>Configuration, read once, validated at boot</span></a></li>
+      <li><a href="#svc-domain"><span class="n">35</span><span>The core, which knows nothing about the web</span></a></li>
+      <li><a href="#svc-db"><span class="n">36</span><span>Persistence: engine, session, and the first migration</span></a></li>
+      <li><a href="#svc-repo"><span class="n">37</span><span>The repository, and the race you cannot check for</span></a></li>
+      <li><a href="#svc-api"><span class="n">38</span><span>The HTTP edge, and the app that wires it</span></a></li>
+      <li><a href="#svc-errors"><span class="n">39</span><span>Failure is part of the contract</span></a></li>
+      <li><a href="#svc-auth"><span class="n">40</span><span>Who is calling, and how often</span></a></li>
+      <li><a href="#svc-obs"><span class="n">41</span><span>Logs, traces, and the two health checks</span></a></li>
+      <li><a href="#svc-tests"><span class="n">42</span><span>Tests that would actually have caught it</span></a></li>
+      <li><a href="#svc-ship"><span class="n">43</span><span>The image, the pipeline, and the shutdown</span></a></li>
+    </ol>
+  </div>
   <div class="toc-series">
   <h3>The series</h3>
   <a href="https://claude.ai/code/artifact/7b938187-b51e-46cf-8191-2f7bca007bd3" target="_blank" rel="noopener"><span class="t">The Backend Ladder</span><span class="s">Overview &middot; all three pillars</span></a>
@@ -5003,7 +6486,7 @@ log = logging.getLogger(__name__)
   <a href="https://claude.ai/code/artifact/de1c07a0-10a5-42a5-ac59-582c4a48cc19" target="_blank" rel="noopener"><span class="t">Data Structures, In Motion</span><span class="s">Deep dive &middot; algorithms, interactive</span></a>
   <a href="https://claude.ai/code/artifact/934e618a-db2e-4b3d-8cd1-0d3a58ac2a5c" target="_blank" rel="noopener"><span class="t">Prompt to Production</span><span class="s">Deep dive &middot; AI engineering, interactive</span></a>
 </div>
-  <p class="toc-foot" id="toc-foot">32 sections</p>
+  <p class="toc-foot" id="toc-foot">43 sections</p>
 </aside>
 
 <script>

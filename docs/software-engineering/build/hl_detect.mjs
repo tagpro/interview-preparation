@@ -76,10 +76,25 @@ export function detect(body, attrs, page) {
   const bodyLines = logical.filter(l => !/^\s*#/.test(l)).length || 1;
   if (cmds >= 2 && cmds / bodyLines > 0.4) return 'shell';
 
+  // --- a directory tree -------------------------------------------------
+  // The layout block that opens a "here is the whole repository" section is
+  // prose, not code, and highlighting it as the page's default language
+  // colours random words. A tree is several bare directory names and no
+  // expression syntax anywhere.
+  // Every line is a path, optionally followed by an aligned comment column;
+  // several are bare directory names. Excluding on code punctuation was too
+  // eager -- a semicolon in the comment column is ordinary English.
+  const entry = /^[ \t]*[\w.-]+(?:\/[\w.-]+)*\/?(?:[ \t]{2,}\S.*)?$/;
+  const dirLines = (t.match(/^[ \t]*[\w.-]+(?:\/[\w.-]+)*\/[ \t]*$/gm) || []).length;
+  const entries = lines.filter(l => entry.test(l)).length;
+  if (lines.length >= 6 && dirLines >= 3 && entries / n >= 0.9) return 'plaintext';
+
   // --- filename in the opening comment ----------------------------------
   const fn = /^\s*(?:\/\/|#|--)\s*(?:[\w./-]*\/)?([\w.-]+\.(\w+))\b/.exec(t) ||
              /^\s*(?:\/\/|#)\s*(Dockerfile)\b/i.exec(t);
   if (fn) {
+    // .env, .env.example, .env.local -- the extension is not the useful part
+    if (/^\.env\b/.test(fn[1])) return 'env';
     const ext = (fn[2] || 'dockerfile').toLowerCase();
     if (BY_EXT[ext]) return BY_EXT[ext];
   }

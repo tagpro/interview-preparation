@@ -9,8 +9,11 @@ c=read('py_c.html')
 cut=c.index('<section class="part" id="production">')
 c_perf, c_prod = c[:cut].rstrip(), c[cut:]
 
+# py_svc.html is the finale: a whole service built file by file. It goes after
+# the review checklist because it is the thing the checklist is applied to.
 parts="\n\n".join([read('py_a.html'), read('py_b.html'), c_perf,
-                   read('py_d.html'), read('py_e.html'), read('py_cook.html'), c_prod])
+                   read('py_d.html'), read('py_e.html'), read('py_cook.html'), c_prod,
+                   read('py_svc.html')])
 foot=open('py_foot.html',encoding='utf-8').read()
 n=tpl.build('python-foundations.html','Python, End to End','Python, End to End',hero,parts+"\n"+foot)
 
@@ -21,8 +24,10 @@ for i,m in enumerate(reversed(kick)):
     idx=len(kick)-1-i
     s = s[:m.start()] + '<span class="kicker">Python &middot; %02d</span>'%(idx+1) + s[m.end():]
 # renumber part words
-words=['one','two','three','four','five','six','seven','eight','nine','ten']
+words=['one','two','three','four','five','six','seven','eight','nine','ten',
+       'eleven','twelve']
 pw=list(re.finditer(r'<span class="kicker">Part (\w+)</span>', s))
+assert len(pw) <= len(words), 'more parts than number words: extend the list'
 for i,m in enumerate(reversed(pw)):
     idx=len(pw)-1-i
     s = s[:m.start()] + '<span class="kicker">Part %s</span>'%words[idx] + s[m.end():]

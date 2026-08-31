@@ -1,0 +1,1466 @@
+<section class="part" id="service">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part eleven</span>
+      <h2>A whole service, file by file</h2>
+      <p>Everything before this was a mechanism or a snippet. This is the repository &mdash; one small service, built in the order you would actually build it, with every file that has to exist before anyone will let you deploy it. The domain is a link shortener, chosen because it is small enough to hold in your head and still needs every production concern there is: validation, a database and a migration, idempotency, authentication, rate limiting, structured logs, health checks, tests that run in CI, and an image that starts as a non-root user. Read it top to bottom once; after that each topic stands alone.</p>
+    </div>
+
+    <section class="topic" id="svc-layout">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Where the files go, and why</h3>
+        <p class="lede">Layout is the first architectural decision and the one nobody revisits. Two choices matter here and both have a real reason: the code lives under <code>src/</code> so the tests cannot accidentally import the working copy instead of the installed package, and the modules are layered so that the direction of every import is a rule you can check rather than a habit you hope holds.</p>
+      </div>
+
+      <pre class="l1">shortlink/
+  pyproject.toml          project metadata, dependencies, and every tool's config
+  uv.lock                 the resolved, hashed dependency graph. Committed.
+  .env.example            every variable the app reads, with safe placeholders
+  compose.yaml            Postgres and Redis for local work, nothing else
+  Dockerfile              multi-stage; the runtime stage has no build tools
+  Makefile                the four commands everyone needs, named the same way
+
+  src/
+    shortlink/
+      __init__.py
+      main.py             the app factory and its lifespan. No business logic.
+      config.py           settings, read once from the environment
+      domain.py           the rules. Imports nothing from this package.
+      schemas.py          the wire contract: what the API accepts and returns
+      errors.py           one exception hierarchy, one handler
+      db.py               engine, session factory, the session dependency
+      models.py           SQLAlchemy tables
+      repository.py       the only module that writes SQL
+      service.py          use cases. Knows the domain, not HTTP.
+      api.py              routers, status codes, dependencies
+      security.py         API keys and the rate limiter
+      observability.py    logging, tracing, metrics, health
+
+  migrations/             Alembic: env.py plus one file per schema change
+    versions/
+      0001_create_links.py
+
+  tests/
+    conftest.py           fixtures: a real database, an in-process client
+    test_domain.py        pure, fast, no I/O
+    test_api.py           through the app, against a real Postgres
+    test_errors.py        the failure contract, which is also an API
+
+  .github/workflows/ci.yaml</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Layer</th><th>May import</th><th>Must never import</th></tr></thead>
+          <tbody>
+            <tr><td><code>domain.py</code></td><td>The standard library, and nothing else</td><td>FastAPI, SQLAlchemy, <code>config</code>. It is the part you can test in a millisecond.</td></tr>
+            <tr><td><code>schemas.py</code></td><td>Pydantic, <code>domain</code></td><td>SQLAlchemy. The wire contract and the table are different shapes and change for different reasons.</td></tr>
+            <tr><td><code>repository.py</code></td><td><code>models</code>, <code>domain</code>, SQLAlchemy</td><td>FastAPI. A repository that raises <code>HTTPException</code> cannot be used by a worker.</td></tr>
+            <tr><td><code>service.py</code></td><td><code>repository</code>, <code>domain</code></td><td>FastAPI, and the <code>Request</code> object in particular.</td></tr>
+            <tr><td><code>api.py</code></td><td>Everything</td><td>Nothing &mdash; but it should contain no branching that is not about HTTP.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>That table is the whole architecture. It is also enforceable: a single ruff rule fails the build when an inner layer reaches outward, which is worth more than any diagram, because diagrams do not fail pull requests.</p>
+
+<pre class="l2"># pyproject.toml -- one file for the package, the dependencies and every tool.
+[project]
+name = "shortlink"
+version = "0.1.0"
+requires-python = "&gt;=3.12"
+dependencies = [
+    "fastapi&gt;=0.115",
+    "pydantic&gt;=2.9",
+    "pydantic-settings&gt;=2.5",
+    "sqlalchemy[asyncio]&gt;=2.0.35",
+    "asyncpg&gt;=0.30",
+    "alembic&gt;=1.13",
+    "redis&gt;=5.1",
+    "structlog&gt;=24.4",
+    "uvicorn[standard]&gt;=0.31",
+]
+
+[dependency-groups]                 # PEP 735: dev deps that are NOT shipped
+dev = [
+    "pytest&gt;=8.3",
+    "pytest-asyncio&gt;=0.24",
+    "httpx&gt;=0.27",
+    "testcontainers[postgres]&gt;=4.8",
+    "mypy&gt;=1.11",
+    "ruff&gt;=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "S", "ASYNC", "TID"]
+# S101 is "assert used" -- the point of a test file.
+per-file-ignores = { "tests/*" = ["S101"] }
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# The layering rule from the table above, enforced. Inner layers import
+# outward over somebody's dead body, and now over a failing build.
+"fastapi".msg = "domain/, repository/ and service/ must not import FastAPI"
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers"</pre>
+
+<pre class="l1"># Makefile -- four verbs, the same four in every repository you own.
+# The value is not the shortening; it is that CI and a new joiner run
+# identical commands, so "works on my machine" has one less place to hide.
+.PHONY: install fmt check test run
+
+install:
+	uv sync --all-groups          # exact versions from uv.lock, dev included
+
+fmt:
+	uv run ruff format .
+	uv run ruff check --fix .
+
+check:                            # what CI runs, runnable locally
+	uv run ruff format --check .
+	uv run ruff check .
+	uv run mypy
+
+test:
+	uv run pytest
+
+run:
+	uv run uvicorn shortlink.main:app --reload</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>The defaults to copy</h4>
+          <ul>
+            <li><strong>Use the <code>src/</code> layout.</strong> Without it, <code>import shortlink</code> in a test finds the source directory, and you never test the thing you package.</li>
+            <li><strong>Commit the lockfile.</strong> <code>uv.lock</code> is what makes the build reproducible; <code>pyproject.toml</code> only records intent.</li>
+            <li><strong>One file per responsibility</strong>, named for the responsibility. <code>utils.py</code> is where design goes to die.</li>
+            <li>Keep <code>__init__.py</code> empty. Import side effects are the hardest bugs on this page.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Make the boundary real</h4>
+          <ul>
+            <li><strong>Layer by dependency direction</strong>, not by file type. &ldquo;Everything that talks to the database&rdquo; is a layer; &ldquo;all the classes&rdquo; is not.</li>
+            <li><strong>Enforce it in the linter.</strong> A rule that fails the build beats a convention that survives until the first deadline.</li>
+            <li><strong>Split by feature when the layers get long.</strong> At roughly a dozen tables, <code>links/</code> and <code>accounts/</code> packages each with their own layers read better than one flat set.</li>
+            <li>Put tooling config in <code>pyproject.toml</code>. Five dotfiles is five places to disagree.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>What this buys later</h4>
+          <ul>
+            <li><strong>The domain stays testable at speed.</strong> If <code>test_domain.py</code> ever needs a fixture, something has leaked inward.</li>
+            <li><strong>The service becomes reusable.</strong> The same <code>service.py</code> backs the HTTP API, a CLI, and a queue consumer, because none of it knows what a request is.</li>
+            <li><strong>Swapping the framework becomes a day, not a quarter</strong> &mdash; the FastAPI-shaped part is one file.</li>
+            <li>Dependency groups keep <code>pytest</code> and <code>mypy</code> out of the runtime image, which is both smaller and a smaller attack surface.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-config">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Configuration, read once, validated at boot</h3>
+        <p class="lede">Configuration is the first thing that kills a deployment, and it does it in the worst possible way: at three in the morning, on the one code path nobody exercised. The fix is to read every setting once at start-up, give each one a type, and refuse to start when something is missing &mdash; a container that fails to boot is a rollback, and a container that boots and then fails on the tenth request is an incident.</p>
+      </div>
+
+<pre class="l2"># src/shortlink/config.py
+from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field, PostgresDsn, RedisDsn, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",              # local convenience only; absent in production
+        env_prefix="SHORTLINK_",      # so a stray DATABASE_URL cannot leak in
+        extra="forbid",               # a typo in a variable name fails the boot
+    )
+
+    environment: Literal["local", "staging", "production"] = "local"
+    # No default. A missing DSN must stop the process, not silently point at
+    # localhost -- which is exactly how a staging deploy ends up writing to a
+    # database that does not exist and passing its own health check.
+    database_url: PostgresDsn
+    redis_url: RedisDsn
+
+    base_url: str = "http://localhost:8000"
+    db_pool_size: int = Field(default=10, ge=1, le=100)
+    rate_limit_per_minute: int = Field(default=60, ge=1)
+    log_level: str = "INFO"
+
+    @field_validator("base_url")
+    @classmethod
+    def _no_trailing_slash(cls, v: str) -&gt; str:
+        # Every short link is base_url + "/" + code. One trailing slash here
+        # produces a double slash in every URL the service has ever issued.
+        return v.rstrip("/")
+
+    @property
+    def debug(self) -&gt; bool:
+        return self.environment == "local"
+
+
+@lru_cache
+def get_settings() -&gt; Settings:
+    """Read the environment exactly once per process.
+
+    Cached because settings are immutable for the life of the process, and
+    because FastAPI will call this as a dependency on every request.
+    """
+    return Settings()  # type: ignore[call-arg]  # values come from the environment</pre>
+
+<pre class="l1"># .env.example -- committed. The real .env is not, and .gitignore says so.
+#
+# This file is documentation that cannot go stale: `extra = "forbid"` means a
+# variable the app does not know about stops the boot, and a missing one
+# without a default does too. So the set of names here is the set it reads.
+
+SHORTLINK_ENVIRONMENT=local
+SHORTLINK_DATABASE_URL=postgresql+asyncpg://shortlink:shortlink@localhost:5432/shortlink
+SHORTLINK_REDIS_URL=redis://localhost:6379/0
+SHORTLINK_BASE_URL=http://localhost:8000
+SHORTLINK_LOG_LEVEL=DEBUG</pre>
+
+      <div class="note warn">
+        <h4>Secrets are not configuration</h4>
+        <p>The pattern above is right for a database URL and wrong for a signing key. Anything secret should arrive from the platform&rsquo;s secret store &mdash; a mounted file, a sidecar, an injected environment variable the deployment system owns &mdash; and never have a default, never be logged, and never appear in <code>.env.example</code> with a real-looking value. Two habits that cost nothing: keep secrets as <code>pydantic.SecretStr</code> so an accidental <code>repr()</code> of the settings object prints <code>**********</code>, and assert at boot that a production environment did not pick up a development default.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-domain">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>The core, which knows nothing about the web</h3>
+        <p class="lede">This is the part worth protecting. It holds the rules &mdash; what a valid destination is, how a short code is generated, when a link has expired &mdash; and it imports nothing from the rest of the package. That constraint is not purity for its own sake: it is what makes these tests run in a millisecond with no fixtures, and it is what lets the same rules back an HTTP API, a batch import and a queue consumer without being rewritten.</p>
+      </div>
+
+<pre class="l2"># src/shortlink/domain.py -- the standard library, and nothing else.
+import secrets
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+# Base62 without look-alikes. Removing 0/O and 1/l/I costs four characters of
+# alphabet and saves a support ticket every time somebody reads a code aloud.
+ALPHABET = "23456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ"
+CODE_LENGTH = 7
+BLOCKED_SCHEMES = frozenset({"javascript", "data", "file", "vbscript"})
+
+
+class DomainError(Exception):
+    """Something the caller did. Never a 500."""
+
+
+class InvalidDestination(DomainError):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class Link:
+    code: str
+    destination: str
+    owner_id: str
+    created_at: datetime
+    expires_at: datetime | None = None
+
+    def is_expired(self, now: datetime | None = None) -&gt; bool:
+        if self.expires_at is None:
+            return False
+        # Always compare aware datetimes in UTC. A naive datetime here is the
+        # bug that appears twice a year and is blamed on the database.
+        return (now or datetime.now(UTC)) &gt;= self.expires_at
+
+
+def new_code(length: int = CODE_LENGTH) -&gt; str:
+    """A short code with ~41 bits of entropy at the default length.
+
+    secrets, not random: these are guessable identifiers for other people's
+    content. The collision is handled by a unique index, not by checking
+    first -- see repository.py, where the race is impossible rather than
+    unlikely.
+    """
+    return "".join(secrets.choice(ALPHABET) for _ in range(length))
+
+
+def validate_destination(raw: str) -&gt; str:
+    """Normalise and reject. Returns the URL to store, or raises."""
+    url = raw.strip()
+    scheme, _, rest = url.partition("://")
+    if not rest:
+        raise InvalidDestination("destination must be an absolute URL")
+    if scheme.lower() in BLOCKED_SCHEMES:
+        # An open redirector that will emit javascript: is a stored XSS
+        # delivery service with your domain's reputation attached.
+        raise InvalidDestination(f"scheme {scheme!r} is not allowed")
+    if scheme.lower() not in {"http", "https"}:
+        raise InvalidDestination("only http and https destinations are allowed")
+    if len(url) &gt; 2048:
+        raise InvalidDestination("destination is too long")
+    return url</pre>
+
+<pre class="l2"># src/shortlink/schemas.py -- the wire contract. Deliberately not the table.
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from shortlink.domain import Link
+
+
+class CreateLinkRequest(BaseModel):
+    # forbid: a client sending {"destinaton": ...} gets a 422 naming the
+    # field, instead of a link quietly pointing nowhere.
+    model_config = ConfigDict(extra="forbid")
+
+    destination: str = Field(min_length=1, max_length=2048)
+    expires_at: datetime | None = None
+
+
+class LinkResponse(BaseModel):
+    code: str
+    short_url: str
+    destination: str
+    created_at: datetime
+    expires_at: datetime | None
+
+    @classmethod
+    def of(cls, link: Link, base_url: str) -&gt; "LinkResponse":
+        # The mapping lives here, in one place. Returning the ORM object
+        # directly is how a password hash ends up in a JSON response the
+        # first time somebody adds a column.
+        return cls(
+            code=link.code,
+            short_url=f"{base_url}/{link.code}",
+            destination=link.destination,
+            created_at=link.created_at,
+            expires_at=link.expires_at,
+        )</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Two models, not one</h4>
+          <ul>
+            <li><strong>The request model is not the table.</strong> They change for different reasons: one when the API changes, one when the schema does.</li>
+            <li><strong>Never return the ORM object.</strong> Every column you add later becomes public the day you add it.</li>
+            <li><strong>Set <code>extra="forbid"</code> on input.</strong> Silent field-name typos are the cheapest bug class to eliminate.</li>
+            <li>Validate at the edge, once, and trust the object afterwards.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Where the rules live</h4>
+          <ul>
+            <li><strong>Pydantic validates shape; the domain validates meaning.</strong> &ldquo;Is a string under 2048 characters&rdquo; is shape. &ldquo;Is not a <code>javascript:</code> URL&rdquo; is meaning, and belongs where a CLI can reach it too.</li>
+            <li><strong>Use <code>frozen=True</code> and <code>slots=True</code></strong> on domain objects: immutable by default, and measurably smaller.</li>
+            <li><strong>Aware datetimes, always UTC.</strong> Convert at the edge, never in the middle.</li>
+            <li><code>secrets</code>, not <code>random</code>, for anything another person could try to guess.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>The parts that bite later</h4>
+          <ul>
+            <li><strong>Entropy is a product decision.</strong> Seven base-58 characters is about 41 bits; at ten million links the chance any two collide is small but the chance one is guessed by a scanner is not zero. Size it against what the links protect.</li>
+            <li><strong>Open redirects are a real vulnerability class</strong>, not a theoretical one &mdash; they are used to launder phishing links through domains people trust. The allow-list above is the minimum.</li>
+            <li><strong>Normalising is a decision you cannot take back:</strong> once you store the normalised form, the original is gone. Keep both if anyone might audit it.</li>
+            <li>Keep the domain importable with no environment set. If it needs settings, it is not the domain.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-db">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Persistence: engine, session, and the first migration</h3>
+        <p class="lede">Three separate things get confused here constantly. The <b>engine</b> is a connection pool and lives for the life of the process. The <b>session</b> is a unit of work and lives for the life of one request. The <b>migration</b> is a versioned, reviewed change to the schema that runs before the new code does. Getting the lifetimes right is most of what makes a service survive load.</p>
+      </div>
+
+<pre class="l2"># src/shortlink/models.py -- SQLAlchemy 2.0 typed declarative mapping.
+from datetime import datetime
+
+from sqlalchemy import DateTime, Index, String, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class LinkRow(Base):
+    __tablename__ = "links"
+
+    # The short code is the natural key and the only thing ever looked up by,
+    # so it is the primary key. A surrogate id here would buy an index nobody
+    # queries and a join nobody needs.
+    code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    destination: Mapped[str] = mapped_column(String(2048), nullable=False)
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+    # server_default, not default: the database clock is the one clock every
+    # writer agrees on, including a migration or a manual INSERT.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Idempotency: the same key from the same owner must return the first
+    # link, not create a second. Enforced by the database, because two
+    # concurrent requests will pass any check you write in Python.
+    idempotency_key: Mapped[str | None] = mapped_column(String(64))
+
+    __table_args__ = (
+        Index("uq_links_owner_idem", "owner_id", "idempotency_key", unique=True,
+              postgresql_where=idempotency_key.isnot(None)),
+    )
+
+
+class ApiKeyRow(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The sha256 of the key, never the key. Unique and indexed, because every
+    # authenticated request looks a caller up by exactly this value.
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # Revoke by setting a timestamp rather than deleting the row: you will
+    # want to know which key was used after somebody turns one off.
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))</pre>
+
+<pre class="l2"># src/shortlink/db.py -- one engine per process, one session per request.
+from collections.abc import AsyncIterator
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from shortlink.config import get_settings
+
+settings = get_settings()
+
+engine = create_async_engine(
+    str(settings.database_url),
+    pool_size=settings.db_pool_size,
+    max_overflow=0,          # a hard ceiling: better to queue than to exhaust Postgres
+    pool_pre_ping=True,      # one cheap round trip beats a stale-connection 500
+    pool_recycle=1800,       # under most proxies, connections do not live forever
+)
+
+# expire_on_commit=False: without it, touching any attribute after commit
+# triggers a fresh SELECT -- inside a response serialiser, on a closed
+# session, which is the classic MissingGreenlet at the worst moment.
+SessionFactory = async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def get_session() -&gt; AsyncIterator[AsyncSession]:
+    """The transaction boundary, and the only place commit is called.
+
+    One request, one transaction. Anything raised below -- a domain error, a
+    bug, a cancelled request -- unwinds through here and rolls back, so a
+    handler can never leave half a write behind.
+    """
+    async with SessionFactory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise</pre>
+
+<pre class="l1"># migrations/versions/0001_create_links.py
+"""create links
+
+Revision ID: 0001
+"""
+import sqlalchemy as sa
+from alembic import op
+
+revision = "0001"
+down_revision = None
+
+
+def upgrade() -&gt; None:
+    op.create_table(
+        "links",
+        sa.Column("code", sa.String(16), primary_key=True),
+        sa.Column("destination", sa.String(2048), nullable=False),
+        sa.Column("owner_id", sa.String(64), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True),
+                  server_default=sa.func.now(), nullable=False),
+        sa.Column("expires_at", sa.DateTime(timezone=True)),
+        sa.Column("idempotency_key", sa.String(64)),
+    )
+    op.create_index("ix_links_owner_id", "links", ["owner_id"])
+    op.create_index(
+        "uq_links_owner_idem", "links", ["owner_id", "idempotency_key"],
+        unique=True, postgresql_where=sa.text("idempotency_key IS NOT NULL"),
+    )
+
+
+def downgrade() -&gt; None:
+    op.drop_table("links")
+
+# Two rules this file obeys, and both are learned the hard way:
+#
+#   Migrations are forward-only in production. `downgrade` exists so the
+#   test suite can round-trip; nobody runs it against real data at 3am.
+#
+#   Every migration must be safe to run while the OLD code is still serving.
+#   Deploys are not atomic. Adding a NOT NULL column with no default takes an
+#   exclusive lock and rejects every insert the running version makes -- so
+#   it is three deploys: add nullable, backfill, then enforce.</pre>
+
+      <div class="note">
+        <h4>Why <code>expire_on_commit=False</code> is not an optimisation</h4>
+        <p>By default SQLAlchemy marks every attribute stale after a commit, so the next attribute access re-reads it from the database. In a synchronous script that is a mild waste. In an async request handler it is a crash: the commit happens in the dependency as the response is being built, so the refresh is attempted on a session that is closing, from a thread with no greenlet context, and you get <code>MissingGreenlet</code> pointing at a line that looks completely innocent. Turn it off, and convert ORM rows to domain objects or response models before the transaction ends &mdash; which the repository below does anyway.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-repo">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>The repository, and the race you cannot check for</h3>
+        <p class="lede">One module writes SQL, and it returns domain objects rather than ORM rows so nothing above it is coupled to the table. It also contains the single most important idea in this whole part: where two requests can collide, do not check and then act &mdash; ask the database to enforce it and handle the refusal. A <code>SELECT</code> followed by an <code>INSERT</code> is a race with a comfortable-looking test suite.</p>
+      </div>
+
+<pre class="l2"># src/shortlink/repository.py -- the only module that knows SQL exists.
+from datetime import datetime
+
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from shortlink.domain import Link
+from shortlink.models import LinkRow
+
+
+class CodeCollision(Exception):
+    """The generated code was already taken. Caller retries with a new one."""
+
+
+def _to_domain(row: LinkRow) -&gt; Link:
+    return Link(
+        code=row.code,
+        destination=row.destination,
+        owner_id=row.owner_id,
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+    )
+
+
+class LinkRepository:
+    def __init__(self, session: AsyncSession) -&gt; None:
+        self._session = session
+
+    async def get(self, code: str) -&gt; Link | None:
+        row = await self._session.get(LinkRow, code)
+        return _to_domain(row) if row else None
+
+    async def find_by_idempotency_key(self, owner_id: str, key: str) -&gt; Link | None:
+        stmt = select(LinkRow).where(
+            LinkRow.owner_id == owner_id, LinkRow.idempotency_key == key
+        )
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return _to_domain(row) if row else None
+
+    async def add(
+        self,
+        code: str,
+        destination: str,
+        owner_id: str,
+        expires_at: datetime | None,
+        idempotency_key: str | None,
+    ) -&gt; Link:
+        """Insert, or raise CodeCollision if that code is taken.
+
+        This is INSERT ... ON CONFLICT DO NOTHING on the idempotency index,
+        which makes a repeated request a no-op at the database rather than a
+        second link. If nothing came back, either the code collided or the
+        request is a retry -- the caller can tell them apart, and only one of
+        them is worth retrying.
+        """
+        stmt = (
+            insert(LinkRow)
+            .values(
+                code=code,
+                destination=destination,
+                owner_id=owner_id,
+                expires_at=expires_at,
+                idempotency_key=idempotency_key,
+            )
+            .on_conflict_do_nothing(index_elements=["owner_id", "idempotency_key"])
+            .returning(LinkRow)
+        )
+        try:
+            row = (await self._session.execute(stmt)).scalar_one_or_none()
+        except IntegrityError as exc:
+            # The other unique constraint: the primary key. Two writers drew
+            # the same random code, which is rare and entirely expected.
+            raise CodeCollision(code) from exc
+
+        if row is None:
+            # ON CONFLICT swallowed it: this owner already used this key.
+            existing = await self.find_by_idempotency_key(owner_id, idempotency_key or "")
+            if existing is None:  # pragma: no cover -- only under manual deletion
+                raise CodeCollision(code)
+            return existing
+        return _to_domain(row)</pre>
+
+<pre class="l2"># src/shortlink/service.py -- the use cases. No Request, no HTTPException.
+from datetime import UTC, datetime
+
+from shortlink import domain
+from shortlink.domain import DomainError, Link
+from shortlink.repository import CodeCollision, LinkRepository
+
+MAX_CODE_ATTEMPTS = 5
+
+
+class LinkNotFound(DomainError):
+    pass
+
+
+class LinkExpired(DomainError):
+    pass
+
+
+class LinkService:
+    def __init__(self, repo: LinkRepository) -&gt; None:
+        self._repo = repo
+
+    async def create(
+        self,
+        destination: str,
+        owner_id: str,
+        expires_at: datetime | None = None,
+        idempotency_key: str | None = None,
+    ) -&gt; Link:
+        clean = domain.validate_destination(destination)
+
+        # Bounded retry on collision. Unbounded would turn a misconfigured
+        # short code length into an infinite loop holding a transaction open.
+        for _ in range(MAX_CODE_ATTEMPTS):
+            try:
+                return await self._repo.add(
+                    code=domain.new_code(),
+                    destination=clean,
+                    owner_id=owner_id,
+                    expires_at=expires_at,
+                    idempotency_key=idempotency_key,
+                )
+            except CodeCollision:
+                continue
+        raise RuntimeError("could not allocate a unique code")  # a real 500: page someone
+
+    async def resolve(self, code: str) -&gt; Link:
+        link = await self._repo.get(code)
+        if link is None:
+            raise LinkNotFound(code)
+        if link.is_expired(datetime.now(UTC)):
+            # Distinct from "not found" on purpose: the caller gets 410 Gone,
+            # which tells a crawler to stop asking. 404 does not.
+            raise LinkExpired(code)
+        return link</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>Keep SQL in one place</h4>
+          <ul>
+            <li><strong>One module writes queries.</strong> When a query is slow, there is one file to open.</li>
+            <li><strong>Return domain objects</strong>, not ORM rows &mdash; then nothing above cares which ORM you used.</li>
+            <li><strong>Never build SQL with f-strings.</strong> Parameters are not about tidiness; they are the injection boundary.</li>
+            <li>The service raises domain errors. Translating those to status codes is the API layer's job.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Let the database enforce it</h4>
+          <ul>
+            <li><strong>Check-then-act is a race.</strong> <code>SELECT ... IF NOT EXISTS ... INSERT</code> passes every test and fails under concurrency.</li>
+            <li><strong>Idempotency is a unique index</strong> plus a key from the client. It is the difference between a retry and a duplicate charge.</li>
+            <li><strong>Bound every retry loop</strong>, and make the exhausted case loud.</li>
+            <li>Distinguish 404 from 410. It costs one exception class and it changes crawler behaviour.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Transactions and the N+1</h4>
+          <ul>
+            <li><strong>The repository does not commit.</strong> Only the request-scoped dependency does, so one request is one atomic unit however many repositories it touches.</li>
+            <li><strong>Watch for lazy loads after commit.</strong> Converting to a domain object inside the transaction is what makes that impossible rather than unlikely.</li>
+            <li><strong>Partial unique indexes</strong> let idempotency keys be optional without making <code>NULL</code> collide with itself &mdash; Postgres treats every <code>NULL</code> as distinct.</li>
+            <li>If the collision retry ever fires measurably, the code space is too small. Alert on it rather than discovering it in a bug report.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-api">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>The HTTP edge, and the app that wires it</h3>
+        <p class="lede">This layer should be boring, and if it is not, something below it is missing. Its whole job is to turn a request into a call and a result into a status code &mdash; no business rules, no SQL, no branching that is not about HTTP. The interesting part is the app factory: what gets created once at start-up and torn down cleanly, which is what <code>lifespan</code> exists for.</p>
+      </div>
+
+<pre class="l2"># src/shortlink/api.py -- routers, dependencies, status codes. Nothing else.
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, Response, status
+from fastapi.responses import RedirectResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from shortlink.config import Settings, get_settings
+from shortlink.db import get_session
+from shortlink.repository import LinkRepository
+from shortlink.schemas import CreateLinkRequest, LinkResponse
+from shortlink.security import ApiKey, require_api_key, rate_limit
+from shortlink.service import LinkService
+
+router = APIRouter()
+
+
+def get_service(session: Annotated[AsyncSession, Depends(get_session)]) -&gt; LinkService:
+    return LinkService(LinkRepository(session))
+
+
+ServiceDep = Annotated[LinkService, Depends(get_service)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+@router.post(
+    "/links",
+    response_model=LinkResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit)],
+    summary="Create a short link",
+)
+async def create_link(
+    body: CreateLinkRequest,
+    service: ServiceDep,
+    settings: SettingsDep,
+    caller: Annotated[ApiKey, Depends(require_api_key)],
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -&gt; LinkResponse:
+    link = await service.create(
+        destination=body.destination,
+        owner_id=caller.owner_id,
+        expires_at=body.expires_at,
+        idempotency_key=idempotency_key,
+    )
+    # 201 without Location is a 201 the client has to guess about.
+    response.headers["Location"] = f"{settings.base_url}/{link.code}"
+    return LinkResponse.of(link, settings.base_url)
+
+
+@router.get("/{code}", include_in_schema=False)
+async def follow(code: str, service: ServiceDep) -&gt; RedirectResponse:
+    link = await service.resolve(code)
+    # 307, not 302: 307 preserves the method, and a permanent redirect would
+    # be cached by every proxy on earth -- making the link impossible to
+    # revoke, expire or measure.
+    return RedirectResponse(link.destination, status_code=status.HTTP_307_TEMPORARY_REDIRECT)</pre>
+
+<pre class="l2"># src/shortlink/main.py -- the app factory and everything with a lifetime.
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import redis.asyncio as redis
+from fastapi import FastAPI
+
+from shortlink import observability
+from shortlink.api import router
+from shortlink.config import get_settings
+from shortlink.db import engine
+from shortlink.errors import install_error_handlers
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -&gt; AsyncIterator[None]:
+    """Start-up before the first request; shutdown after the last one.
+
+    Everything expensive and long-lived is built here, once. Building a Redis
+    client per request is the commonest cause of a service that is fine in
+    staging and exhausts file descriptors in production.
+    """
+    settings = get_settings()
+    observability.configure(settings)
+    app.state.redis = redis.from_url(str(settings.redis_url), decode_responses=True)
+    try:
+        yield
+    finally:
+        # Ordered, and always runs: an unclosed pool keeps the process alive
+        # past SIGTERM and turns a rolling deploy into a five-minute wait.
+        await app.state.redis.aclose()
+        await engine.dispose()
+
+
+def create_app() -&gt; FastAPI:
+    settings = get_settings()
+    app = FastAPI(
+        title="shortlink",
+        version="0.1.0",
+        lifespan=lifespan,
+        docs_url="/docs" if settings.debug else None,   # not in production
+        redoc_url=None,
+    )
+    install_error_handlers(app)
+    observability.install_middleware(app)
+    app.include_router(observability.health_router)
+    app.include_router(router)
+    return app
+
+
+# uvicorn shortlink.main:app -- a module-level app so the reloader can find it.
+app = create_app()</pre>
+
+      <div class="note">
+        <h4>The route order that costs a day</h4>
+        <p><code>GET /{code}</code> is a wildcard at the root, so it will happily swallow <code>/healthz</code>, <code>/docs</code> and anything else you add later &mdash; FastAPI matches routes in registration order, and the first match wins. That is why the health router is included <em>before</em> the application router above, and why in a real service the catch-all is usually mounted last and deliberately, with a comment saying so. The same reasoning applies to a prefix: putting the API under <code>/v1</code> and leaving the bare root for redirects removes the ambiguity entirely, and is what you want the day you add a second endpoint.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-errors">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Failure is part of the contract</h3>
+        <p class="lede">Every endpoint has a happy path and several unhappy ones, and clients integrate against both. If each handler invents its own error body, the client ends up with a parser per endpoint and a comment saying &ldquo;sometimes it is <code>detail</code>, sometimes <code>message</code>&rdquo;. One exception hierarchy, one handler, one documented shape &mdash; and RFC 9457 already specifies that shape, so there is nothing to design.</p>
+      </div>
+
+<pre class="l2"># src/shortlink/errors.py -- one shape for every failure that leaves the app.
+import structlog
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from shortlink.domain import DomainError, InvalidDestination
+from shortlink.service import LinkExpired, LinkNotFound
+
+log = structlog.get_logger()
+
+# The one place a domain error becomes a status code. Adding an error means
+# adding a row here, which a reviewer can see, rather than a raise buried in
+# a handler, which they cannot.
+STATUS_BY_ERROR: dict[type[DomainError], int] = {
+    InvalidDestination: status.HTTP_422_UNPROCESSABLE_ENTITY,
+    LinkNotFound: status.HTTP_404_NOT_FOUND,
+    LinkExpired: status.HTTP_410_GONE,
+}
+
+
+def problem(
+    request: Request, status_code: int, title: str, detail: str, **extra: object
+) -&gt; JSONResponse:
+    """RFC 9457 problem details. A standard shape beats a bespoke one."""
+    body = {
+        "type": f"https://errors.shortlink.dev/{title.lower().replace(' ', '-')}",
+        "title": title,
+        "status": status_code,
+        "detail": detail,
+        "instance": str(request.url.path),
+        # The value a support ticket should quote. It is in the logs too.
+        "request_id": request.state.request_id,
+        **extra,
+    }
+    return JSONResponse(
+        body, status_code=status_code, media_type="application/problem+json"
+    )
+
+
+def install_error_handlers(app: FastAPI) -&gt; None:
+    @app.exception_handler(DomainError)
+    async def _domain(request: Request, exc: DomainError) -&gt; JSONResponse:
+        code = STATUS_BY_ERROR.get(type(exc), status.HTTP_400_BAD_REQUEST)
+        # Expected. Logged at info, and it must never page anyone.
+        log.info("domain_error", error=type(exc).__name__, status=code)
+        return problem(request, code, type(exc).__name__, str(exc))
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation(request: Request, exc: RequestValidationError) -&gt; JSONResponse:
+        return problem(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Validation failed",
+            "The request body did not match the schema.",
+            errors=[
+                {"field": ".".join(str(p) for p in e["loc"][1:]), "message": e["msg"]}
+                for e in exc.errors()
+            ],
+        )
+
+    @app.exception_handler(Exception)
+    async def _unhandled(request: Request, exc: Exception) -&gt; JSONResponse:
+        # A bug. Log the whole thing on our side, tell the caller nothing --
+        # a stack trace in a response body is a free map of your dependencies.
+        log.exception("unhandled_error", path=request.url.path)
+        return problem(
+            request,
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Internal error",
+            "The request could not be completed. Quote the request id if you contact support.",
+        )</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Situation</th><th>Status</th><th>Why that one</th></tr></thead>
+          <tbody>
+            <tr><td>Body does not match the schema</td><td>422</td><td>Handled by FastAPI before your code runs. Return the failing field names; clients cannot fix what they cannot see.</td></tr>
+            <tr><td>Destination is a <code>javascript:</code> URL</td><td>422</td><td>Well-formed request, unacceptable content. A domain rule said no.</td></tr>
+            <tr><td>No such code</td><td>404</td><td>Nothing to say beyond that. Do not confirm whether it ever existed.</td></tr>
+            <tr><td>Code existed, has expired</td><td>410</td><td>Tells a crawler to stop asking. 404 invites a retry next week.</td></tr>
+            <tr><td>Missing or wrong API key</td><td>401</td><td>With <code>WWW-Authenticate</code>. 403 means &ldquo;I know who you are and no&rdquo;.</td></tr>
+            <tr><td>Over the rate limit</td><td>429</td><td>With <code>Retry-After</code>, or the client will simply hammer you faster.</td></tr>
+            <tr><td>Anything unhandled</td><td>500</td><td>Generic body, full detail in the logs, one request id joining the two.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <h4>The catch-all handler and the one thing it must not do</h4>
+        <p>Registering a handler for bare <code>Exception</code> means the framework no longer re-raises, so anything that used to surface in your error tracker now quietly becomes a tidy 500. That is only safe because the handler logs with <code>log.exception</code> &mdash; which captures the traceback &mdash; before returning. If you take one thing from this topic: an error the client sees and an error you can debug are two different artefacts, and the request id is the only thing joining them. Put it in the response body, in every log line, and in the <code>X-Request-Id</code> response header.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-auth">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Who is calling, and how often</h3>
+        <p class="lede">Two edge concerns that are always someone else&rsquo;s job until the incident. Authentication here is an API key, which is the right choice for machine-to-machine calls and has exactly two rules: store a hash, never the key, and compare in constant time. Rate limiting is the thing that keeps one badly-written client from being everybody&rsquo;s outage, and it has to be shared across processes, which means it lives in Redis rather than in a dictionary.</p>
+      </div>
+
+<pre class="l2"># src/shortlink/security.py
+import hashlib
+import hmac
+import time
+from dataclasses import dataclass
+from typing import Annotated
+
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from shortlink.config import Settings, get_settings
+from shortlink.db import get_session
+from shortlink.models import ApiKeyRow
+
+bearer = HTTPBearer(auto_error=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ApiKey:
+    owner_id: str
+
+
+def hash_key(raw: str) -&gt; str:
+    """What goes in the database. Never the key itself.
+
+    sha256 and not bcrypt on purpose: an API key is already 256 bits of
+    randomness that we issued, so there is no low-entropy password to make
+    expensive to guess -- and this runs on every single request.
+    """
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+async def load_key(session: AsyncSession, digest: str) -&gt; ApiKeyRow | None:
+    """Look the caller up by the hash, never by the key.
+
+    Indexed on key_hash, so this is one index probe, and the raw key never
+    reaches a query, a log line, or a slow-query report.
+    """
+    stmt = select(ApiKeyRow).where(
+        ApiKeyRow.key_hash == digest, ApiKeyRow.revoked_at.is_(None)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def require_api_key(
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -&gt; ApiKey:
+    unauthorized = HTTPException(
+        status.HTTP_401_UNAUTHORIZED,
+        "invalid or missing credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    if creds is None:
+        raise unauthorized
+
+    digest = hash_key(creds.credentials)
+    row = await load_key(session, digest)
+    # Belt and braces: the lookup already matched on the hash, but comparing
+    # the stored value in constant time means a later change to that query --
+    # a prefix match, a LIKE, a cache that returns a near miss -- cannot
+    # quietly become an authentication bypass.
+    if row is None or not hmac.compare_digest(row.key_hash, digest):
+        raise unauthorized
+
+    # One identical failure for "no such key" and "revoked key". Telling them
+    # apart is free reconnaissance for whoever is working through a list.
+    return ApiKey(owner_id=row.owner_id)
+
+
+async def rate_limit(
+    request: Request, settings: Annotated[Settings, Depends(get_settings)]
+) -&gt; None:
+    """A fixed-window counter in Redis, shared by every worker.
+
+    An in-process dict is not a rate limit: with four workers behind one load
+    balancer the effective limit is four times what you configured, and it
+    resets on every deploy.
+    """
+    key = f"rl:{request.client.host if request.client else 'unknown'}:{int(time.time() // 60)}"
+    redis = request.app.state.redis
+
+    # One round trip, not two -- and INCR is atomic, so concurrent requests
+    # cannot both read 59 and both decide they are under the limit.
+    pipe = redis.pipeline()
+    pipe.incr(key)
+    pipe.expire(key, 120)          # longer than the window: cheap insurance against clock skew
+    used, _ = await pipe.execute()
+
+    limit = settings.rate_limit_per_minute
+    if used &gt; limit:
+        retry_after = 60 - int(time.time() % 60)
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "rate limit exceeded",
+            headers={
+                "Retry-After": str(retry_after),
+                "RateLimit-Limit": str(limit),
+                "RateLimit-Remaining": "0",
+            },
+        )</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>The non-negotiables</h4>
+          <ul>
+            <li><strong>Store a hash, never the key.</strong> A leaked database should not be a leaked credential.</li>
+            <li><strong>Show the key once, at creation.</strong> If you can display it later, you stored it.</li>
+            <li><strong>401 for &ldquo;who are you&rdquo;, 403 for &ldquo;not allowed&rdquo;.</strong> They are different bugs to debug.</li>
+            <li>Never log the <code>Authorization</code> header. Redact it in the middleware, not by remembering.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Make it operable</h4>
+          <ul>
+            <li><strong>Rate limit state must be shared.</strong> Per-process counters silently multiply the limit by your worker count.</li>
+            <li><strong>Return the headers.</strong> <code>Retry-After</code> turns a retry storm into a queue.</li>
+            <li><strong>Key on the caller, not the IP</strong>, once you have authenticated one &mdash; otherwise a whole office behind one NAT shares a bucket.</li>
+            <li>Give keys a prefix (<code>sl_live_...</code>) so secret scanners can find them in a public repository before an attacker does.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>Where this design runs out</h4>
+          <ul>
+            <li><strong>A fixed window allows a double burst</strong> at the boundary: the full limit at 11:59:59 and again at 12:00:00. A sliding window or a token bucket in a Lua script fixes it when that matters.</li>
+            <li><strong>Decide what happens when Redis is down.</strong> Fail open and you have no limit; fail closed and Redis is now a hard dependency of every request. Choose deliberately and write it down.</li>
+            <li><strong>Rate limiting at the edge is cheaper</strong> &mdash; a gateway or CDN rejects before you pay for a worker. Keep the in-app limit as the backstop.</li>
+            <li>Key rotation needs two valid keys at once, which means the lookup must accept a set, not a value.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-obs">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Logs, traces, and the two health checks</h3>
+        <p class="lede">You will debug this service from its output, not from a debugger, so the output is part of the design. Three things pay for themselves in the first week: logs that are JSON with a request id on every line, a trace that spans the whole request, and two <em>different</em> health endpoints &mdash; because &ldquo;is this process alive&rdquo; and &ldquo;should this process receive traffic&rdquo; have different answers and confusing them takes an entire cluster down.</p>
+      </div>
+
+<pre class="l2"># src/shortlink/observability.py
+import time
+import uuid
+from collections.abc import Awaitable, Callable
+
+import structlog
+from fastapi import APIRouter, FastAPI, Request, Response, status
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+
+from shortlink.config import Settings
+from shortlink.db import engine
+
+log = structlog.get_logger()
+
+
+def configure(settings: Settings) -&gt; None:
+    """JSON in production, colour locally. Same events either way."""
+    renderer = (
+        structlog.dev.ConsoleRenderer()
+        if settings.debug
+        else structlog.processors.JSONRenderer()
+    )
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,   # request_id, without passing it around
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso", utc=True),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            renderer,
+        ],
+        wrapper_class=structlog.make_filtering_bound_logger(settings.log_level),
+        cache_logger_on_first_use=True,
+    )
+
+
+def install_middleware(app: FastAPI) -&gt; None:
+    @app.middleware("http")
+    async def request_context(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -&gt; Response:
+        # Trust an inbound id so one id spans every service in the call, but
+        # generate one when absent -- a request with no id is unsupportable.
+        request_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+        request.state.request_id = request_id
+
+        # contextvars, not a parameter: every log line anywhere below this,
+        # including inside the repository, carries the id without plumbing.
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        finally:
+            structlog.contextvars.clear_contextvars()
+
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        response.headers["X-Request-Id"] = request_id
+        log.info(
+            "http_request",
+            method=request.method,
+            # route template, not the URL: /links/{code} aggregates, and the
+            # raw path turns every distinct code into its own metric series.
+            path=request.scope.get("route").path if request.scope.get("route") else request.url.path,
+            status=response.status_code,
+            duration_ms=round(elapsed_ms, 2),
+        )
+        return response
+
+
+health_router = APIRouter(tags=["health"])
+
+
+@health_router.get("/healthz", include_in_schema=False)
+async def liveness() -&gt; dict[str, str]:
+    """Is the process alive? Nothing else.
+
+    It must not touch the database. A liveness probe that checks a dependency
+    restarts every pod in the fleet the moment that dependency has a bad
+    minute -- turning a brief database blip into a full outage with no
+    capacity left to recover.
+    """
+    return {"status": "ok"}
+
+
+@health_router.get("/readyz", include_in_schema=False)
+async def readiness() -&gt; Response:
+    """Should this process receive traffic? Now the dependencies matter."""
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception:
+        log.warning("readiness_failed", check="database")
+        return JSONResponse(
+            {"status": "degraded", "database": "unreachable"},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    return JSONResponse({"status": "ready"})</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Signal</th><th>Answers</th><th>The mistake to avoid</th></tr></thead>
+          <tbody>
+            <tr><td>Structured logs</td><td>&ldquo;What happened to <em>this</em> request?&rdquo;</td><td>Free-text messages. <code>f"user {uid} failed"</code> cannot be filtered, counted or joined.</td></tr>
+            <tr><td>Metrics</td><td>&ldquo;How is the service doing overall?&rdquo;</td><td>High-cardinality labels. A label per short code is a monitoring bill, not a dashboard.</td></tr>
+            <tr><td>Traces</td><td>&ldquo;Where did the 900&nbsp;ms go?&rdquo;</td><td>Sampling everything. 1&ndash;10% plus every error is the usual shape.</td></tr>
+            <tr><td><code>/healthz</code></td><td>&ldquo;Restart me?&rdquo;</td><td>Checking dependencies. That is how one slow database restarts the entire fleet.</td></tr>
+            <tr><td><code>/readyz</code></td><td>&ldquo;Send me traffic?&rdquo;</td><td>Returning 200 while the pool is exhausted, so the load balancer keeps feeding a dead process.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <h4>The one field that makes logs useful</h4>
+        <p>A request id, bound in a <code>contextvar</code> at the edge and merged into every event automatically. Without it, a production investigation is grep and hope; with it, one identifier from a support ticket returns the whole story across every module and, if the id is propagated on outbound calls, across every service. It costs the middleware above and nothing else. Note the route template rather than the raw path in the log line, for the same reason: <code>/links/{code}</code> is a thing you can count, and <code>/links/aB3xK9p</code> is ten million things you cannot.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-tests">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>Tests that would actually have caught it</h3>
+        <p class="lede">The tests worth writing are the ones that fail when the behaviour changes and pass when only the code does. That rules out mocking the database &mdash; a mocked session cannot fail a unique constraint, which is precisely the behaviour the idempotency logic depends on. So: a real Postgres in a container, the app driven in-process over ASGI with no network, and the domain tested on its own with no fixtures at all.</p>
+      </div>
+
+<pre class="l2"># tests/conftest.py -- a real database, a real app, no network.
+from collections.abc import AsyncIterator, Iterator
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from testcontainers.postgres import PostgresContainer
+
+from shortlink.db import get_session
+from shortlink.main import create_app
+from shortlink.models import Base
+
+
+@pytest.fixture(scope="session")
+def postgres_url() -&gt; Iterator[str]:
+    # One container for the whole session: starting it is the slow part, and
+    # isolation comes from the per-test transaction below, not from restarts.
+    with PostgresContainer("postgres:16-alpine", driver="asyncpg") as pg:
+        yield pg.get_connection_url()
+
+
+@pytest.fixture
+async def session(postgres_url: str) -&gt; AsyncIterator[AsyncSession]:
+    """Each test runs in a transaction that is rolled back afterwards.
+
+    Faster than recreating the schema per test, and it means tests cannot
+    leak state into one another however carelessly they are written.
+    """
+    engine = create_async_engine(postgres_url)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    connection = await engine.connect()
+    transaction = await connection.begin()
+    factory = async_sessionmaker(bind=connection, expire_on_commit=False)
+    async with factory() as s:
+        yield s
+    await transaction.rollback()
+    await connection.close()
+    await engine.dispose()
+
+
+@pytest.fixture
+async def client(session: AsyncSession) -&gt; AsyncIterator[AsyncClient]:
+    """The real app, with only the session swapped for the test one.
+
+    ASGITransport means no socket is opened and no port is bound, so the
+    suite runs anywhere and cannot flake on a port collision.
+    """
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: session
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+    app.dependency_overrides.clear()</pre>
+
+<pre class="l2"># tests/test_api.py -- through the real app, against a real database.
+import pytest
+from httpx import AsyncClient
+
+
+async def test_create_returns_201_with_location(client: AsyncClient, api_key: str) -&gt; None:
+    response = await client.post(
+        "/links",
+        json={"destination": "https://example.com/a"},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["short_url"].endswith(body["code"])
+    # The header a client needs and that nobody remembers to assert on.
+    assert response.headers["Location"].endswith(body["code"])
+
+
+async def test_same_idempotency_key_returns_the_same_link(
+    client: AsyncClient, api_key: str
+) -&gt; None:
+    """The test that a mocked database physically cannot perform.
+
+    Two identical requests, one link. The guarantee lives in a partial
+    unique index, so only a real Postgres can prove it holds.
+    """
+    headers = {"Authorization": f"Bearer {api_key}", "Idempotency-Key": "abc-123"}
+    first = await client.post("/links", json={"destination": "https://example.com"}, headers=headers)
+    second = await client.post("/links", json={"destination": "https://example.com"}, headers=headers)
+
+    assert first.status_code == 201
+    assert first.json()["code"] == second.json()["code"]
+
+
+@pytest.mark.parametrize(
+    "destination",
+    ["javascript:alert(1)", "data:text/html,&lt;script&gt;", "ftp://example.com", "not a url"],
+)
+async def test_dangerous_destinations_are_rejected(
+    client: AsyncClient, api_key: str, destination: str
+) -&gt; None:
+    response = await client.post(
+        "/links",
+        json={"destination": destination},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert response.status_code == 422
+    # The failure contract is an API too: assert the shape, not just the code.
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["status"] == 422
+
+
+async def test_unknown_code_is_404_and_expired_is_410(client: AsyncClient) -&gt; None:
+    assert (await client.get("/nope123")).status_code == 404</pre>
+
+      <div class="levels">
+        <article class="lvl l1">
+          <span class="badge"><span class="dot"></span>L1 &middot; Beginner</span>
+          <h4>What to write first</h4>
+          <ul>
+            <li><strong>One test per behaviour</strong>, named for the behaviour. <code>test_create_returns_201_with_location</code> tells you what broke from the failure line alone.</li>
+            <li><strong>Test the domain without fixtures.</strong> If it needs one, the layering has slipped.</li>
+            <li><strong>Assert the status code and the body shape</strong>, not the exact prose of a message.</li>
+            <li>Parametrise the variants instead of writing four near-identical tests.</li>
+          </ul>
+        </article>
+        <article class="lvl l2">
+          <span class="badge"><span class="dot"></span>L2 &middot; Intermediate</span>
+          <h4>Make them fast and honest</h4>
+          <ul>
+            <li><strong>A real database, one container, per-test transactions.</strong> Rollback isolation is faster than recreating a schema and stricter than trusting cleanup.</li>
+            <li><strong>Drive the app over ASGI</strong> &mdash; no port, no server, no flake, and the middleware and error handlers are all still exercised.</li>
+            <li><strong>Override only the seam you must.</strong> Overriding the service under test proves nothing.</li>
+            <li>Mock what you do not own and cannot run: a third-party payment API, yes. Your own database, no.</li>
+          </ul>
+        </article>
+        <article class="lvl l3">
+          <span class="badge"><span class="dot"></span>L3 &middot; Advanced</span>
+          <h4>The tests that earn their keep later</h4>
+          <ul>
+            <li><strong>Test the error contract.</strong> Clients parse it, so it is an interface, and it will otherwise change silently.</li>
+            <li><strong>Run the migrations in CI</strong> against a copy of the previous schema, so an unsafe lock is caught before it takes production offline.</li>
+            <li><strong>Property tests for the pure parts</strong> &mdash; a code generator and a validator are exactly what Hypothesis is good at.</li>
+            <li>Coverage is a smoke detector, not a goal. Untested error paths matter more than the last 4%.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-ship">
+      <div class="topic-head">
+        <span class="kicker">Python &middot; 00</span>
+        <h3>The image, the pipeline, and the shutdown</h3>
+        <p class="lede">The last mile, and the one where Python services most often go wrong in ways nobody notices until the first rolling deploy drops requests. Three things to get right: an image that carries no build tools and runs as nobody, a pipeline that runs exactly what the Makefile runs, and a process that finishes its in-flight requests when the orchestrator asks it to stop.</p>
+      </div>
+
+<pre class="l2"># Dockerfile -- two stages: one that can compile, one that ships.
+FROM python:3.12-slim AS builder
+
+# uv is copied from its own published image rather than pip-installed, which
+# keeps this layer tiny and the version pinned by digest upstream.
+COPY --from=ghcr.io/astral-sh/uv:0.4 /uv /bin/uv
+
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+WORKDIR /app
+
+# Dependencies before source. Editing a handler must not re-resolve or
+# re-download anything -- this one ordering decision is most of your CI time.
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev
+
+COPY src/ src/
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
+
+
+FROM python:3.12-slim AS runtime
+
+# A real user, created in the image. Running as root inside a container is
+# one kernel bug away from being root on the node.
+RUN useradd --create-home --uid 10001 app
+WORKDIR /app
+
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --from=builder --chown=app:app /app/src /app/src
+ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+
+USER app
+EXPOSE 8000
+
+# Exec form, so uvicorn is PID 1 and receives SIGTERM directly. In shell form
+# the shell is PID 1, it does not forward signals, and every deploy waits for
+# the 30-second kill timeout while dropping in-flight requests.
+CMD ["uvicorn", "shortlink.main:app", \
+     "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "4", "--timeout-graceful-shutdown", "20"]</pre>
+
+<pre class="l2"># .github/workflows/ci.yaml -- the same commands the Makefile runs.
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+concurrency:                        # a new push cancels the old run
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # --frozen: fail if uv.lock disagrees with pyproject.toml, rather than
+      # silently resolving something nobody reviewed.
+      - run: uv sync --frozen --all-groups
+
+      - run: make check          # format, lint, types -- identical locally
+      - run: make test           # testcontainers uses the runner's Docker
+
+      - name: Build the image
+        run: docker build -t shortlink:${{ github.sha }} .</pre>
+
+      <div class="note warn">
+        <h4>Graceful shutdown is not automatic, and it is what a rolling deploy needs</h4>
+        <p>When Kubernetes replaces a pod it sends <code>SIGTERM</code> and starts a countdown. Three things have to line up or you drop requests on every deploy. The signal must <em>reach</em> the server, which means the exec form of <code>CMD</code> so it is PID 1 rather than a shell that ignores signals. The server must then stop accepting new connections but finish the ones in flight, which is what <code>--timeout-graceful-shutdown</code> bounds. And the pod must leave the load balancer <em>before</em> it stops accepting, which is what a <code>preStop</code> sleep of a few seconds buys you, because endpoint removal is eventually consistent and traffic keeps arriving for a moment after the signal. Get all three right and a deploy is invisible; miss the first and every deploy is a small outage nobody attributes to the deploy.</p>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Before it is &ldquo;done&rdquo;</th><th>Why it is on this list</th></tr></thead>
+          <tbody>
+            <tr><td>Migrations run as a separate step, not at start-up</td><td>Four replicas starting at once run four migrations. Run them once, in a job, before the new version rolls.</td></tr>
+            <tr><td><code>/readyz</code> wired to the readiness probe</td><td>Otherwise traffic arrives before the pool is warm and the first requests fail.</td></tr>
+            <tr><td>Resource requests and limits set</td><td>Without a memory limit, one large response takes down the node instead of one pod.</td></tr>
+            <tr><td>Logs to stdout, nowhere else</td><td>The platform collects stdout. A log file in a container is a disk that fills.</td></tr>
+            <tr><td>The image scanned, and the lockfile audited</td><td><code>uv lock --check</code> plus a vulnerability scan in CI; supply chain is part of the build now.</td></tr>
+            <tr><td>An alert on the 500 rate and on p99 latency</td><td>Dashboards are for after somebody notices. Alerts are for before.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</section>
