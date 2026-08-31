@@ -3347,6 +3347,2114 @@ mux.<span class="th-token th-function">Handle</span>(<span class="th-token th-st
   </div>
 </footer>
 
+<section class="part" id="service">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part ten</span>
+      <h2>A whole service, file by file</h2>
+      <p>The cookbook was five jobs in isolation. This is the repository they add up to &mdash; one small service, built in the order you would actually build it, with every file that has to exist before anyone will let you deploy it. The domain is a link shortener, chosen because it is small enough to hold in your head and still needs every production concern there is: validation, a database and a migration, idempotency under a race, authentication, rate limiting, structured logs, two health checks, tests that run in CI, and an image with nothing in it but your binary. It is the same service the Python and Java pages build, so you can read all three and see what the language actually changes &mdash; and here it changes a lot, because most of what those two reach for a framework to do, Go does with the standard library.</p>
+    </div>
+
+    <section class="topic" id="svc-layout">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 29</span>
+        <h3>Where the files go, and why</h3>
+        <p class="lede">Go has one layout rule the compiler actually enforces, and it is the useful one: nothing outside this module may import anything under <code>internal/</code>. That single directory name does the job Java needs an architecture test for. What it does not do is police the layers <em>inside</em> the module, which is what the rest of this topic is about.</p>
+      </div>
+
+      <pre class="l1">shortlink/
+  go.mod                  the module path, the Go version, the direct deps
+  go.sum                  the hashes. Committed, and verified on every build.
+  Makefile                the four commands everyone needs, named the same way
+  compose.yaml            Postgres and Redis for local work, nothing else
+  Dockerfile              two stages; the second one contains a binary
+  .golangci.yaml          the linters, and the import rule from the table below
+
+  cmd/
+    shortlinkd/
+      main.go             twelve lines. Calls run, prints the error, exits 1.
+      run.go              wiring: config, pool, redis, routes, signals
+
+  internal/               the compiler&#39;s own boundary. Nothing outside imports it.
+    config/
+      config.go           every variable the service reads, parsed once
+    shortlink/            the domain. Imports the standard library only.
+      link.go             Link, Code, and the URL parse that is a security control
+      code.go             crypto/rand over an alphabet with no confusable pairs
+      service.go          the use cases. Knows no HTTP and no SQL.
+      errors.go           the sentinels every layer above matches on
+    postgres/
+      pool.go             one pool per process, sized on purpose
+      store.go            the only file in the repository that contains SQL
+      migrate.go          goose, over migrations embedded in the binary
+      migrations/
+        0001_create_links.sql
+    ratelimit/
+      redis.go            one INCR and one PEXPIRE, atomically
+    httpapi/
+      server.go           routes, middleware, and the five timeouts
+      links.go            the management handlers
+      redirect.go         GET /{code}: the only public route
+      auth.go             API keys, hashed, compared in constant time
+      problem.go          one error shape out, and the map that produces it
+      middleware.go       request id, logging, recovery
+
+  internal/shortlink/code_test.go       pure, fast, no container
+  internal/httpapi/problem_test.go      every sentinel has a status
+  internal/postgres/store_test.go       a real Postgres, and the race
+  internal/httpapi/api_test.go          through the real mux, over httptest
+
+  .github/workflows/ci.yaml</pre>
+
+      <p>Two decisions in that tree are worth defending in a review. There is no <code>pkg/</code> &mdash; it is a convention some repositories carry and it means nothing to the toolchain, whereas <code>internal/</code> means something exact. And the packages are named for what they <em>are</em> rather than for what they contain: <code>postgres</code>, not <code>repository</code>; <code>httpapi</code>, not <code>handlers</code>. A Go package name is a prefix on every identifier you export from it, so <code>postgres.Store</code> reads and <code>repository.LinkRepository</code> stutters.</p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Package</th><th>May import</th><th>Must never import</th></tr></thead>
+          <tbody>
+            <tr><td><code>internal/shortlink</code></td><td>The standard library, and nothing else</td><td><code>pgx</code>, <code>net/http</code>, <code>redis</code>. It is the part whose tests need no container.</td></tr>
+            <tr><td><code>internal/postgres</code></td><td><code>shortlink</code>, <code>pgx</code></td><td><code>net/http</code>. A store that writes a status code cannot be called from a worker.</td></tr>
+            <tr><td><code>internal/httpapi</code></td><td>Everything</td><td>Nothing &mdash; but it should hold no branching that is not about HTTP.</td></tr>
+            <tr><td><code>internal/config</code></td><td>The standard library</td><td>Everything else. It is imported by <code>cmd</code>, not by the layers.</td></tr>
+            <tr><td><code>cmd/shortlinkd</code></td><td>All of the above</td><td>Nothing. It is the only place that knows the whole graph.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The compiler will not check those rows for you, so a linter does. <code>depguard</code> is the direct equivalent of the rule Java needs ArchUnit for, and it costs eight lines:</p>
+
+<pre class="l2"><span class="th-token th-comment"># .golangci.yaml</span>
+<span class="th-token th-property">linters</span>:
+  <span class="th-token th-property">enable</span>:
+    - depguard        <span class="th-token th-comment"># the import rule from the table above</span>
+    - errcheck        <span class="th-token th-comment"># an ignored error is a decision; make it an explicit one</span>
+    - errorlint       <span class="th-token th-comment"># err == ErrX instead of errors.Is is a wrapping bug</span>
+    - bodyclose       <span class="th-token th-comment"># a leaked response body is a leaked connection</span>
+    - contextcheck    <span class="th-token th-comment"># a handler that calls context.Background() has lost the deadline</span>
+    - sqlclosecheck
+    - gosec
+    - revive
+
+<span class="th-token th-property">linters-settings</span>:
+  <span class="th-token th-property">depguard</span>:
+    <span class="th-token th-property">rules</span>:
+      <span class="th-token th-property">domain</span>:
+        <span class="th-token th-property">files</span>: [<span class="th-token th-string">&quot;**/internal/shortlink/**&quot;</span>]
+        <span class="th-token th-property">deny</span>:
+          - <span class="th-token th-property">pkg</span>: github.com/jackc/pgx
+            <span class="th-token th-property">desc</span>: <span class="th-token th-string">the domain does not know a database exists</span>
+          - <span class="th-token th-property">pkg</span>: <span class="th-token th-string">net/http</span>
+            <span class="th-token th-property">desc</span>: <span class="th-token th-string">the domain does not know it is being served over HTTP</span>
+      <span class="th-token th-property">store</span>:
+        <span class="th-token th-property">files</span>: [<span class="th-token th-string">&quot;**/internal/postgres/**&quot;</span>]
+        <span class="th-token th-property">deny</span>:
+          - <span class="th-token th-property">pkg</span>: net/http
+            <span class="th-token th-property">desc</span>: <span class="th-token th-string">a store that writes status codes cannot be used by a worker</span></pre>
+
+<pre class="l2"><span class="th-token th-comment">// go.mod -- seven direct dependencies, and four of those lines are two</span>
+<span class="th-token th-comment">// libraries: jackc for Postgres and testcontainers for the tests.</span>
+<span class="th-token th-keyword">module</span> github.com/jaspreet/shortlink
+<span class="th-token th-keyword">
+go</span> <span class="th-token th-number">1.24</span>
+<span class="th-token th-keyword">
+require</span> (
+	github.com/jackc/pgerrcode <span class="th-token th-number">v0.0.0-20240316143900</span>-6e2875d9b438
+	github.com/jackc/pgx/v5 <span class="th-token th-number">v5.7.1</span>
+	github.com/pressly/goose/v3 <span class="th-token th-number">v3.22.1</span>
+	github.com/redis/go-redis/v9 <span class="th-token th-number">v9.7.0</span>
+	github.com/testcontainers/testcontainers-go <span class="th-token th-number">v0.34.0</span>
+	github.com/testcontainers/testcontainers-go/modules/postgres <span class="th-token th-number">v0.34.0</span>
+	golang.org/x/sync <span class="th-token th-number">v0.10.0</span>
+)
+
+<span class="th-token th-comment">// What is absent is the point. There is no web framework, because Go 1.22&#39;s</span>
+<span class="th-token th-comment">// ServeMux routes by method and path parameter and that was the only reason</span>
+<span class="th-token th-comment">// left to import one. There is no logging library, because log/slog is in the</span>
+<span class="th-token th-comment">// standard library and emits JSON. There is no configuration library, because</span>
+<span class="th-token th-comment">// os.Getenv and a struct are less code than the library&#39;s tutorial. There is</span>
+<span class="th-token th-comment">// no dependency injection container, because run() is one.</span>
+<span class="th-token th-comment">//</span>
+<span class="th-token th-comment">// Every dependency is a thing you will be reading the source of at 2am one</span>
+<span class="th-token th-comment">// day. Seven is a number you can hold. Seventy is a supply chain.</span></pre>
+
+<pre class="l1"><span class="th-token th-comment"># Makefile -- four verbs, the same four in every repository you own.</span>
+<span class="th-token th-comment"># CI runs these exact targets, so a red build reproduces locally in one line.</span>
+.PHONY: up check test run image
+
+up:                     <span class="th-token th-comment">## Postgres and Redis, nothing else</span>
+	docker compose up <span class="th-token th-attr">-d</span>
+
+check:                  <span class="th-token th-comment">## what a reviewer would comment on, before they have to</span>
+	go build ./...
+	go vet ./...
+	golangci-lint run
+
+test:                   <span class="th-token th-comment">## -race is not optional in a language with goroutines</span>
+	go test <span class="th-token th-attr">-race</span> <span class="th-token th-attr">-count</span>=1 ./...
+
+run: up                 <span class="th-token th-comment">## against the compose services</span>
+	go run ./cmd/shortlinkd
+
+image:                  <span class="th-token th-comment">## exactly what CI builds</span>
+	docker build <span class="th-token th-attr">-t</span> shortlink:$(shell git rev-parse <span class="th-token th-attr">--short</span> HEAD) .</pre>
+
+      <div class="note warn">
+        <h4><code>-race</code> is the single highest-value flag in the language, and it is off by default</h4>
+        <p>The race detector instruments every memory access and reports the two goroutines, with stacks, the moment one writes what another reads without synchronisation. It costs perhaps five times the CPU and ten times the memory, which is why it is not on in production &mdash; and it is why <code>go test -race</code> belongs in CI on every package, every run. A data race in Go is not a hypothetical: an unsynchronised map write is a runtime crash that takes the whole process down, and it will happen for the first time under load, in production, in the middle of the night. The detector only reports races it actually observes, so it is exactly as good as your test coverage of concurrent paths &mdash; which is one more reason the idempotency test later in this part starts sixteen goroutines rather than two.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-config">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 30</span>
+        <h3>Configuration, read once, and every error at once</h3>
+        <p class="lede">A service reads its environment exactly once, on the way up, into a struct. The failure you are designing against is the mistyped variable discovered on the tenth request instead of in the first second &mdash; and Go lets you go one better than the other two languages here, because <code>errors.Join</code> means one restart tells you <em>everything</em> that is wrong rather than the first thing.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment">// internal/config/config.go</span>
+<span class="th-token th-keyword">package</span> config
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;errors&quot;</span>
+	<span class="th-token th-string">&quot;fmt&quot;</span>
+	<span class="th-token th-string">&quot;net/url&quot;</span>
+	<span class="th-token th-string">&quot;os&quot;</span>
+	<span class="th-token th-string">&quot;strconv&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+)
+
+<span class="th-token th-comment">// Config is every setting this service has. It is a plain struct with no</span>
+<span class="th-token th-comment">// tags and no library behind it: the whole parser is sixty lines below and</span>
+<span class="th-token th-comment">// you can read all of it, which is more than can be said for the tutorial</span>
+<span class="th-token th-comment">// of any configuration package you might have imported instead.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">Config</span> <span class="th-token th-keyword">struct</span> {
+	Addr          <span class="th-token th-type">string</span>
+	DatabaseURL   <span class="th-token th-type">string</span>
+	RedisURL      <span class="th-token th-type">string</span>
+	PublicBaseURL *url.URL
+	CodeLength    <span class="th-token th-type">int</span>
+	DefaultTTL    time.Duration
+	RateLimit     <span class="th-token th-type">int</span>
+	RateWindow    time.Duration
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">Load</span>() (Config, <span class="th-token th-type">error</span>) {
+	<span class="th-token th-keyword">var</span> errs []<span class="th-token th-type">error</span>
+
+	cfg := Config{
+		Addr:        <span class="th-token th-function">optional</span>(<span class="th-token th-string">&quot;SHORTLINK_ADDR&quot;</span>, <span class="th-token th-string">&quot;:8080&quot;</span>),
+		DatabaseURL: <span class="th-token th-function">required</span>(&amp;errs, <span class="th-token th-string">&quot;DATABASE_URL&quot;</span>),
+		RedisURL:    <span class="th-token th-function">required</span>(&amp;errs, <span class="th-token th-string">&quot;REDIS_URL&quot;</span>),
+		CodeLength:  <span class="th-token th-function">integer</span>(&amp;errs, <span class="th-token th-string">&quot;SHORTLINK_CODE_LENGTH&quot;</span>, <span class="th-token th-number">7</span>),
+		DefaultTTL:  <span class="th-token th-function">duration</span>(&amp;errs, <span class="th-token th-string">&quot;SHORTLINK_DEFAULT_TTL&quot;</span>, <span class="th-token th-number">90</span>*<span class="th-token th-number">24</span>*time.Hour),
+		RateLimit:   <span class="th-token th-function">integer</span>(&amp;errs, <span class="th-token th-string">&quot;SHORTLINK_RATE_LIMIT&quot;</span>, <span class="th-token th-number">60</span>),
+		RateWindow:  <span class="th-token th-function">duration</span>(&amp;errs, <span class="th-token th-string">&quot;SHORTLINK_RATE_WINDOW&quot;</span>, time.Minute),
+	}
+
+	<span class="th-token th-keyword">if</span> raw := <span class="th-token th-function">required</span>(&amp;errs, <span class="th-token th-string">&quot;SHORTLINK_PUBLIC_BASE_URL&quot;</span>); raw != <span class="th-token th-string">&quot;&quot;</span> {
+		u, err := url.<span class="th-token th-function">Parse</span>(raw)
+		<span class="th-token th-keyword">switch</span> {
+		<span class="th-token th-keyword">case</span> err != <span class="th-token th-literal">nil</span>:
+			errs = <span class="th-token th-function">append</span>(errs, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;SHORTLINK_PUBLIC_BASE_URL: %w&quot;</span>, err))
+		<span class="th-token th-keyword">case</span> u.Scheme == <span class="th-token th-string">&quot;&quot;</span> || u.Host == <span class="th-token th-string">&quot;&quot;</span>:
+			errs = <span class="th-token th-function">append</span>(errs, errors.<span class="th-token th-function">New</span>(<span class="th-token th-string">&quot;SHORTLINK_PUBLIC_BASE_URL: want an absolute URL&quot;</span>))
+		<span class="th-token th-keyword">default</span>:
+			cfg.PublicBaseURL = u
+		}
+	}
+	<span class="th-token th-keyword">if</span> cfg.CodeLength &lt; <span class="th-token th-number">4</span> || cfg.CodeLength &gt; <span class="th-token th-number">32</span> {
+		errs = <span class="th-token th-function">append</span>(errs, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;SHORTLINK_CODE_LENGTH: want 4..32, got %d&quot;</span>, cfg.CodeLength))
+	}
+
+	<span class="th-token th-comment">// One error listing every problem, not the first one. A deploy that fails</span>
+	<span class="th-token th-comment">// four times because four variables are missing is four deploys; this is</span>
+	<span class="th-token th-comment">// one, and the log line names all four.</span>
+	<span class="th-token th-keyword">return</span> cfg, errors.<span class="th-token th-function">Join</span>(errs...)
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">optional</span>(key, fallback <span class="th-token th-type">string</span>) <span class="th-token th-type">string</span> {
+	<span class="th-token th-keyword">if</span> v := os.<span class="th-token th-function">Getenv</span>(key); v != <span class="th-token th-string">&quot;&quot;</span> {
+		<span class="th-token th-keyword">return</span> v
+	}
+	<span class="th-token th-keyword">return</span> fallback
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">required</span>(errs *[]<span class="th-token th-type">error</span>, key <span class="th-token th-type">string</span>) <span class="th-token th-type">string</span> {
+	v := os.<span class="th-token th-function">Getenv</span>(key)
+	<span class="th-token th-keyword">if</span> v == <span class="th-token th-string">&quot;&quot;</span> {
+		*errs = <span class="th-token th-function">append</span>(*errs, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%s is required&quot;</span>, key))
+	}
+	<span class="th-token th-keyword">return</span> v
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">integer</span>(errs *[]<span class="th-token th-type">error</span>, key <span class="th-token th-type">string</span>, fallback <span class="th-token th-type">int</span>) <span class="th-token th-type">int</span> {
+	raw := os.<span class="th-token th-function">Getenv</span>(key)
+	<span class="th-token th-keyword">if</span> raw == <span class="th-token th-string">&quot;&quot;</span> {
+		<span class="th-token th-keyword">return</span> fallback
+	}
+	n, err := strconv.<span class="th-token th-function">Atoi</span>(raw)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		*errs = <span class="th-token th-function">append</span>(*errs, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%s: %w&quot;</span>, key, err))
+		<span class="th-token th-keyword">return</span> fallback
+	}
+	<span class="th-token th-keyword">return</span> n
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">duration</span>(errs *[]<span class="th-token th-type">error</span>, key <span class="th-token th-type">string</span>, fallback time.Duration) time.Duration {
+	raw := os.<span class="th-token th-function">Getenv</span>(key)
+	<span class="th-token th-keyword">if</span> raw == <span class="th-token th-string">&quot;&quot;</span> {
+		<span class="th-token th-keyword">return</span> fallback
+	}
+	d, err := time.<span class="th-token th-function">ParseDuration</span>(raw)   <span class="th-token th-comment">// &quot;90m&quot;, &quot;24h&quot;, &quot;1500ms&quot;</span>
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		*errs = <span class="th-token th-function">append</span>(*errs, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%s: %w&quot;</span>, key, err))
+		<span class="th-token th-keyword">return</span> fallback
+	}
+	<span class="th-token th-keyword">return</span> d
+}</pre>
+
+      <p>Note which settings have a fallback and which do not. A port has a sensible default and a database connection string does not, because a default DSN is how a service quietly connects to something that happens to be listening. The rule generalises: <b>anything that is a secret, or that names another system, has no default.</b> Everything else may have one, and the default should be the value you would pick in production.</p>
+
+<pre class="l1"><span class="th-token th-meta">$</span> <span class="th-token th-command">DATABASE_URL= REDIS_URL= go</span> run ./cmd/shortlinkd
+<span class="th-token th-meta">shortlinkd: load config: DATABASE_URL is required</span>
+<span class="th-token th-meta">REDIS_URL is required</span>
+<span class="th-token th-meta">SHORTLINK_PUBLIC_BASE_URL is required</span>
+<span class="th-token th-meta">$</span> <span class="th-token th-command">echo</span> $?
+<span class="th-token th-meta">1</span>
+<span class="th-token th-meta"># Three seconds after the deploy started, and all three named at once.</span>
+<span class="th-token th-meta"># errors.Join prints its members one per line, which is exactly what you</span>
+<span class="th-token th-meta"># want a start-up failure to look like in a log aggregator.</span></pre>
+
+<pre class="l1"><span class="th-token th-comment"># compose.yaml -- the two services this needs, and nothing else. Not a</span>
+<span class="th-token th-comment"># production topology; a way for a new engineer to be running in one command.</span>
+<span class="th-token th-property">services</span>:
+  <span class="th-token th-property">postgres</span>:
+    <span class="th-token th-property">image</span>: <span class="th-token th-string">postgres:16-alpine</span>
+    <span class="th-token th-property">environment</span>:
+      <span class="th-token th-property">POSTGRES_USER</span>: shortlink
+      <span class="th-token th-property">POSTGRES_PASSWORD</span>: <span class="th-token th-string">local-only-not-a-secret</span>
+      <span class="th-token th-property">POSTGRES_DB</span>: <span class="th-token th-string">shortlink</span>
+    <span class="th-token th-property">ports</span>: [<span class="th-token th-string">&quot;5432:5432&quot;</span>]
+    <span class="th-token th-property">healthcheck</span>:
+      <span class="th-token th-property">test</span>: [<span class="th-token th-string">&quot;CMD-SHELL&quot;</span>, <span class="th-token th-string">&quot;pg_isready -U shortlink&quot;</span>]
+      <span class="th-token th-property">interval</span>: <span class="th-token th-string">2s</span>
+      <span class="th-token th-property">timeout</span>: <span class="th-token th-string">2s</span>
+      <span class="th-token th-property">retries</span>: <span class="th-token th-string">15</span>
+
+  <span class="th-token th-property">redis</span>:
+    <span class="th-token th-property">image</span>: redis:<span class="th-token th-number">7</span>-alpine
+    <span class="th-token th-property">ports</span>: [<span class="th-token th-string">&quot;6379:6379&quot;</span>]
+    <span class="th-token th-property">healthcheck</span>:
+      <span class="th-token th-property">test</span>: [<span class="th-token th-string">&quot;CMD&quot;</span>, <span class="th-token th-string">&quot;redis-cli&quot;</span>, <span class="th-token th-string">&quot;ping&quot;</span>]
+      <span class="th-token th-property">interval</span>: <span class="th-token th-string">2s</span>
+      <span class="th-token th-property">timeout</span>: <span class="th-token th-string">2s</span>
+      <span class="th-token th-property">retries</span>: <span class="th-token th-string">15</span></pre>
+    </section>
+
+    <section class="topic" id="svc-domain">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 31</span>
+        <h3>The core, which imports only the standard library</h3>
+        <p class="lede">This package knows nothing about HTTP, SQL or Redis, which is why its tests run in milliseconds and why the rules survive the day somebody swaps the database. It is also where Go differs most honestly from the other two languages in this series: Go cannot make an invalid value unconstructable, so the discipline is one parse function at the edge, a re-check in the domain, and a constraint in the database.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment">// internal/shortlink/link.go</span>
+<span class="th-token th-keyword">package</span> shortlink
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;fmt&quot;</span>
+	<span class="th-token th-string">&quot;net/url&quot;</span>
+	<span class="th-token th-string">&quot;regexp&quot;</span>
+	<span class="th-token th-string">&quot;strings&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+)
+
+<span class="th-token th-comment">// Code is the code in the short URL. A named string type, not a bare</span>
+<span class="th-token th-comment">// string: it costs nothing at run time and it means the compiler rejects</span>
+<span class="th-token th-comment">// ParseCode(ownerID) even though both are strings underneath.</span>
+<span class="th-token th-comment">//</span>
+<span class="th-token th-comment">// Be honest about the limit. Code(&quot;&quot;) and Code(&quot;NOT A CODE&quot;) both compile,</span>
+<span class="th-token th-comment">// because a conversion between a named type and its underlying type is</span>
+<span class="th-token th-comment">// always legal in Go. There is no equivalent of a private constructor. So</span>
+<span class="th-token th-comment">// the invariant is held by convention -- ParseCode is the only way values</span>
+<span class="th-token th-comment">// enter -- backed by a re-check wherever it matters and a unique, checked</span>
+<span class="th-token th-comment">// column in Postgres. That is weaker than a Java record and it is worth</span>
+<span class="th-token th-comment">// knowing that it is weaker.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">Code</span> <span class="th-token th-type">string</span>
+
+<span class="th-token th-keyword">func</span> (c Code) <span class="th-token th-function">String</span>() <span class="th-token th-type">string</span> { <span class="th-token th-keyword">return</span> <span class="th-token th-type">string</span>(c) }
+
+<span class="th-token th-keyword">var</span> codeShape = regexp.<span class="th-token th-function">MustCompile</span>(<span class="th-token th-string">`^[a-z0-9]{4,32}$`</span>)
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">ParseCode</span>(raw <span class="th-token th-type">string</span>) (Code, <span class="th-token th-type">error</span>) {
+	c := strings.<span class="th-token th-function">ToLower</span>(strings.<span class="th-token th-function">TrimSpace</span>(raw))
+	<span class="th-token th-keyword">if</span> !codeShape.<span class="th-token th-function">MatchString</span>(c) {
+		<span class="th-token th-keyword">return</span> <span class="th-token th-string">&quot;&quot;</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%w: %q is not a short code&quot;</span>, ErrInvalid, raw)
+	}
+	<span class="th-token th-keyword">return</span> <span class="th-token th-function">Code</span>(c), <span class="th-token th-literal">nil</span>
+}
+
+<span class="th-token th-comment">// Link is the thing itself. No struct tags: this type is not the wire</span>
+<span class="th-token th-comment">// format and it is not the table either, and the day somebody adds</span>
+<span class="th-token th-comment">// `json:&quot;...&quot;` here is the day the API and the schema became the same</span>
+<span class="th-token th-comment">// object and can no longer change independently.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">Link</span> <span class="th-token th-keyword">struct</span> {
+	Code      Code
+	Target    *url.URL
+	OwnerID   <span class="th-token th-type">string</span>
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+<span class="th-token th-keyword">func</span> (l Link) <span class="th-token th-function">Expired</span>(now time.Time) <span class="th-token th-type">bool</span> {
+	<span class="th-token th-keyword">return</span> !l.ExpiresAt.<span class="th-token th-function">IsZero</span>() &amp;&amp; !now.<span class="th-token th-function">Before</span>(l.ExpiresAt)
+}
+
+<span class="th-token th-keyword">const</span> maxTargetLen = <span class="th-token th-number">2048</span>
+
+<span class="th-token th-comment">// ParseTarget is a security control wearing the clothes of a format check.</span>
+<span class="th-token th-comment">// url.Parse is deliberately permissive: it will parse &quot;javascript:alert(1)&quot;</span>
+<span class="th-token th-comment">// without complaint and hand you a URL whose Scheme is &quot;javascript&quot;. If you</span>
+<span class="th-token th-comment">// then put that in a Location header, you have built an XSS vector on your</span>
+<span class="th-token th-comment">// own domain and handed out short links to it.</span>
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">ParseTarget</span>(raw <span class="th-token th-type">string</span>) (*url.URL, <span class="th-token th-type">error</span>) {
+	raw = strings.<span class="th-token th-function">TrimSpace</span>(raw)
+	<span class="th-token th-keyword">switch</span> {
+	<span class="th-token th-keyword">case</span> raw == <span class="th-token th-string">&quot;&quot;</span>:
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%w: url is required&quot;</span>, ErrInvalid)
+	<span class="th-token th-keyword">case</span> <span class="th-token th-function">len</span>(raw) &gt; maxTargetLen:
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%w: url longer than %d bytes&quot;</span>, ErrInvalid, maxTargetLen)
+	}
+
+	u, err := url.<span class="th-token th-function">Parse</span>(raw)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%w: %s&quot;</span>, ErrInvalid, err)
+	}
+	<span class="th-token th-keyword">switch</span> strings.<span class="th-token th-function">ToLower</span>(u.Scheme) {
+	<span class="th-token th-keyword">case</span> <span class="th-token th-string">&quot;http&quot;</span>, <span class="th-token th-string">&quot;https&quot;</span>:
+	<span class="th-token th-keyword">default</span>:
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%w: only http and https can be shortened&quot;</span>, ErrInvalid)
+	}
+	<span class="th-token th-keyword">if</span> u.Host == <span class="th-token th-string">&quot;&quot;</span> {
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%w: url has no host&quot;</span>, ErrInvalid)
+	}
+	<span class="th-token th-keyword">if</span> u.User != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-comment">// http://user:pass@host is a credential in a database column.</span>
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%w: credentials in a url are not stored&quot;</span>, ErrInvalid)
+	}
+	<span class="th-token th-keyword">return</span> u, <span class="th-token th-literal">nil</span>
+}</pre>
+
+<pre class="l2"><span class="th-token th-comment">// internal/shortlink/code.go</span>
+<span class="th-token th-keyword">package</span> shortlink
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;crypto/rand&quot;</span>
+	<span class="th-token th-string">&quot;fmt&quot;</span>
+)
+
+<span class="th-token th-comment">// Thirty-two characters, not thirty-six: 0/o, 1/l and their friends are</span>
+<span class="th-token th-comment">// gone so a code read off a slide or down a phone survives the trip.</span>
+<span class="th-token th-comment">//</span>
+<span class="th-token th-comment">// Thirty-two is also a power of two, and that is not a coincidence. Folding</span>
+<span class="th-token th-comment">// a random byte into an alphabet with `b % len(alphabet)` is only uniform</span>
+<span class="th-token th-comment">// when the length divides 256. With 36 characters the first four would come</span>
+<span class="th-token th-comment">// up about 12% more often than the rest -- a bias that is invisible in</span>
+<span class="th-token th-comment">// testing, real in aggregate, and entirely avoidable by choosing 32.</span>
+<span class="th-token th-keyword">const</span> alphabet = <span class="th-token th-string">&quot;23456789abcdefghijkmnpqrstuvwxyz&quot;</span>
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">NewCode</span>(n <span class="th-token th-type">int</span>) (Code, <span class="th-token th-type">error</span>) {
+	b := <span class="th-token th-function">make</span>([]<span class="th-token th-type">byte</span>, n)
+	<span class="th-token th-keyword">if</span> _, err := rand.<span class="th-token th-function">Read</span>(b); err != <span class="th-token th-literal">nil</span> {   <span class="th-token th-comment">// crypto/rand, never math/rand</span>
+		<span class="th-token th-keyword">return</span> <span class="th-token th-string">&quot;&quot;</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;read random bytes: %w&quot;</span>, err)
+	}
+	<span class="th-token th-keyword">for</span> i := <span class="th-token th-keyword">range</span> b {
+		b[i] = alphabet[<span class="th-token th-type">int</span>(b[i])%<span class="th-token th-function">len</span>(alphabet)]
+	}
+	<span class="th-token th-keyword">return</span> <span class="th-token th-function">Code</span>(b), <span class="th-token th-literal">nil</span>
+}
+
+<span class="th-token th-comment">// math/rand would be a real vulnerability rather than a style mistake: its</span>
+<span class="th-token th-comment">// output is predictable from a handful of observations, so anybody who</span>
+<span class="th-token th-comment">// created three links could enumerate everybody else&#39;s. Recent Go has</span>
+<span class="th-token th-comment">// crypto/rand.Text() for the case where you do not care which alphabet you</span>
+<span class="th-token th-comment">// get, which is most cases -- this one cares, so it does the fold itself.</span>
+<span class="th-token th-comment">//</span>
+<span class="th-token th-comment">// 32^7 is about 34 billion codes. With ten million links already stored, a</span>
+<span class="th-token th-comment">// fresh code collides roughly once in 3,400 inserts. Rare, but not never,</span>
+<span class="th-token th-comment">// and &quot;rare&quot; is the failure mode that reaches production untested. The</span>
+<span class="th-token th-comment">// unique index catches it and the service retries; see two topics down.</span>
+<span class="th-token th-comment">// The generator does not have to be perfect, it has to be unpredictable.</span></pre>
+
+<pre class="l2"><span class="th-token th-comment">// internal/shortlink/errors.go</span>
+<span class="th-token th-keyword">package</span> shortlink
+
+<span class="th-token th-keyword">import</span> <span class="th-token th-string">&quot;errors&quot;</span>
+
+<span class="th-token th-comment">// Every failure this service raises on purpose. Sentinels, matched with</span>
+<span class="th-token th-comment">// errors.Is, so a caller can decide without string-matching a message and</span>
+<span class="th-token th-comment">// without importing the package that produced it.</span>
+<span class="th-token th-keyword">var</span> (
+	ErrInvalid          = errors.<span class="th-token th-function">New</span>(<span class="th-token th-string">&quot;invalid request&quot;</span>)
+	ErrNotFound         = errors.<span class="th-token th-function">New</span>(<span class="th-token th-string">&quot;link not found&quot;</span>)
+	ErrExpired          = errors.<span class="th-token th-function">New</span>(<span class="th-token th-string">&quot;link expired&quot;</span>)
+	ErrCodeTaken        = errors.<span class="th-token th-function">New</span>(<span class="th-token th-string">&quot;code already in use&quot;</span>)
+	ErrIdempotencyClash = errors.<span class="th-token th-function">New</span>(<span class="th-token th-string">&quot;concurrent request with the same idempotency key&quot;</span>)
+	ErrNoCode           = errors.<span class="th-token th-function">New</span>(<span class="th-token th-string">&quot;no free code&quot;</span>)
+)
+
+<span class="th-token th-comment">// Go has no sealed types, so nothing stops somebody adding a seventh</span>
+<span class="th-token th-comment">// sentinel and forgetting to map it to a status code -- which is the one</span>
+<span class="th-token th-comment">// guarantee the Java version gets from the compiler. This slice buys it</span>
+<span class="th-token th-comment">// back at the cost of one line per error: the HTTP layer&#39;s test walks it</span>
+<span class="th-token th-comment">// and fails if any member has no status. It is a worse mechanism than</span>
+<span class="th-token th-comment">// exhaustiveness checking and it catches the same bug.</span>
+<span class="th-token th-keyword">var</span> All = []<span class="th-token th-type">error</span>{
+	ErrInvalid, ErrNotFound, ErrExpired,
+	ErrCodeTaken, ErrIdempotencyClash, ErrNoCode,
+}</pre>
+
+      <div class="note warn">
+        <h4>Validating the host is not the same as blocking a private address</h4>
+        <p>It is tempting to add a check here that refuses <code>127.0.0.1</code>, <code>10.0.0.0/8</code> and <code>169.254.169.254</code>, and for a service that ever <em>fetches</em> the target &mdash; to unfurl a preview, to check the link is alive &mdash; you must, or your shortener is a proxy into your own VPC with the cloud metadata endpoint one request away. But do it at fetch time, against the resolved IP, not here against the hostname: a name that resolves to a public address when the link is created can resolve to a private one when it is followed, and no check written at creation time can see that. In Go the tool for it is a <code>net.Dialer</code> with a <code>Control</code> function that inspects the address the resolver actually returned and refuses to connect. This service only ever hands the URL back to a browser, so the parse above is the whole control &mdash; and the day somebody adds a preview fetcher is the day this note becomes code.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-db">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 32</span>
+        <h3>The schema, the pool, and migrations inside the binary</h3>
+        <p class="lede">Three things with three different lifetimes: the schema, which the migrations own and the code is only allowed to assume; the pool, which is created once per process and sized on purpose; and the connection, which belongs to one query and is handed back. Go makes the third one easy to get wrong in exactly one way, and the linter in the last topic exists to catch it.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment">-- internal/postgres/migrations/0001_create_links.sql</span>
+<span class="th-token th-comment">-- goose runs this once, in order, and records that it did. Once it has run</span>
+<span class="th-token th-comment">-- anywhere but your laptop it is immutable: a fix is 0002, always.</span>
+
+<span class="th-token th-comment">-- +goose Up</span>
+<span class="th-token th-keyword">CREATE</span> <span class="th-token th-keyword">TABLE</span> <span class="th-token th-function">links</span> (
+    id              BIGINT GENERATED ALWAYS <span class="th-token th-keyword">AS</span> IDENTITY <span class="th-token th-keyword">PRIMARY</span> <span class="th-token th-keyword">KEY</span>,
+    code            TEXT        <span class="th-token th-keyword">NOT</span> <span class="th-token th-keyword">NULL</span>,
+    target_url      TEXT        <span class="th-token th-keyword">NOT</span> <span class="th-token th-keyword">NULL</span>,
+    owner_id        TEXT        <span class="th-token th-keyword">NOT</span> <span class="th-token th-keyword">NULL</span>,
+    idempotency_key TEXT,
+    created_at      TIMESTAMPTZ <span class="th-token th-keyword">NOT</span> <span class="th-token th-keyword">NULL</span> <span class="th-token th-keyword">DEFAULT</span> <span class="th-token th-function">now</span>(),
+    expires_at      TIMESTAMPTZ,
+
+    <span class="th-token th-comment">-- Named, not left to Postgres. The store matches on this name to tell</span>
+    <span class="th-token th-comment">-- &quot;that code is taken&quot; apart from &quot;that request already happened&quot;, and</span>
+    <span class="th-token th-comment">-- a generated name is a name somebody will change by accident.</span>
+    <span class="th-token th-keyword">CONSTRAINT</span> links_code_key <span class="th-token th-keyword">UNIQUE</span> (code)
+);
+
+<span class="th-token th-comment">-- Idempotency as a constraint rather than a check in application code.</span>
+<span class="th-token th-comment">-- Partial, because most links carry no key and NULLs are not equal to one</span>
+<span class="th-token th-comment">-- another -- without the WHERE clause this index would do nothing at all.</span>
+<span class="th-token th-keyword">CREATE</span> <span class="th-token th-keyword">UNIQUE</span> <span class="th-token th-keyword">INDEX</span> links_owner_idempotency_key
+    <span class="th-token th-keyword">ON</span> <span class="th-token th-function">links</span> (owner_id, idempotency_key)
+    <span class="th-token th-keyword">WHERE</span> idempotency_key IS <span class="th-token th-keyword">NOT</span> <span class="th-token th-keyword">NULL</span>;
+
+<span class="th-token th-keyword">CREATE</span> <span class="th-token th-keyword">INDEX</span> links_owner_created_at <span class="th-token th-keyword">ON</span> <span class="th-token th-function">links</span> (owner_id, created_at <span class="th-token th-keyword">DESC</span>);
+
+<span class="th-token th-keyword">CREATE</span> <span class="th-token th-keyword">TABLE</span> <span class="th-token th-function">api_keys</span> (
+    id         BIGINT GENERATED ALWAYS <span class="th-token th-keyword">AS</span> IDENTITY <span class="th-token th-keyword">PRIMARY</span> <span class="th-token th-keyword">KEY</span>,
+    owner_id   TEXT <span class="th-token th-keyword">NOT</span> <span class="th-token th-keyword">NULL</span>,
+    label      TEXT <span class="th-token th-keyword">NOT</span> <span class="th-token th-keyword">NULL</span>,
+    key_hash   TEXT <span class="th-token th-keyword">NOT</span> <span class="th-token th-keyword">NULL</span>,   <span class="th-token th-comment">-- sha-256 hex. Never the key itself.</span>
+    created_at TIMESTAMPTZ <span class="th-token th-keyword">NOT</span> <span class="th-token th-keyword">NULL</span> <span class="th-token th-keyword">DEFAULT</span> <span class="th-token th-function">now</span>(),
+    revoked_at TIMESTAMPTZ,
+
+    <span class="th-token th-keyword">CONSTRAINT</span> api_keys_key_hash_key <span class="th-token th-keyword">UNIQUE</span> (key_hash)
+);
+
+<span class="th-token th-comment">-- +goose Down</span>
+<span class="th-token th-keyword">DROP</span> <span class="th-token th-keyword">TABLE</span> api_keys;
+<span class="th-token th-keyword">DROP</span> <span class="th-token th-keyword">TABLE</span> links;</pre>
+
+<pre class="l2"><span class="th-token th-comment">// internal/postgres/migrate.go</span>
+<span class="th-token th-keyword">package</span> postgres
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;database/sql&quot;</span>
+	<span class="th-token th-string">&quot;embed&quot;</span>
+	<span class="th-token th-string">&quot;fmt&quot;</span>
+
+	_ <span class="th-token th-string">&quot;github.com/jackc/pgx/v5/stdlib&quot;</span>   <span class="th-token th-comment">// registers the &quot;pgx&quot; database/sql driver</span>
+	<span class="th-token th-string">&quot;github.com/pressly/goose/v3&quot;</span>
+)
+
+<span class="th-token th-comment">// The migrations are compiled into the binary. That is not a convenience:</span>
+<span class="th-token th-comment">// it means the image is one file, the version of the schema is the version</span>
+<span class="th-token th-comment">// of the binary, and there is no way to deploy a container whose SQL and</span>
+<span class="th-token th-comment">// whose code disagree because somebody forgot to copy a directory.</span>
+<span class="th-token th-comment">//</span>
+<span class="th-token th-comment">//go:embed migrations/*.sql</span>
+<span class="th-token th-keyword">var</span> migrations embed.FS
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">Migrate</span>(ctx context.Context, dsn <span class="th-token th-type">string</span>) <span class="th-token th-type">error</span> {
+	<span class="th-token th-comment">// goose wants a database/sql handle; pgx ships one. This is the only</span>
+	<span class="th-token th-comment">// place in the service that opens one, and it is closed before the</span>
+	<span class="th-token th-comment">// pool below is created -- migrating and serving are separate jobs</span>
+	<span class="th-token th-comment">// even when they happen in the same process.</span>
+	db, err := sql.<span class="th-token th-function">Open</span>(<span class="th-token th-string">&quot;pgx&quot;</span>, dsn)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;open for migrate: %w&quot;</span>, err)
+	}
+	<span class="th-token th-keyword">defer</span> db.<span class="th-token th-function">Close</span>()
+
+	goose.<span class="th-token th-function">SetBaseFS</span>(migrations)
+	<span class="th-token th-keyword">if</span> err := goose.<span class="th-token th-function">SetDialect</span>(<span class="th-token th-string">&quot;postgres&quot;</span>); err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;goose dialect: %w&quot;</span>, err)
+	}
+	<span class="th-token th-keyword">if</span> err := goose.<span class="th-token th-function">UpContext</span>(ctx, db, <span class="th-token th-string">&quot;migrations&quot;</span>); err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;migrate: %w&quot;</span>, err)
+	}
+	<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>
+}</pre>
+
+<pre class="l2"><span class="th-token th-comment">// internal/postgres/pool.go</span>
+<span class="th-token th-keyword">package</span> postgres
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;fmt&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jackc/pgx/v5/pgxpool&quot;</span>
+)
+
+<span class="th-token th-comment">// One pool for the process, and it is the real concurrency limit of this</span>
+<span class="th-token th-comment">// service. Goroutines are free; Postgres connections are not, and a</span>
+<span class="th-token th-comment">// thousand goroutines behind a pool of ten means nine hundred and ninety</span>
+<span class="th-token th-comment">// of them are waiting -- which is the correct design, because a database</span>
+<span class="th-token th-comment">// has a ceiling and a pool is how you respect it rather than discover it.</span>
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">NewPool</span>(ctx context.Context, dsn <span class="th-token th-type">string</span>) (*pgxpool.Pool, <span class="th-token th-type">error</span>) {
+	cfg, err := pgxpool.<span class="th-token th-function">ParseConfig</span>(dsn)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;parse dsn: %w&quot;</span>, err)
+	}
+
+	cfg.MaxConns = <span class="th-token th-number">10</span>
+	cfg.MinConns = <span class="th-token th-number">2</span>                          <span class="th-token th-comment">// survive a burst without a handshake</span>
+	cfg.MaxConnLifetime = <span class="th-token th-number">25</span> * time.Minute    <span class="th-token th-comment">// under any proxy&#39;s idle timeout</span>
+	cfg.MaxConnIdleTime = <span class="th-token th-number">5</span> * time.Minute
+	cfg.HealthCheckPeriod = <span class="th-token th-number">30</span> * time.Second
+
+	pool, err := pgxpool.<span class="th-token th-function">NewWithConfig</span>(ctx, cfg)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;create pool: %w&quot;</span>, err)
+	}
+
+	<span class="th-token th-comment">// Fail the start-up, not the first request. A service that comes up</span>
+	<span class="th-token th-comment">// green and then 500s for ninety seconds while DNS settles is a</span>
+	<span class="th-token th-comment">// service whose readiness probe is lying.</span>
+	pingCtx, cancel := context.<span class="th-token th-function">WithTimeout</span>(ctx, <span class="th-token th-number">5</span>*time.Second)
+	<span class="th-token th-keyword">defer</span> <span class="th-token th-function">cancel</span>()
+	<span class="th-token th-keyword">if</span> err := pool.<span class="th-token th-function">Ping</span>(pingCtx); err != <span class="th-token th-literal">nil</span> {
+		pool.<span class="th-token th-function">Close</span>()
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;ping: %w&quot;</span>, err)
+	}
+	<span class="th-token th-keyword">return</span> pool, <span class="th-token th-literal">nil</span>
+}
+
+<span class="th-token th-comment">// Why pgxpool rather than database/sql, given the toolkit part used the</span>
+<span class="th-token th-comment">// latter: pgx speaks the Postgres binary protocol directly, so timestamps</span>
+<span class="th-token th-comment">// and arrays arrive as themselves instead of through a text round trip,</span>
+<span class="th-token th-comment">// and errors arrive as *pgconn.PgError with the constraint name on them --</span>
+<span class="th-token th-comment">// which the next topic depends on entirely. database/sql is the right</span>
+<span class="th-token th-comment">// choice when you need one interface over several databases, or a library</span>
+<span class="th-token th-comment">// that expects *sql.DB. This service needs neither.</span></pre>
+    </section>
+
+    <section class="topic" id="svc-repo">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 33</span>
+        <h3>The store, and the race you cannot check for</h3>
+        <p class="lede">Two requests arrive in the same millisecond with the same <code>Idempotency-Key</code>. Both look for an existing link, both find none, both insert. Reading before writing does not fix that and no amount of application code can, because the gap between the read and the write is where the other request lives. The database closes it. What Go contributes is that closing it costs one <code>errors.As</code> and no transaction gymnastics at all.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment">// internal/postgres/store.go</span>
+<span class="th-token th-keyword">package</span> postgres
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;errors&quot;</span>
+	<span class="th-token th-string">&quot;fmt&quot;</span>
+	<span class="th-token th-string">&quot;net/url&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jackc/pgerrcode&quot;</span>
+	<span class="th-token th-string">&quot;github.com/jackc/pgx/v5&quot;</span>
+	<span class="th-token th-string">&quot;github.com/jackc/pgx/v5/pgconn&quot;</span>
+	<span class="th-token th-string">&quot;github.com/jackc/pgx/v5/pgxpool&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/shortlink&quot;</span>
+)
+
+<span class="th-token th-comment">// The constraint names from 0001. They are part of this file&#39;s contract</span>
+<span class="th-token th-comment">// with that migration, which is why they are constants with a comment</span>
+<span class="th-token th-comment">// rather than string literals three functions down.</span>
+<span class="th-token th-keyword">const</span> (
+	codeUnique        = <span class="th-token th-string">&quot;links_code_key&quot;</span>
+	idempotencyUnique = <span class="th-token th-string">&quot;links_owner_idempotency_key&quot;</span>
+)
+
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">Store</span> <span class="th-token th-keyword">struct</span>{ pool *pgxpool.Pool }
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">NewStore</span>(pool *pgxpool.Pool) *Store { <span class="th-token th-keyword">return</span> &amp;Store{pool: pool} }
+
+<span class="th-token th-keyword">func</span> (s *Store) <span class="th-token th-function">Insert</span>(ctx context.Context, l shortlink.Link, idempotencyKey <span class="th-token th-type">string</span>) <span class="th-token th-type">error</span> {
+	<span class="th-token th-keyword">const</span> q = <span class="th-token th-string">`
+		INSERT INTO links (code, target_url, owner_id, idempotency_key, created_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`</span>
+
+	_, err := s.pool.<span class="th-token th-function">Exec</span>(ctx, q,
+		<span class="th-token th-type">string</span>(l.Code), l.Target.<span class="th-token th-function">String</span>(), l.OwnerID,
+		<span class="th-token th-function">nullable</span>(idempotencyKey), l.CreatedAt, l.ExpiresAt)
+	<span class="th-token th-keyword">if</span> err == <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>
+	}
+
+	<span class="th-token th-comment">// Translate infrastructure into domain here, so that nothing above this</span>
+	<span class="th-token th-comment">// package has to know pgx exists. errors.As unwraps until it finds a</span>
+	<span class="th-token th-comment">// *pgconn.PgError -- which is why the sentinel comparison in the caller</span>
+	<span class="th-token th-comment">// keeps working however many times this error gets wrapped on the way up.</span>
+	<span class="th-token th-keyword">var</span> pgErr *pgconn.PgError
+	<span class="th-token th-keyword">if</span> errors.<span class="th-token th-function">As</span>(err, &amp;pgErr) &amp;&amp; pgErr.Code == pgerrcode.UniqueViolation {
+		<span class="th-token th-keyword">switch</span> pgErr.ConstraintName {
+		<span class="th-token th-keyword">case</span> codeUnique:
+			<span class="th-token th-keyword">return</span> shortlink.ErrCodeTaken
+		<span class="th-token th-keyword">case</span> idempotencyUnique:
+			<span class="th-token th-keyword">return</span> shortlink.ErrIdempotencyClash
+		}
+	}
+	<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;insert link: %w&quot;</span>, err)
+}
+
+<span class="th-token th-keyword">func</span> (s *Store) <span class="th-token th-function">ByCode</span>(ctx context.Context, code shortlink.Code) (shortlink.Link, <span class="th-token th-type">error</span>) {
+	<span class="th-token th-keyword">const</span> q = <span class="th-token th-string">`
+		SELECT code, target_url, owner_id, created_at, expires_at
+		FROM links WHERE code = $1`</span>
+	<span class="th-token th-keyword">return</span> s.<span class="th-token th-function">one</span>(ctx, q, <span class="th-token th-type">string</span>(code))
+}
+
+<span class="th-token th-keyword">func</span> (s *Store) <span class="th-token th-function">ByIdempotencyKey</span>(ctx context.Context, ownerID, key <span class="th-token th-type">string</span>) (shortlink.Link, <span class="th-token th-type">error</span>) {
+	<span class="th-token th-keyword">const</span> q = <span class="th-token th-string">`
+		SELECT code, target_url, owner_id, created_at, expires_at
+		FROM links WHERE owner_id = $1 AND idempotency_key = $2`</span>
+	<span class="th-token th-keyword">return</span> s.<span class="th-token th-function">one</span>(ctx, q, ownerID, key)
+}
+
+<span class="th-token th-keyword">func</span> (s *Store) <span class="th-token th-function">DeleteOwned</span>(ctx context.Context, ownerID <span class="th-token th-type">string</span>, code shortlink.Code) <span class="th-token th-type">error</span> {
+	<span class="th-token th-keyword">const</span> q = <span class="th-token th-string">`DELETE FROM links WHERE code = $1 AND owner_id = $2`</span>
+	tag, err := s.pool.<span class="th-token th-function">Exec</span>(ctx, q, <span class="th-token th-type">string</span>(code), ownerID)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;delete link: %w&quot;</span>, err)
+	}
+	<span class="th-token th-keyword">if</span> tag.<span class="th-token th-function">RowsAffected</span>() == <span class="th-token th-number">0</span> {
+		<span class="th-token th-comment">// Nought rows means it does not exist or it is not yours, and the</span>
+		<span class="th-token th-comment">// API says the same thing for both. Telling an unauthorised caller</span>
+		<span class="th-token th-comment">// that a code exists is how a database gets enumerated.</span>
+		<span class="th-token th-keyword">return</span> shortlink.ErrNotFound
+	}
+	<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>
+}
+
+<span class="th-token th-keyword">func</span> (s *Store) <span class="th-token th-function">one</span>(ctx context.Context, q <span class="th-token th-type">string</span>, args ...<span class="th-token th-type">any</span>) (shortlink.Link, <span class="th-token th-type">error</span>) {
+	<span class="th-token th-keyword">var</span> (
+		l    shortlink.Link
+		code <span class="th-token th-type">string</span>
+		raw  <span class="th-token th-type">string</span>
+		exp  *time.Time
+	)
+	err := s.pool.<span class="th-token th-function">QueryRow</span>(ctx, q, args...).
+		<span class="th-token th-function">Scan</span>(&amp;code, &amp;raw, &amp;l.OwnerID, &amp;l.CreatedAt, &amp;exp)
+	<span class="th-token th-keyword">switch</span> {
+	<span class="th-token th-keyword">case</span> errors.<span class="th-token th-function">Is</span>(err, pgx.ErrNoRows):
+		<span class="th-token th-keyword">return</span> shortlink.Link{}, shortlink.ErrNotFound
+	<span class="th-token th-keyword">case</span> err != <span class="th-token th-literal">nil</span>:
+		<span class="th-token th-keyword">return</span> shortlink.Link{}, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;query link: %w&quot;</span>, err)
+	}
+
+	target, err := url.<span class="th-token th-function">Parse</span>(raw)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-comment">// A row that cannot be parsed is corruption, not a 404. Say so.</span>
+		<span class="th-token th-keyword">return</span> shortlink.Link{}, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;stored url for %s: %w&quot;</span>, code, err)
+	}
+	l.Code = shortlink.<span class="th-token th-function">Code</span>(code)
+	l.Target = target
+	<span class="th-token th-keyword">if</span> exp != <span class="th-token th-literal">nil</span> {
+		l.ExpiresAt = *exp
+	}
+	<span class="th-token th-keyword">return</span> l, <span class="th-token th-literal">nil</span>
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">nullable</span>(s <span class="th-token th-type">string</span>) *<span class="th-token th-type">string</span> {
+	<span class="th-token th-keyword">if</span> s == <span class="th-token th-string">&quot;&quot;</span> {
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>   <span class="th-token th-comment">// NULL, so the partial index ignores this row</span>
+	}
+	<span class="th-token th-keyword">return</span> &amp;s
+}</pre>
+
+      <div class="note warn">
+        <h4>Go had nothing to undo here, and that is the whole difference</h4>
+        <p>The Java version of this file needs a separate bean, annotated <code>REQUIRES_NEW</code>, purely so that the failed insert does not poison a transaction the caller was in the middle of. Go has no ambient transaction: <code>pool.Exec</code> outside a <code>Begin</code> is its own implicit transaction, so a unique violation rolls back exactly one statement and the caller simply tries a different code. The trap has not gone away, it has become visible &mdash; the moment this <code>Exec</code> is inside a <code>pgx.Tx</code>, Postgres marks that transaction aborted and every later statement in it fails with <em>current transaction is aborted</em> until you roll back. The fix there is a savepoint (<code>tx.Begin</code> nested inside a transaction is one) or doing the insert outside the transaction, which is what this code does by default rather than by accident.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment">// internal/shortlink/service.go</span>
+<span class="th-token th-keyword">package</span> shortlink
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;errors&quot;</span>
+	<span class="th-token th-string">&quot;fmt&quot;</span>
+	<span class="th-token th-string">&quot;net/url&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+)
+
+<span class="th-token th-comment">// Store is declared here, in the package that uses it, and not in the</span>
+<span class="th-token th-comment">// package that implements it. That is the Go convention and it is not a</span>
+<span class="th-token th-comment">// stylistic one: it means the domain names the four methods it needs</span>
+<span class="th-token th-comment">// rather than depending on the thirty a database library offers, a test</span>
+<span class="th-token th-comment">// can satisfy it with a fifteen-line fake, and internal/postgres does not</span>
+<span class="th-token th-comment">// import this interface at all -- it simply happens to satisfy it.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">Store</span> <span class="th-token th-keyword">interface</span> {
+	<span class="th-token th-function">Insert</span>(ctx context.Context, l Link, idempotencyKey <span class="th-token th-type">string</span>) <span class="th-token th-type">error</span>
+	<span class="th-token th-function">ByCode</span>(ctx context.Context, code Code) (Link, <span class="th-token th-type">error</span>)
+	<span class="th-token th-function">ByIdempotencyKey</span>(ctx context.Context, ownerID, key <span class="th-token th-type">string</span>) (Link, <span class="th-token th-type">error</span>)
+	<span class="th-token th-function">DeleteOwned</span>(ctx context.Context, ownerID <span class="th-token th-type">string</span>, code Code) <span class="th-token th-type">error</span>
+}
+
+<span class="th-token th-keyword">const</span> maxCodeAttempts = <span class="th-token th-number">5</span>
+
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">Service</span> <span class="th-token th-keyword">struct</span> {
+	store      Store
+	now        <span class="th-token th-keyword">func</span>() time.Time   <span class="th-token th-comment">// injected, so a test can be about expiry</span>
+	codeLength <span class="th-token th-type">int</span>
+	defaultTTL time.Duration
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">NewService</span>(store Store, now <span class="th-token th-keyword">func</span>() time.Time, codeLength <span class="th-token th-type">int</span>, ttl time.Duration) *Service {
+	<span class="th-token th-keyword">return</span> &amp;Service{store: store, now: now, codeLength: codeLength, defaultTTL: ttl}
+}
+
+<span class="th-token th-comment">// NewLink is everything one create needs, so the call cannot be made with</span>
+<span class="th-token th-comment">// the arguments the wrong way round -- four of them are strings.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">NewLink</span> <span class="th-token th-keyword">struct</span> {
+	OwnerID        <span class="th-token th-type">string</span>
+	Target         *url.URL
+	Alias          Code           <span class="th-token th-comment">// optional: a caller&#39;s chosen code</span>
+	TTL            time.Duration  <span class="th-token th-comment">// zero means the default</span>
+	IdempotencyKey <span class="th-token th-type">string</span>
+}
+
+<span class="th-token th-keyword">func</span> (s *Service) <span class="th-token th-function">Shorten</span>(ctx context.Context, req NewLink) (Link, <span class="th-token th-type">error</span>) {
+	<span class="th-token th-comment">// The fast path: a client retrying after a timeout, seconds later. It</span>
+	<span class="th-token th-comment">// is an optimisation and not the guarantee -- see the note above.</span>
+	<span class="th-token th-keyword">if</span> req.IdempotencyKey != <span class="th-token th-string">&quot;&quot;</span> {
+		<span class="th-token th-keyword">switch</span> existing, err := s.store.<span class="th-token th-function">ByIdempotencyKey</span>(ctx, req.OwnerID, req.IdempotencyKey); {
+		<span class="th-token th-keyword">case</span> err == <span class="th-token th-literal">nil</span>:
+			<span class="th-token th-keyword">return</span> existing, <span class="th-token th-literal">nil</span>
+		<span class="th-token th-keyword">case</span> !errors.<span class="th-token th-function">Is</span>(err, ErrNotFound):
+			<span class="th-token th-keyword">return</span> Link{}, err
+		}
+	}
+
+	now := s.<span class="th-token th-function">now</span>()
+	ttl := req.TTL
+	<span class="th-token th-keyword">if</span> ttl == <span class="th-token th-number">0</span> {
+		ttl = s.defaultTTL
+	}
+
+	<span class="th-token th-keyword">for</span> attempt := <span class="th-token th-number">0</span>; attempt &lt; maxCodeAttempts; attempt++ {
+		code := req.Alias
+		<span class="th-token th-keyword">if</span> code == <span class="th-token th-string">&quot;&quot;</span> {
+			generated, err := <span class="th-token th-function">NewCode</span>(s.codeLength)
+			<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+				<span class="th-token th-keyword">return</span> Link{}, err
+			}
+			code = generated
+		}
+
+		link := Link{
+			Code: code, Target: req.Target, OwnerID: req.OwnerID,
+			CreatedAt: now, ExpiresAt: now.<span class="th-token th-function">Add</span>(ttl),
+		}
+		err := s.store.<span class="th-token th-function">Insert</span>(ctx, link, req.IdempotencyKey)
+		<span class="th-token th-keyword">switch</span> {
+		<span class="th-token th-keyword">case</span> err == <span class="th-token th-literal">nil</span>:
+			<span class="th-token th-keyword">return</span> link, <span class="th-token th-literal">nil</span>
+
+		<span class="th-token th-keyword">case</span> errors.<span class="th-token th-function">Is</span>(err, ErrIdempotencyClash):
+			<span class="th-token th-comment">// The slow path: a genuine race. The other request won, and</span>
+			<span class="th-token th-comment">// its link is the correct answer to both of them.</span>
+			<span class="th-token th-keyword">return</span> s.store.<span class="th-token th-function">ByIdempotencyKey</span>(ctx, req.OwnerID, req.IdempotencyKey)
+
+		<span class="th-token th-keyword">case</span> errors.<span class="th-token th-function">Is</span>(err, ErrCodeTaken) &amp;&amp; req.Alias != <span class="th-token th-string">&quot;&quot;</span>:
+			<span class="th-token th-comment">// A caller&#39;s chosen alias is a 409 they can act on. A</span>
+			<span class="th-token th-comment">// generated code that collided is our problem, not theirs.</span>
+			<span class="th-token th-keyword">return</span> Link{}, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%w: %s&quot;</span>, ErrCodeTaken, code)
+
+		<span class="th-token th-keyword">case</span> errors.<span class="th-token th-function">Is</span>(err, ErrCodeTaken):
+			<span class="th-token th-keyword">continue</span>   <span class="th-token th-comment">// try another code</span>
+
+		<span class="th-token th-keyword">default</span>:
+			<span class="th-token th-keyword">return</span> Link{}, err
+		}
+	}
+	<span class="th-token th-keyword">return</span> Link{}, ErrNoCode
+}
+
+<span class="th-token th-keyword">func</span> (s *Service) <span class="th-token th-function">Resolve</span>(ctx context.Context, code Code) (Link, <span class="th-token th-type">error</span>) {
+	link, err := s.store.<span class="th-token th-function">ByCode</span>(ctx, code)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> Link{}, err
+	}
+	<span class="th-token th-keyword">if</span> link.<span class="th-token th-function">Expired</span>(s.<span class="th-token th-function">now</span>()) {
+		<span class="th-token th-comment">// Deliberately not ErrNotFound: a client that is told &quot;gone&quot; can</span>
+		<span class="th-token th-comment">// stop retrying, and an operator reading logs can tell them apart.</span>
+		<span class="th-token th-keyword">return</span> Link{}, ErrExpired
+	}
+	<span class="th-token th-keyword">return</span> link, <span class="th-token th-literal">nil</span>
+}
+
+<span class="th-token th-keyword">func</span> (s *Service) <span class="th-token th-function">Delete</span>(ctx context.Context, ownerID <span class="th-token th-type">string</span>, code Code) <span class="th-token th-type">error</span> {
+	<span class="th-token th-keyword">return</span> s.store.<span class="th-token th-function">DeleteOwned</span>(ctx, ownerID, code)
+}</pre>
+    </section>
+
+    <section class="topic" id="svc-api">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 34</span>
+        <h3>The HTTP edge, and the twelve lines of <code>main</code></h3>
+        <p class="lede">Since Go 1.22 the standard <code>ServeMux</code> routes on method and on path parameters, which removed the last honest reason to import a router. What is left is a handler set that does only HTTP &mdash; decode, call, encode, choose a status &mdash; and a <code>run</code> function that owns every lifetime in the process.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment">// internal/httpapi/server.go</span>
+<span class="th-token th-keyword">package</span> httpapi
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;log/slog&quot;</span>
+	<span class="th-token th-string">&quot;net&quot;</span>
+	<span class="th-token th-string">&quot;net/http&quot;</span>
+	<span class="th-token th-string">&quot;net/url&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/shortlink&quot;</span>
+)
+
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">Server</span> <span class="th-token th-keyword">struct</span> {
+	links   *shortlink.Service
+	keys    KeyStore
+	limiter Limiter
+	base    *url.URL
+	log     *slog.Logger
+	ready   <span class="th-token th-keyword">func</span>(ctx context.Context) <span class="th-token th-type">error</span>
+}
+
+<span class="th-token th-comment">// Six dependencies is where a positional constructor stops being readable</span>
+<span class="th-token th-comment">// and starts being a place to swap two arguments of the same type. A</span>
+<span class="th-token th-comment">// struct makes every call site name what it is passing, and adding a</span>
+<span class="th-token th-comment">// seventh dependency later does not break the four existing callers.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">Deps</span> <span class="th-token th-keyword">struct</span> {
+	Links   *shortlink.Service
+	Keys    KeyStore
+	Limiter Limiter
+	BaseURL *url.URL
+	Log     *slog.Logger
+
+	<span class="th-token th-comment">// Ready is passed in as a function rather than as a pool and a Redis</span>
+	<span class="th-token th-comment">// client, which is the only reason this package imports neither pgx</span>
+	<span class="th-token th-comment">// nor go-redis. The layering rule from the first topic, held by one</span>
+	<span class="th-token th-comment">// field.</span>
+	Ready <span class="th-token th-keyword">func</span>(ctx context.Context) <span class="th-token th-type">error</span>
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">New</span>(d Deps) *Server {
+	<span class="th-token th-keyword">return</span> &amp;Server{
+		links: d.Links, keys: d.Keys, limiter: d.Limiter,
+		base: d.BaseURL, log: d.Log, ready: d.Ready,
+	}
+}
+
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">Handler</span>() http.Handler {
+	mux := http.<span class="th-token th-function">NewServeMux</span>()
+
+	<span class="th-token th-comment">// Method and path parameter in the pattern, matched by the standard</span>
+	<span class="th-token th-comment">// library. The specific pattern wins over the general one, so</span>
+	<span class="th-token th-comment">// &quot;GET /healthz&quot; is not swallowed by &quot;GET /{code}&quot; -- ServeMux picks</span>
+	<span class="th-token th-comment">// the most specific match rather than the first registered, which is</span>
+	<span class="th-token th-comment">// the behaviour that made third-party routers necessary before 1.22.</span>
+	mux.<span class="th-token th-function">Handle</span>(<span class="th-token th-string">&quot;POST /v1/links&quot;</span>, s.<span class="th-token th-function">authenticate</span>(http.<span class="th-token th-function">HandlerFunc</span>(s.createLink)))
+	mux.<span class="th-token th-function">Handle</span>(<span class="th-token th-string">&quot;GET /v1/links/{code}&quot;</span>, s.<span class="th-token th-function">authenticate</span>(http.<span class="th-token th-function">HandlerFunc</span>(s.readLink)))
+	mux.<span class="th-token th-function">Handle</span>(<span class="th-token th-string">&quot;DELETE /v1/links/{code}&quot;</span>, s.<span class="th-token th-function">authenticate</span>(http.<span class="th-token th-function">HandlerFunc</span>(s.deleteLink)))
+
+	mux.<span class="th-token th-function">HandleFunc</span>(<span class="th-token th-string">&quot;GET /healthz&quot;</span>, s.healthz)
+	mux.<span class="th-token th-function">HandleFunc</span>(<span class="th-token th-string">&quot;GET /readyz&quot;</span>, s.readyz)
+
+	<span class="th-token th-comment">// The only unauthenticated route, and the only one with real traffic.</span>
+	mux.<span class="th-token th-function">HandleFunc</span>(<span class="th-token th-string">&quot;GET /{code}&quot;</span>, s.redirect)
+
+	<span class="th-token th-comment">// Outermost first: a panic in the logger should still be recovered,</span>
+	<span class="th-token th-comment">// and the request id has to exist before anything logs.</span>
+	<span class="th-token th-keyword">return</span> <span class="th-token th-function">requestID</span>(<span class="th-token th-function">logging</span>(s.log, <span class="th-token th-function">recovery</span>(s.log, mux)))
+}
+
+<span class="th-token th-comment">// NewHTTPServer is the five timeouts from the service part, applied. The</span>
+<span class="th-token th-comment">// only one with a default is none of them: an http.Server{} left alone</span>
+<span class="th-token th-comment">// will hold a connection open until the client goes away, which is how a</span>
+<span class="th-token th-comment">// single slow-loris client takes a service down with no traffic at all.</span>
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">NewHTTPServer</span>(ctx context.Context, addr <span class="th-token th-type">string</span>, h http.Handler, log *slog.Logger) *http.Server {
+	<span class="th-token th-keyword">return</span> &amp;http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: <span class="th-token th-number">5</span> * time.Second,
+		ReadTimeout:       <span class="th-token th-number">10</span> * time.Second,
+		WriteTimeout:      <span class="th-token th-number">15</span> * time.Second,
+		IdleTimeout:       <span class="th-token th-number">60</span> * time.Second,
+		MaxHeaderBytes:    <span class="th-token th-number">1</span> &lt;&lt; <span class="th-token th-number">16</span>,
+		ErrorLog:          slog.<span class="th-token th-function">NewLogLogger</span>(log.<span class="th-token th-function">Handler</span>(), slog.LevelError),
+		BaseContext:       <span class="th-token th-keyword">func</span>(net.Listener) context.Context { <span class="th-token th-keyword">return</span> ctx },
+	}
+}</pre>
+
+<pre class="l2"><span class="th-token th-comment">// internal/httpapi/links.go</span>
+<span class="th-token th-keyword">package</span> httpapi
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;encoding/json&quot;</span>
+	<span class="th-token th-string">&quot;net/http&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/shortlink&quot;</span>
+)
+
+<span class="th-token th-comment">// The wire contract. It exists separately from shortlink.Link because the</span>
+<span class="th-token th-comment">// two change for different reasons: this one when a consumer needs</span>
+<span class="th-token th-comment">// something, that one when the rules do.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">createRequest</span> <span class="th-token th-keyword">struct</span> {
+	URL     <span class="th-token th-type">string</span> <span class="th-token th-string">`json:&quot;url&quot;`</span>
+	Alias   <span class="th-token th-type">string</span> <span class="th-token th-string">`json:&quot;alias,omitempty&quot;`</span>
+	TTLDays <span class="th-token th-type">int</span>    <span class="th-token th-string">`json:&quot;ttl_days,omitempty&quot;`</span>
+}
+
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">linkResponse</span> <span class="th-token th-keyword">struct</span> {
+	Code      <span class="th-token th-type">string</span>     <span class="th-token th-string">`json:&quot;code&quot;`</span>
+	ShortURL  <span class="th-token th-type">string</span>     <span class="th-token th-string">`json:&quot;short_url&quot;`</span>
+	URL       <span class="th-token th-type">string</span>     <span class="th-token th-string">`json:&quot;url&quot;`</span>
+	CreatedAt time.Time  <span class="th-token th-string">`json:&quot;created_at&quot;`</span>
+	ExpiresAt *time.Time <span class="th-token th-string">`json:&quot;expires_at,omitempty&quot;`</span>
+}
+
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">createLink</span>(w http.ResponseWriter, r *http.Request) {
+	caller, _ := <span class="th-token th-function">callerFrom</span>(r.<span class="th-token th-function">Context</span>())
+
+	<span class="th-token th-keyword">var</span> body createRequest
+	dec := json.<span class="th-token th-function">NewDecoder</span>(http.<span class="th-token th-function">MaxBytesReader</span>(w, r.Body, <span class="th-token th-number">16</span>&lt;&lt;<span class="th-token th-number">10</span>))
+	dec.<span class="th-token th-function">DisallowUnknownFields</span>()   <span class="th-token th-comment">// a typo in a field name is a 400, not a shrug</span>
+	<span class="th-token th-keyword">if</span> err := dec.<span class="th-token th-function">Decode</span>(&amp;body); err != <span class="th-token th-literal">nil</span> {
+		s.<span class="th-token th-function">problem</span>(w, r, <span class="th-token th-function">invalid</span>(err))
+		<span class="th-token th-keyword">return</span>
+	}
+
+	target, err := shortlink.<span class="th-token th-function">ParseTarget</span>(body.URL)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		s.<span class="th-token th-function">problem</span>(w, r, err)
+		<span class="th-token th-keyword">return</span>
+	}
+	req := shortlink.NewLink{
+		OwnerID:        caller.OwnerID,
+		Target:         target,
+		TTL:            time.<span class="th-token th-function">Duration</span>(body.TTLDays) * <span class="th-token th-number">24</span> * time.Hour,
+		IdempotencyKey: r.Header.<span class="th-token th-function">Get</span>(<span class="th-token th-string">&quot;Idempotency-Key&quot;</span>),
+	}
+	<span class="th-token th-keyword">if</span> body.Alias != <span class="th-token th-string">&quot;&quot;</span> {
+		alias, err := shortlink.<span class="th-token th-function">ParseCode</span>(body.Alias)
+		<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+			s.<span class="th-token th-function">problem</span>(w, r, err)
+			<span class="th-token th-keyword">return</span>
+		}
+		req.Alias = alias
+	}
+
+	<span class="th-token th-comment">// The write gets its own deadline rather than inheriting the client&#39;s</span>
+	<span class="th-token th-comment">// patience. r.Context() is cancelled the moment the client hangs up,</span>
+	<span class="th-token th-comment">// and a write cancelled halfway is a request nobody can answer</span>
+	<span class="th-token th-comment">// afterwards; WithoutCancel keeps the values -- the request id, the</span>
+	<span class="th-token th-comment">// trace -- and drops only the cancellation.</span>
+	ctx, cancel := context.<span class="th-token th-function">WithTimeout</span>(context.<span class="th-token th-function">WithoutCancel</span>(r.<span class="th-token th-function">Context</span>()), <span class="th-token th-number">3</span>*time.Second)
+	<span class="th-token th-keyword">defer</span> <span class="th-token th-function">cancel</span>()
+
+	link, err := s.links.<span class="th-token th-function">Shorten</span>(ctx, req)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		s.<span class="th-token th-function">problem</span>(w, r, err)
+		<span class="th-token th-keyword">return</span>
+	}
+
+	short := s.base.<span class="th-token th-function">JoinPath</span>(link.Code.<span class="th-token th-function">String</span>())
+	w.<span class="th-token th-function">Header</span>().<span class="th-token th-function">Set</span>(<span class="th-token th-string">&quot;Location&quot;</span>, short.<span class="th-token th-function">String</span>())
+	s.<span class="th-token th-function">writeJSON</span>(w, http.StatusCreated, s.<span class="th-token th-function">response</span>(link))
+}
+
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">readLink</span>(w http.ResponseWriter, r *http.Request) {
+	caller, _ := <span class="th-token th-function">callerFrom</span>(r.<span class="th-token th-function">Context</span>())
+	code, err := shortlink.<span class="th-token th-function">ParseCode</span>(r.<span class="th-token th-function">PathValue</span>(<span class="th-token th-string">&quot;code&quot;</span>))   <span class="th-token th-comment">// Go 1.22</span>
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		s.<span class="th-token th-function">problem</span>(w, r, err)
+		<span class="th-token th-keyword">return</span>
+	}
+	link, err := s.links.<span class="th-token th-function">Resolve</span>(r.<span class="th-token th-function">Context</span>(), code)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> || link.OwnerID != caller.OwnerID {
+		<span class="th-token th-comment">// Not yours reads as not found, on purpose.</span>
+		s.<span class="th-token th-function">problem</span>(w, r, <span class="th-token th-function">orNotFound</span>(err))
+		<span class="th-token th-keyword">return</span>
+	}
+	s.<span class="th-token th-function">writeJSON</span>(w, http.StatusOK, s.<span class="th-token th-function">response</span>(link))
+}
+
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">deleteLink</span>(w http.ResponseWriter, r *http.Request) {
+	caller, _ := <span class="th-token th-function">callerFrom</span>(r.<span class="th-token th-function">Context</span>())
+	code, err := shortlink.<span class="th-token th-function">ParseCode</span>(r.<span class="th-token th-function">PathValue</span>(<span class="th-token th-string">&quot;code&quot;</span>))
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		s.<span class="th-token th-function">problem</span>(w, r, err)
+		<span class="th-token th-keyword">return</span>
+	}
+	ctx, cancel := context.<span class="th-token th-function">WithTimeout</span>(context.<span class="th-token th-function">WithoutCancel</span>(r.<span class="th-token th-function">Context</span>()), <span class="th-token th-number">3</span>*time.Second)
+	<span class="th-token th-keyword">defer</span> <span class="th-token th-function">cancel</span>()
+
+	<span class="th-token th-keyword">if</span> err := s.links.<span class="th-token th-function">Delete</span>(ctx, caller.OwnerID, code); err != <span class="th-token th-literal">nil</span> {
+		s.<span class="th-token th-function">problem</span>(w, r, err)
+		<span class="th-token th-keyword">return</span>
+	}
+	<span class="th-token th-comment">// 204: it is gone, there is nothing to say about it, and a body on a</span>
+	<span class="th-token th-comment">// delete is something clients start depending on.</span>
+	w.<span class="th-token th-function">WriteHeader</span>(http.StatusNoContent)
+}
+
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">response</span>(l shortlink.Link) linkResponse {
+	out := linkResponse{
+		Code:      l.Code.<span class="th-token th-function">String</span>(),
+		ShortURL:  s.base.<span class="th-token th-function">JoinPath</span>(l.Code.<span class="th-token th-function">String</span>()).<span class="th-token th-function">String</span>(),
+		URL:       l.Target.<span class="th-token th-function">String</span>(),
+		CreatedAt: l.CreatedAt,
+	}
+	<span class="th-token th-keyword">if</span> !l.ExpiresAt.<span class="th-token th-function">IsZero</span>() {
+		out.ExpiresAt = &amp;l.ExpiresAt
+	}
+	<span class="th-token th-keyword">return</span> out
+}
+
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">writeJSON</span>(w http.ResponseWriter, status <span class="th-token th-type">int</span>, v <span class="th-token th-type">any</span>) {
+	<span class="th-token th-comment">// Marshal before writing the header. json.NewEncoder(w).Encode writes</span>
+	<span class="th-token th-comment">// the 200 first and then discovers the value will not marshal, which</span>
+	<span class="th-token th-comment">// leaves the client a truncated body under a success status.</span>
+	buf, err := json.<span class="th-token th-function">Marshal</span>(v)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		s.log.<span class="th-token th-function">Error</span>(<span class="th-token th-string">&quot;marshal response&quot;</span>, <span class="th-token th-string">&quot;error&quot;</span>, err)
+		http.<span class="th-token th-function">Error</span>(w, <span class="th-token th-string">`{&quot;title&quot;:&quot;Internal server error&quot;}`</span>, http.StatusInternalServerError)
+		<span class="th-token th-keyword">return</span>
+	}
+	w.<span class="th-token th-function">Header</span>().<span class="th-token th-function">Set</span>(<span class="th-token th-string">&quot;Content-Type&quot;</span>, <span class="th-token th-string">&quot;application/json&quot;</span>)
+	w.<span class="th-token th-function">WriteHeader</span>(status)
+	_, _ = w.<span class="th-token th-function">Write</span>(buf)
+}</pre>
+
+<pre class="l2"><span class="th-token th-comment">// internal/httpapi/redirect.go</span>
+<span class="th-token th-keyword">package</span> httpapi
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;net/http&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/shortlink&quot;</span>
+)
+
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">redirect</span>(w http.ResponseWriter, r *http.Request) {
+	code, err := shortlink.<span class="th-token th-function">ParseCode</span>(r.<span class="th-token th-function">PathValue</span>(<span class="th-token th-string">&quot;code&quot;</span>))
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		s.<span class="th-token th-function">problem</span>(w, r, shortlink.ErrNotFound)   <span class="th-token th-comment">// a malformed code is simply not a link</span>
+		<span class="th-token th-keyword">return</span>
+	}
+	link, err := s.links.<span class="th-token th-function">Resolve</span>(r.<span class="th-token th-function">Context</span>(), code)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		s.<span class="th-token th-function">problem</span>(w, r, err)
+		<span class="th-token th-keyword">return</span>
+	}
+
+	<span class="th-token th-comment">// 302 and no-store, not 301, and this is not a style preference. A 301</span>
+	<span class="th-token th-comment">// is permanent and browsers treat it that way: Chrome caches it, often</span>
+	<span class="th-token th-comment">// for the life of the profile, and stops asking. Ship a 301 and you</span>
+	<span class="th-token th-comment">// have given away the three things a shortener exists to have -- you</span>
+	<span class="th-token th-comment">// can never re-point the link, never expire or delete it, and your</span>
+	<span class="th-token th-comment">// click metrics fall off a cliff because every repeat visit redirects</span>
+	<span class="th-token th-comment">// locally and you never see it. The 301 buys the user one round trip</span>
+	<span class="th-token th-comment">// and costs you the product. Buy the latency back at a CDN, where you</span>
+	<span class="th-token th-comment">// can still purge.</span>
+	w.<span class="th-token th-function">Header</span>().<span class="th-token th-function">Set</span>(<span class="th-token th-string">&quot;Cache-Control&quot;</span>, <span class="th-token th-string">&quot;no-store&quot;</span>)
+	http.<span class="th-token th-function">Redirect</span>(w, r, link.Target.<span class="th-token th-function">String</span>(), http.StatusFound)
+}</pre>
+
+<pre class="l2"><span class="th-token th-comment">// cmd/shortlinkd/main.go -- the whole file.</span>
+<span class="th-token th-keyword">package</span> main
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;fmt&quot;</span>
+	<span class="th-token th-string">&quot;os&quot;</span>
+	<span class="th-token th-string">&quot;os/signal&quot;</span>
+	<span class="th-token th-string">&quot;syscall&quot;</span>
+)
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">main</span>() {
+	<span class="th-token th-comment">// NotifyContext gives the whole program one cancellation to hang off,</span>
+	<span class="th-token th-comment">// and the deferred stop restores the default handler -- so a second</span>
+	<span class="th-token th-comment">// SIGTERM during a slow shutdown kills the process, which is what an</span>
+	<span class="th-token th-comment">// operator pressing Ctrl-C twice is asking for.</span>
+	ctx, stop := signal.<span class="th-token th-function">NotifyContext</span>(context.<span class="th-token th-function">Background</span>(), os.Interrupt, syscall.SIGTERM)
+	<span class="th-token th-keyword">defer</span> <span class="th-token th-function">stop</span>()
+
+	<span class="th-token th-comment">// main does nothing but call run and exit. A function returning an</span>
+	<span class="th-token th-comment">// error is testable; a function calling os.Exit is not, because</span>
+	<span class="th-token th-comment">// os.Exit skips every deferred call in the process including the</span>
+	<span class="th-token th-comment">// test framework&#39;s.</span>
+	<span class="th-token th-keyword">if</span> err := <span class="th-token th-function">run</span>(ctx); err != <span class="th-token th-literal">nil</span> {
+		fmt.<span class="th-token th-function">Fprintf</span>(os.Stderr, <span class="th-token th-string">&quot;shortlinkd: %v\n&quot;</span>, err)
+		os.<span class="th-token th-function">Exit</span>(<span class="th-token th-number">1</span>)
+	}
+}</pre>
+
+<pre class="l2"><span class="th-token th-comment">// cmd/shortlinkd/run.go -- every lifetime in the process, in one function.</span>
+<span class="th-token th-keyword">package</span> main
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;errors&quot;</span>
+	<span class="th-token th-string">&quot;fmt&quot;</span>
+	<span class="th-token th-string">&quot;log/slog&quot;</span>
+	<span class="th-token th-string">&quot;net/http&quot;</span>
+	<span class="th-token th-string">&quot;os&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/redis/go-redis/v9&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/config&quot;</span>
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/httpapi&quot;</span>
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/postgres&quot;</span>
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/ratelimit&quot;</span>
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/shortlink&quot;</span>
+)
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">run</span>(ctx context.Context) <span class="th-token th-type">error</span> {
+	cfg, err := config.<span class="th-token th-function">Load</span>()
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;load config: %w&quot;</span>, err)
+	}
+
+	log := slog.<span class="th-token th-function">New</span>(httpapi.ContextHandler{
+		Handler: slog.<span class="th-token th-function">NewJSONHandler</span>(os.Stdout, &amp;slog.HandlerOptions{Level: slog.LevelInfo}),
+	}).<span class="th-token th-function">With</span>(<span class="th-token th-string">&quot;service&quot;</span>, <span class="th-token th-string">&quot;shortlink&quot;</span>)
+	slog.<span class="th-token th-function">SetDefault</span>(log)
+
+	<span class="th-token th-keyword">if</span> err := postgres.<span class="th-token th-function">Migrate</span>(ctx, cfg.DatabaseURL); err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> err
+	}
+
+	pool, err := postgres.<span class="th-token th-function">NewPool</span>(ctx, cfg.DatabaseURL)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> err
+	}
+	<span class="th-token th-keyword">defer</span> pool.<span class="th-token th-function">Close</span>()
+
+	redisOpts, err := redis.<span class="th-token th-function">ParseURL</span>(cfg.RedisURL)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;parse redis url: %w&quot;</span>, err)
+	}
+	rdb := redis.<span class="th-token th-function">NewClient</span>(redisOpts)
+	<span class="th-token th-keyword">defer</span> rdb.<span class="th-token th-function">Close</span>()
+
+	store := postgres.<span class="th-token th-function">NewStore</span>(pool)
+	svc := shortlink.<span class="th-token th-function">NewService</span>(store, time.Now, cfg.CodeLength, cfg.DefaultTTL)
+
+	api := httpapi.<span class="th-token th-function">New</span>(httpapi.Deps{
+		Links:   svc,
+		Keys:    postgres.<span class="th-token th-function">NewKeyStore</span>(pool),
+		Limiter: ratelimit.<span class="th-token th-function">NewRedis</span>(rdb, cfg.RateLimit, cfg.RateWindow),
+		BaseURL: cfg.PublicBaseURL,
+		Log:     log,
+		Ready: <span class="th-token th-keyword">func</span>(ctx context.Context) <span class="th-token th-type">error</span> {
+			<span class="th-token th-keyword">if</span> err := pool.<span class="th-token th-function">Ping</span>(ctx); err != <span class="th-token th-literal">nil</span> {
+				<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;postgres: %w&quot;</span>, err)
+			}
+			<span class="th-token th-keyword">if</span> err := rdb.<span class="th-token th-function">Ping</span>(ctx).<span class="th-token th-function">Err</span>(); err != <span class="th-token th-literal">nil</span> {
+				<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;redis: %w&quot;</span>, err)
+			}
+			<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>
+		},
+	})
+
+	srv := httpapi.<span class="th-token th-function">NewHTTPServer</span>(ctx, cfg.Addr, api.<span class="th-token th-function">Handler</span>(), log)
+
+	<span class="th-token th-comment">// The listener goes on its own goroutine so that this one can wait on</span>
+	<span class="th-token th-comment">// whichever happens first: the server failing, or the signal arriving.</span>
+	<span class="th-token th-comment">// The channel is buffered so that goroutine can exit either way and</span>
+	<span class="th-token th-comment">// does not leak when we return through the other branch.</span>
+	serverFailed := <span class="th-token th-function">make</span>(<span class="th-token th-keyword">chan</span> <span class="th-token th-type">error</span>, <span class="th-token th-number">1</span>)
+	<span class="th-token th-keyword">go</span> <span class="th-token th-keyword">func</span>() {
+		log.<span class="th-token th-function">Info</span>(<span class="th-token th-string">&quot;listening&quot;</span>, <span class="th-token th-string">&quot;addr&quot;</span>, cfg.Addr)
+		serverFailed &lt;- srv.<span class="th-token th-function">ListenAndServe</span>()
+	}()
+
+	<span class="th-token th-keyword">select</span> {
+	<span class="th-token th-keyword">case</span> err := &lt;-serverFailed:
+		<span class="th-token th-keyword">if</span> !errors.<span class="th-token th-function">Is</span>(err, http.ErrServerClosed) {
+			<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;serve: %w&quot;</span>, err)
+		}
+	<span class="th-token th-keyword">case</span> &lt;-ctx.<span class="th-token th-function">Done</span>():
+		log.<span class="th-token th-function">Info</span>(<span class="th-token th-string">&quot;signal received, draining&quot;</span>)
+	}
+
+	<span class="th-token th-comment">// WithoutCancel is load-bearing and this is the bug it prevents: ctx is</span>
+	<span class="th-token th-comment">// already cancelled by the time we get here, so context.WithTimeout(ctx,</span>
+	<span class="th-token th-comment">// 20s) would hand back a context that is cancelled at birth, Shutdown</span>
+	<span class="th-token th-comment">// would return immediately, and every in-flight request would be cut</span>
+	<span class="th-token th-comment">// off -- a graceful shutdown that drains nothing, on every deploy,</span>
+	<span class="th-token th-comment">// silently.</span>
+	shutdownCtx, cancel := context.<span class="th-token th-function">WithTimeout</span>(context.<span class="th-token th-function">WithoutCancel</span>(ctx), <span class="th-token th-number">20</span>*time.Second)
+	<span class="th-token th-keyword">defer</span> <span class="th-token th-function">cancel</span>()
+
+	<span class="th-token th-keyword">if</span> err := srv.<span class="th-token th-function">Shutdown</span>(shutdownCtx); err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;shutdown: %w&quot;</span>, err)
+	}
+	log.<span class="th-token th-function">Info</span>(<span class="th-token th-string">&quot;stopped cleanly&quot;</span>)
+	<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>
+}</pre>
+
+      <div class="note warn">
+        <h4>The order of the deferred closes is the order of the dependencies, backwards</h4>
+        <p><code>defer pool.Close()</code> runs after <code>defer rdb.Close()</code>, which runs after <code>srv.Shutdown</code> returns, because deferred calls run last-in first-out. That is exactly right and it is free: the pool was created before Redis, Redis before the server, so the teardown unwinds in the reverse order without anybody maintaining a list. Get it wrong &mdash; close the pool before the server drains &mdash; and every request still in flight gets <em>use of closed connection</em> instead of an answer, on every single deploy. This is the one place where Go&rsquo;s least fashionable feature quietly does a job that other languages need a lifecycle framework and an annotation for.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-errors">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 35</span>
+        <h3>Failure is part of the contract</h3>
+        <p class="lede">A service has two APIs and only one of them is documented. The other is what happens when things go wrong, and it is the one clients actually integrate against: which statuses mean retry, which mean stop, and whether the body parses when it is not a 200. The taxonomy part said an error should carry a decision; this is that idea with a status code on the end of it.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment">// internal/httpapi/problem.go</span>
+<span class="th-token th-keyword">package</span> httpapi
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;encoding/json&quot;</span>
+	<span class="th-token th-string">&quot;errors&quot;</span>
+	<span class="th-token th-string">&quot;fmt&quot;</span>
+	<span class="th-token th-string">&quot;net/http&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/shortlink&quot;</span>
+)
+
+<span class="th-token th-comment">// RFC 9457 problem+json: one shape for every failure that leaves the</span>
+<span class="th-token th-comment">// service, so a client writes one parser instead of one per endpoint.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">problemDetail</span> <span class="th-token th-keyword">struct</span> {
+	Type   <span class="th-token th-type">string</span> <span class="th-token th-string">`json:&quot;type&quot;`</span>
+	Title  <span class="th-token th-type">string</span> <span class="th-token th-string">`json:&quot;title&quot;`</span>
+	Status <span class="th-token th-type">int</span>    <span class="th-token th-string">`json:&quot;status&quot;`</span>
+	Detail <span class="th-token th-type">string</span> <span class="th-token th-string">`json:&quot;detail,omitempty&quot;`</span>
+}
+
+<span class="th-token th-keyword">const</span> problemBase = <span class="th-token th-string">&quot;https://study.jaspreet.info/problems/&quot;</span>
+
+<span class="th-token th-comment">// One table, walked by errors.Is in order. Go has no exhaustive switch</span>
+<span class="th-token th-comment">// over a sealed set, so the guarantee the Java version gets from its</span>
+<span class="th-token th-comment">// compiler is bought here by a test: problem_test.go walks shortlink.All</span>
+<span class="th-token th-comment">// and fails if any sentinel is missing from this slice.</span>
+<span class="th-token th-keyword">var</span> catalogue = []<span class="th-token th-keyword">struct</span> {
+	err    <span class="th-token th-type">error</span>
+	status <span class="th-token th-type">int</span>
+	slug   <span class="th-token th-type">string</span>
+	title  <span class="th-token th-type">string</span>
+}{
+	{shortlink.ErrInvalid, http.StatusBadRequest, <span class="th-token th-string">&quot;invalid-request&quot;</span>, <span class="th-token th-string">&quot;Invalid request&quot;</span>},
+	{shortlink.ErrNotFound, http.StatusNotFound, <span class="th-token th-string">&quot;link-not-found&quot;</span>, <span class="th-token th-string">&quot;Link not found&quot;</span>},
+	{shortlink.ErrExpired, http.StatusGone, <span class="th-token th-string">&quot;link-expired&quot;</span>, <span class="th-token th-string">&quot;Link expired&quot;</span>},
+	{shortlink.ErrCodeTaken, http.StatusConflict, <span class="th-token th-string">&quot;code-taken&quot;</span>, <span class="th-token th-string">&quot;Code taken&quot;</span>},
+	{shortlink.ErrIdempotencyClash, http.StatusConflict, <span class="th-token th-string">&quot;in-flight&quot;</span>, <span class="th-token th-string">&quot;Request in flight&quot;</span>},
+	{shortlink.ErrNoCode, http.StatusServiceUnavailable, <span class="th-token th-string">&quot;no-code&quot;</span>, <span class="th-token th-string">&quot;Try again&quot;</span>},
+}
+
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">problem</span>(w http.ResponseWriter, r *http.Request, err <span class="th-token th-type">error</span>) {
+	<span class="th-token th-keyword">for</span> _, entry := <span class="th-token th-keyword">range</span> catalogue {
+		<span class="th-token th-keyword">if</span> errors.<span class="th-token th-function">Is</span>(err, entry.err) {
+			<span class="th-token th-function">write</span>(w, problemDetail{
+				Type:   problemBase + entry.slug,
+				Title:  entry.title,
+				Status: entry.status,
+				Detail: err.<span class="th-token th-function">Error</span>(),
+			})
+			<span class="th-token th-keyword">return</span>
+		}
+	}
+
+	<span class="th-token th-comment">// Anything unmatched. Log everything, tell the client nothing: a Go</span>
+	<span class="th-token th-comment">// error string routinely contains a DSN, a hostname or a driver</span>
+	<span class="th-token th-comment">// version, and none of that belongs in a response body.</span>
+	s.log.<span class="th-token th-function">ErrorContext</span>(r.<span class="th-token th-function">Context</span>(), <span class="th-token th-string">&quot;unhandled error&quot;</span>,
+		<span class="th-token th-string">&quot;error&quot;</span>, err, <span class="th-token th-string">&quot;method&quot;</span>, r.Method, <span class="th-token th-string">&quot;path&quot;</span>, r.URL.Path)
+	<span class="th-token th-function">write</span>(w, problemDetail{
+		Type:   problemBase + <span class="th-token th-string">&quot;internal&quot;</span>,
+		Title:  <span class="th-token th-string">&quot;Internal server error&quot;</span>,
+		Status: http.StatusInternalServerError,
+	})
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">write</span>(w http.ResponseWriter, p problemDetail) {
+	w.<span class="th-token th-function">Header</span>().<span class="th-token th-function">Set</span>(<span class="th-token th-string">&quot;Content-Type&quot;</span>, <span class="th-token th-string">&quot;application/problem+json&quot;</span>)
+	w.<span class="th-token th-function">WriteHeader</span>(p.Status)
+	_ = json.<span class="th-token th-function">NewEncoder</span>(w).<span class="th-token th-function">Encode</span>(p)
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">invalid</span>(err <span class="th-token th-type">error</span>) <span class="th-token th-type">error</span> {
+	<span class="th-token th-keyword">return</span> fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%w: %s&quot;</span>, shortlink.ErrInvalid, err)
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">orNotFound</span>(err <span class="th-token th-type">error</span>) <span class="th-token th-type">error</span> {
+	<span class="th-token th-keyword">if</span> err == <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> shortlink.ErrNotFound
+	}
+	<span class="th-token th-keyword">return</span> err
+}</pre>
+
+<pre class="l1"><span class="th-token th-meta">$</span> <span class="th-token th-command">curl</span> <span class="th-token th-attr">-sS</span> <span class="th-token th-attr">-i</span> <span class="th-token th-attr">-X</span> POST localhost:8080/v1/links \
+    <span class="th-token th-attr">-H</span> <span class="th-token th-string">&#39;Authorization: Bearer sl_live_notarealkey&#39;</span> \
+    <span class="th-token th-attr">-H</span> <span class="th-token th-string">&#39;Content-Type: application/json&#39;</span> \
+    <span class="th-token th-attr">-d</span> <span class="th-token th-string">&#39;{&quot;url&quot;:&quot;javascript:alert(1)&quot;}&#39;</span>
+<span class="th-token th-meta">HTTP/1.1 400 Bad Request</span>
+<span class="th-token th-meta">Content-Type: application/problem+json</span>
+
+<span class="th-token th-meta">{&quot;type&quot;:&quot;https://study.jaspreet.info/problems/invalid-request&quot;,</span>
+<span class="th-token th-meta"> &quot;title&quot;:&quot;Invalid request&quot;,&quot;status&quot;:400,</span>
+<span class="th-token th-meta"> &quot;detail&quot;:&quot;invalid request: only http and https can be shortened&quot;}</span>
+
+<span class="th-token th-meta"># a typo in a field name, because DisallowUnknownFields is on:</span>
+<span class="th-token th-meta">$</span> <span class="th-token th-command">curl</span> <span class="th-token th-attr">-sS</span> <span class="th-token th-attr">-o</span> /dev/null <span class="th-token th-attr">-w</span> <span class="th-token th-string">&#39;%{http_code}\n&#39;</span> <span class="th-token th-attr">-X</span> POST localhost:8080/v1/links \
+    <span class="th-token th-attr">-H</span> <span class="th-token th-string">&#39;Authorization: Bearer sl_live_notarealkey&#39;</span> \
+    <span class="th-token th-attr">-d</span> <span class="th-token th-string">&#39;{&quot;ur1&quot;:&quot;https://example.com&quot;}&#39;</span>
+<span class="th-token th-meta">400</span>
+
+<span class="th-token th-meta"># and the one every client actually codes against:</span>
+<span class="th-token th-meta">$</span> <span class="th-token th-command">curl</span> <span class="th-token th-attr">-sS</span> <span class="th-token th-attr">-o</span> /dev/null <span class="th-token th-attr">-w</span> <span class="th-token th-string">&#39;%{http_code}\n&#39;</span> localhost:8080/gone4evr
+<span class="th-token th-meta">410</span></pre>
+
+      <div class="note warn">
+        <h4><code>errors.Is</code>, never <code>==</code>, and the linter that knows the difference</h4>
+        <p>Every error in this service is wrapped with <code>%w</code> on the way up, which is what makes the message useful &mdash; <code>insert link: invalid request: url has no host</code> tells you where as well as what. It also means <code>err == shortlink.ErrInvalid</code> is false for every one of them, because the value you are holding is a <code>*fmt.wrapError</code> with the sentinel somewhere inside it. <code>errors.Is</code> unwraps until it finds a match, <code>errors.As</code> does the same for a concrete type, and <code>errorlint</code> in the golangci config fails the build on a bare comparison to an error value. This is the single most common Go bug that gets through review, because the broken version works right up until somebody adds context to an error three layers down.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-auth">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 36</span>
+        <h3>Who is calling, and how often</h3>
+        <p class="lede">Two controls that fail in opposite directions. Authentication decides whether a request happens at all, so it must be impossible to skip &mdash; which is why it wraps the handler rather than being a call at the top of one. Rate limiting decides how much of you a caller gets, so it must be shared across every replica &mdash; which is why it is in Redis and not in a <code>map</code> behind a mutex.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment">// internal/httpapi/auth.go</span>
+<span class="th-token th-keyword">package</span> httpapi
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;crypto/sha256&quot;</span>
+	<span class="th-token th-string">&quot;crypto/subtle&quot;</span>
+	<span class="th-token th-string">&quot;encoding/hex&quot;</span>
+	<span class="th-token th-string">&quot;errors&quot;</span>
+	<span class="th-token th-string">&quot;net/http&quot;</span>
+	<span class="th-token th-string">&quot;strings&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/shortlink&quot;</span>
+)
+
+<span class="th-token th-comment">// APIKey is who is calling. KeyStore and Limiter are declared here, in the</span>
+<span class="th-token th-comment">// package that uses them, so internal/postgres and internal/ratelimit do</span>
+<span class="th-token th-comment">// not import this package at all -- they just happen to satisfy it.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">APIKey</span> <span class="th-token th-keyword">struct</span> {
+	OwnerID <span class="th-token th-type">string</span>
+	Label   <span class="th-token th-type">string</span>
+	Digest  <span class="th-token th-type">string</span>
+}
+
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">KeyStore</span> <span class="th-token th-keyword">interface</span> {
+	<span class="th-token th-function">ByDigest</span>(ctx context.Context, digest <span class="th-token th-type">string</span>) (APIKey, <span class="th-token th-type">error</span>)
+}
+
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">Limiter</span> <span class="th-token th-keyword">interface</span> {
+	<span class="th-token th-function">Allow</span>(ctx context.Context, ownerID <span class="th-token th-type">string</span>) (<span class="th-token th-type">bool</span>, <span class="th-token th-type">error</span>)
+}
+
+<span class="th-token th-comment">// The context key is an unexported empty struct type, not a string. A</span>
+<span class="th-token th-comment">// string key can collide with one set by any other package in the process</span>
+<span class="th-token th-comment">// -- including a library you did not write -- and the collision is silent.</span>
+<span class="th-token th-comment">// An unexported type cannot be named from outside this package, so it</span>
+<span class="th-token th-comment">// cannot collide, and it costs nothing at run time.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">callerKey</span> <span class="th-token th-keyword">struct</span>{}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">withCaller</span>(ctx context.Context, k APIKey) context.Context {
+	<span class="th-token th-keyword">return</span> context.<span class="th-token th-function">WithValue</span>(ctx, callerKey{}, k)
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">callerFrom</span>(ctx context.Context) (APIKey, <span class="th-token th-type">bool</span>) {
+	k, ok := ctx.<span class="th-token th-function">Value</span>(callerKey{}).(APIKey)
+	<span class="th-token th-keyword">return</span> k, ok
+}
+
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">authenticate</span>(next http.Handler) http.Handler {
+	<span class="th-token th-keyword">return</span> http.<span class="th-token th-function">HandlerFunc</span>(<span class="th-token th-keyword">func</span>(w http.ResponseWriter, r *http.Request) {
+		presented, ok := strings.<span class="th-token th-function">CutPrefix</span>(r.Header.<span class="th-token th-function">Get</span>(<span class="th-token th-string">&quot;Authorization&quot;</span>), <span class="th-token th-string">&quot;Bearer &quot;</span>)
+		<span class="th-token th-keyword">if</span> !ok || presented == <span class="th-token th-string">&quot;&quot;</span> {
+			s.<span class="th-token th-function">unauthorized</span>(w)
+			<span class="th-token th-keyword">return</span>
+		}
+
+		sum := sha256.<span class="th-token th-function">Sum256</span>([]<span class="th-token th-type">byte</span>(presented))
+		digest := hex.<span class="th-token th-function">EncodeToString</span>(sum[:])
+
+		<span class="th-token th-comment">// The lookup is by digest, so a database that leaks tells an</span>
+		<span class="th-token th-comment">// attacker nothing usable: they get hashes, and a 256-bit random</span>
+		<span class="th-token th-comment">// key does not come back out of one.</span>
+		key, err := s.keys.<span class="th-token th-function">ByDigest</span>(r.<span class="th-token th-function">Context</span>(), digest)
+		<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+			<span class="th-token th-keyword">if</span> !errors.<span class="th-token th-function">Is</span>(err, shortlink.ErrNotFound) {
+				s.log.<span class="th-token th-function">ErrorContext</span>(r.<span class="th-token th-function">Context</span>(), <span class="th-token th-string">&quot;key lookup failed&quot;</span>, <span class="th-token th-string">&quot;error&quot;</span>, err)
+			}
+			s.<span class="th-token th-function">unauthorized</span>(w)
+			<span class="th-token th-keyword">return</span>
+		}
+		<span class="th-token th-comment">// Redundant on its face -- the row was found by this digest -- and</span>
+		<span class="th-token th-comment">// kept anyway, because it stays correct the day the lookup becomes</span>
+		<span class="th-token th-comment">// a cache or a prefix scan. Constant time, so no attacker learns</span>
+		<span class="th-token th-comment">// anything from how long a miss took.</span>
+		<span class="th-token th-keyword">if</span> subtle.<span class="th-token th-function">ConstantTimeCompare</span>([]<span class="th-token th-type">byte</span>(key.Digest), []<span class="th-token th-type">byte</span>(digest)) != <span class="th-token th-number">1</span> {
+			s.<span class="th-token th-function">unauthorized</span>(w)
+			<span class="th-token th-keyword">return</span>
+		}
+
+		allowed, err := s.limiter.<span class="th-token th-function">Allow</span>(r.<span class="th-token th-function">Context</span>(), key.OwnerID)
+		<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+			<span class="th-token th-comment">// Fail open, loudly. See the note under the limiter.</span>
+			s.log.<span class="th-token th-function">WarnContext</span>(r.<span class="th-token th-function">Context</span>(), <span class="th-token th-string">&quot;rate limiter unavailable&quot;</span>, <span class="th-token th-string">&quot;error&quot;</span>, err)
+		} <span class="th-token th-keyword">else</span> <span class="th-token th-keyword">if</span> !allowed {
+			s.<span class="th-token th-function">tooManyRequests</span>(w)
+			<span class="th-token th-keyword">return</span>
+		}
+
+		next.<span class="th-token th-function">ServeHTTP</span>(w, r.<span class="th-token th-function">WithContext</span>(<span class="th-token th-function">withCaller</span>(r.<span class="th-token th-function">Context</span>(), key)))
+	})
+}
+
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">unauthorized</span>(w http.ResponseWriter) {
+	<span class="th-token th-comment">// The header is not optional: without it a client cannot tell &quot;you</span>
+	<span class="th-token th-comment">// need a key&quot; from &quot;your key is wrong from the wrong scheme&quot;.</span>
+	w.<span class="th-token th-function">Header</span>().<span class="th-token th-function">Set</span>(<span class="th-token th-string">&quot;WWW-Authenticate&quot;</span>, <span class="th-token th-string">&quot;Bearer&quot;</span>)
+	<span class="th-token th-function">write</span>(w, problemDetail{
+		Type: problemBase + <span class="th-token th-string">&quot;unauthorized&quot;</span>, Title: <span class="th-token th-string">&quot;Unauthorized&quot;</span>,
+		Status: http.StatusUnauthorized, Detail: <span class="th-token th-string">&quot;a valid API key is required&quot;</span>,
+	})
+}
+
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">tooManyRequests</span>(w http.ResponseWriter) {
+	w.<span class="th-token th-function">Header</span>().<span class="th-token th-function">Set</span>(<span class="th-token th-string">&quot;Retry-After&quot;</span>, <span class="th-token th-string">&quot;60&quot;</span>)   <span class="th-token th-comment">// seconds, and mean it</span>
+	<span class="th-token th-function">write</span>(w, problemDetail{
+		Type: problemBase + <span class="th-token th-string">&quot;rate-limited&quot;</span>, Title: <span class="th-token th-string">&quot;Too many requests&quot;</span>,
+		Status: http.StatusTooManyRequests, Detail: <span class="th-token th-string">&quot;the per-minute quota for this key is spent&quot;</span>,
+	})
+}</pre>
+
+      <p><code>postgres.KeyStore</code> is four lines of the same shape as the store above &mdash; one <code>SELECT owner_id, label, key_hash FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL</code>, one <code>Scan</code>, <code>pgx.ErrNoRows</code> mapped to <code>shortlink.ErrNotFound</code>. Worth noticing what is <em>not</em> there: no cache. One indexed lookup per request is a fraction of a millisecond, and a cache is a place for a revoked key to keep working. Add one when a profile says to, with a short TTL, and know that you have chosen a revocation delay.</p>
+
+<pre class="l2"><span class="th-token th-comment">// internal/ratelimit/redis.go</span>
+<span class="th-token th-keyword">package</span> ratelimit
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;fmt&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/redis/go-redis/v9&quot;</span>
+)
+
+<span class="th-token th-comment">// Two commands as one round trip and one atomic step. INCR and PEXPIRE</span>
+<span class="th-token th-comment">// sent separately have a window in which the process dies between them,</span>
+<span class="th-token th-comment">// which leaves a key with no TTL -- and that bans the caller permanently.</span>
+<span class="th-token th-keyword">var</span> increment = redis.<span class="th-token th-function">NewScript</span>(<span class="th-token th-string">`
+	local hits = redis.call(&#39;INCR&#39;, KEYS[1])
+	if hits == 1 then
+		redis.call(&#39;PEXPIRE&#39;, KEYS[1], ARGV[1])
+	end
+	return hits
+`</span>)
+
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">Redis</span> <span class="th-token th-keyword">struct</span> {
+	client    *redis.Client
+	permitted <span class="th-token th-type">int</span>
+	window    time.Duration
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">NewRedis</span>(client *redis.Client, permitted <span class="th-token th-type">int</span>, window time.Duration) *Redis {
+	<span class="th-token th-keyword">return</span> &amp;Redis{client: client, permitted: permitted, window: window}
+}
+
+<span class="th-token th-keyword">func</span> (r *Redis) <span class="th-token th-function">Allow</span>(ctx context.Context, ownerID <span class="th-token th-type">string</span>) (<span class="th-token th-type">bool</span>, <span class="th-token th-type">error</span>) {
+	<span class="th-token th-comment">// The key carries the window, so the previous window&#39;s key expires on</span>
+	<span class="th-token th-comment">// its own and there is nothing to sweep up.</span>
+	bucket := time.<span class="th-token th-function">Now</span>().<span class="th-token th-function">UnixMilli</span>() / r.window.<span class="th-token th-function">Milliseconds</span>()
+	key := fmt.<span class="th-token th-function">Sprintf</span>(<span class="th-token th-string">&quot;rl:%s:%d&quot;</span>, ownerID, bucket)
+
+	<span class="th-token th-comment">// A limiter that is slow is worse than no limiter: it adds its latency</span>
+	<span class="th-token th-comment">// to every request it permits. This deadline is separate from the</span>
+	<span class="th-token th-comment">// request&#39;s and much shorter.</span>
+	ctx, cancel := context.<span class="th-token th-function">WithTimeout</span>(ctx, <span class="th-token th-number">250</span>*time.Millisecond)
+	<span class="th-token th-keyword">defer</span> <span class="th-token th-function">cancel</span>()
+
+	hits, err := increment.<span class="th-token th-function">Run</span>(ctx, r.client, []<span class="th-token th-type">string</span>{key}, r.window.<span class="th-token th-function">Milliseconds</span>()).<span class="th-token th-function">Int64</span>()
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-keyword">return</span> <span class="th-token th-literal">false</span>, fmt.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;rate limit: %w&quot;</span>, err)
+	}
+	<span class="th-token th-keyword">return</span> hits &lt;= <span class="th-token th-type">int64</span>(r.permitted), <span class="th-token th-literal">nil</span>
+}
+
+<span class="th-token th-comment">// A map behind a sync.Mutex is not a rate limiter, and it is worth being</span>
+<span class="th-token th-comment">// able to say exactly why in an interview. Four replicas each with their</span>
+<span class="th-token th-comment">// own map give one caller four times the quota. A deploy resets everyone&#39;s</span>
+<span class="th-token th-comment">// counter to zero, which is precisely when you least want it. And the map</span>
+<span class="th-token th-comment">// grows forever unless somebody writes the sweeper, which nobody does.</span>
+<span class="th-token th-comment">//</span>
+<span class="th-token th-comment">// A fixed window lets a caller spend twice the quota across a boundary --</span>
+<span class="th-token th-comment">// sixty at 11:59:59 and sixty more at 12:00:00. For an API key that is</span>
+<span class="th-token th-comment">// fine and the simplicity is worth it. When it is not, a sliding window</span>
+<span class="th-token th-comment">// log or a token bucket is the same INCR-in-Lua shape with more</span>
+<span class="th-token th-comment">// arithmetic, and both still live in Redis for the same reason.</span></pre>
+
+      <div class="note warn">
+        <h4>SHA-256 for an API key, bcrypt for a password &mdash; and swapping them is a bug both ways</h4>
+        <p>A password is a low-entropy secret a human chose, so the defence against a stolen table is to make each guess expensive: bcrypt, scrypt or argon2, deliberately slow, salted per row. An API key is 256 bits out of <code>crypto/rand</code>; there is no dictionary to run against it and no amount of GPU that gets through the space, so a plain SHA-256 is enough. It is also <em>necessary</em>: put bcrypt on this path and you have added a hundred milliseconds of CPU to every authenticated request, which at any real rate is a fleet of pods spent hashing. Fast hash for high-entropy secrets, slow hash for human-chosen ones, and be able to say why in one sentence &mdash; this gets asked constantly.</p>
+        <p style="margin:0">The other half is the key&rsquo;s life: generate it with <code>crypto/rand</code>, show the plaintext exactly once at creation, store only the digest, and give every key a <code>revoked_at</code> so revocation is an update you can audit rather than a delete you cannot. A prefix like <code>sl_live_</code> costs nothing and lets a secret scanner find it in a public repository before an attacker does.</p>
+      </div>
+
+      <div class="note warn">
+        <h4>Failing open is a decision, and it has to be made on purpose</h4>
+        <p>The middleware above logs and continues when Redis is unreachable, which means a Redis outage becomes unlimited traffic rather than a total outage. That is the right trade for this service and the wrong one for a limiter protecting something that genuinely cannot absorb the load &mdash; a payment endpoint, a third-party quota you are billed for, a login path being credential-stuffed. Whichever you choose, choose it in the code with a comment saying so, because the version that gets chosen by accident is always fail-open, and it is discovered during the incident.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-obs">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 37</span>
+        <h3>Logs, and the two health checks</h3>
+        <p class="lede">The question you are building for is &ldquo;a customer says their request failed at 14:32, what happened&rdquo;, answerable from a laptop in under a minute. That needs every log line from one request to carry the same id &mdash; and Go&rsquo;s answer, unusually, is better than the thread-local one the other two languages use, because it is the context you were already passing.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment">// internal/httpapi/middleware.go</span>
+<span class="th-token th-keyword">package</span> httpapi
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;crypto/rand&quot;</span>
+	<span class="th-token th-string">&quot;encoding/hex&quot;</span>
+	<span class="th-token th-string">&quot;log/slog&quot;</span>
+	<span class="th-token th-string">&quot;net/http&quot;</span>
+	<span class="th-token th-string">&quot;regexp&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+)
+
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">requestIDKey</span> <span class="th-token th-keyword">struct</span>{}
+
+<span class="th-token th-comment">// ContextHandler is the whole request-id mechanism. slog hands every</span>
+<span class="th-token th-comment">// Handler the context, so a handler can pull values out of it -- which</span>
+<span class="th-token th-comment">// means no thread-local, no MDC, nothing to clear in a defer, and nothing</span>
+<span class="th-token th-comment">// that can leak one request&#39;s id onto another&#39;s log line.</span>
+<span class="th-token th-comment">//</span>
+<span class="th-token th-comment">// The catch, and it is a real one: this only fires for the *Context</span>
+<span class="th-token th-comment">// variants. log.Info(&quot;x&quot;) and log.InfoContext(ctx, &quot;x&quot;) produce different</span>
+<span class="th-token th-comment">// lines, and the first is missing the id. Make the reviewer&#39;s rule &quot;no</span>
+<span class="th-token th-comment">// bare slog calls inside a handler&quot; and it stays honest.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">ContextHandler</span> <span class="th-token th-keyword">struct</span>{ slog.Handler }
+
+<span class="th-token th-keyword">func</span> (h Context<span class="th-token th-function">Handle</span>r) <span class="th-token th-function">Handle</span>(ctx context.Context, r slog.Record) <span class="th-token th-type">error</span> {
+	<span class="th-token th-keyword">if</span> id, ok := ctx.<span class="th-token th-function">Value</span>(requestIDKey{}).(<span class="th-token th-type">string</span>); ok {
+		r.<span class="th-token th-function">AddAttrs</span>(slog.<span class="th-token th-function">String</span>(<span class="th-token th-string">&quot;request_id&quot;</span>, id))
+	}
+	<span class="th-token th-keyword">return</span> h.Handler.<span class="th-token th-function">Handle</span>(ctx, r)
+}
+
+<span class="th-token th-comment">// An id from outside ends up in every log line, so it is validated before</span>
+<span class="th-token th-comment">// it is trusted: a newline in that header would otherwise let a caller</span>
+<span class="th-token th-comment">// write a convincing fake log entry.</span>
+<span class="th-token th-keyword">var</span> safeID = regexp.<span class="th-token th-function">MustCompile</span>(<span class="th-token th-string">`^[A-Za-z0-9._-]{1,64}$`</span>)
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">requestID</span>(next http.Handler) http.Handler {
+	<span class="th-token th-keyword">return</span> http.<span class="th-token th-function">HandlerFunc</span>(<span class="th-token th-keyword">func</span>(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.<span class="th-token th-function">Get</span>(<span class="th-token th-string">&quot;X-Request-Id&quot;</span>)
+		<span class="th-token th-keyword">if</span> !safeID.<span class="th-token th-function">MatchString</span>(id) {
+			<span class="th-token th-keyword">var</span> b [<span class="th-token th-number">16</span>]<span class="th-token th-type">byte</span>
+			_, _ = rand.<span class="th-token th-function">Read</span>(b[:])
+			id = hex.<span class="th-token th-function">EncodeToString</span>(b[:])
+		}
+		<span class="th-token th-comment">// Echoed, so support can paste the header out of a customer&#39;s HAR</span>
+		<span class="th-token th-comment">// file straight into the log search.</span>
+		w.<span class="th-token th-function">Header</span>().<span class="th-token th-function">Set</span>(<span class="th-token th-string">&quot;X-Request-Id&quot;</span>, id)
+		next.<span class="th-token th-function">ServeHTTP</span>(w, r.<span class="th-token th-function">WithContext</span>(context.<span class="th-token th-function">WithValue</span>(r.<span class="th-token th-function">Context</span>(), requestIDKey{}, id)))
+	})
+}
+
+<span class="th-token th-comment">// statusRecorder exists because ResponseWriter will not tell you what was</span>
+<span class="th-token th-comment">// written. Note it embeds the interface rather than reimplementing it, so</span>
+<span class="th-token th-comment">// it stays a valid ResponseWriter -- but embedding also hides Flush and</span>
+<span class="th-token th-comment">// Hijack, which matters the day somebody adds server-sent events here.</span>
+<span class="th-token th-keyword">type</span> <span class="th-token th-type">statusRecorder</span> <span class="th-token th-keyword">struct</span> {
+	http.ResponseWriter
+	status <span class="th-token th-type">int</span>
+	bytes  <span class="th-token th-type">int</span>
+}
+
+<span class="th-token th-keyword">func</span> (s *statusRecorder) <span class="th-token th-function">WriteHeader</span>(code <span class="th-token th-type">int</span>) {
+	s.status = code
+	s.ResponseWriter.<span class="th-token th-function">WriteHeader</span>(code)
+}
+
+<span class="th-token th-keyword">func</span> (s *statusRecorder) <span class="th-token th-function">Write</span>(b []<span class="th-token th-type">byte</span>) (<span class="th-token th-type">int</span>, <span class="th-token th-type">error</span>) {
+	n, err := s.ResponseWriter.<span class="th-token th-function">Write</span>(b)
+	s.bytes += n
+	<span class="th-token th-keyword">return</span> n, err
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">logging</span>(log *slog.Logger, next http.Handler) http.Handler {
+	<span class="th-token th-keyword">return</span> http.<span class="th-token th-function">HandlerFunc</span>(<span class="th-token th-keyword">func</span>(w http.ResponseWriter, r *http.Request) {
+		start := time.<span class="th-token th-function">Now</span>()
+		rec := &amp;statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.<span class="th-token th-function">ServeHTTP</span>(rec, r)
+
+		<span class="th-token th-comment">// Attributes, never a formatted sentence. &quot;link %s expired&quot; is a</span>
+		<span class="th-token th-comment">// string you can grep; separate keys are fields you can filter,</span>
+		<span class="th-token th-comment">// group and alert on.</span>
+		log.<span class="th-token th-function">InfoContext</span>(r.<span class="th-token th-function">Context</span>(), <span class="th-token th-string">&quot;request&quot;</span>,
+			<span class="th-token th-string">&quot;method&quot;</span>, r.Method,
+			<span class="th-token th-string">&quot;path&quot;</span>, r.URL.Path,
+			<span class="th-token th-string">&quot;status&quot;</span>, rec.status,
+			<span class="th-token th-string">&quot;bytes&quot;</span>, rec.bytes,
+			<span class="th-token th-string">&quot;duration_ms&quot;</span>, time.<span class="th-token th-function">Since</span>(start).<span class="th-token th-function">Milliseconds</span>(),
+		)
+	})
+}
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">recovery</span>(log *slog.Logger, next http.Handler) http.Handler {
+	<span class="th-token th-keyword">return</span> http.<span class="th-token th-function">HandlerFunc</span>(<span class="th-token th-keyword">func</span>(w http.ResponseWriter, r *http.Request) {
+		<span class="th-token th-keyword">defer</span> <span class="th-token th-keyword">func</span>() {
+			v := <span class="th-token th-function">recover</span>()
+			<span class="th-token th-keyword">switch</span> {
+			<span class="th-token th-keyword">case</span> v == <span class="th-token th-literal">nil</span>:
+				<span class="th-token th-keyword">return</span>
+			<span class="th-token th-keyword">case</span> v == http.ErrAbortHandler:
+				<span class="th-token th-comment">// The standard library&#39;s own signal that a handler is</span>
+				<span class="th-token th-comment">// deliberately abandoning the connection. Re-panic, or</span>
+				<span class="th-token th-comment">// net/http cannot do what it was asked.</span>
+				<span class="th-token th-function">panic</span>(v)
+			<span class="th-token th-keyword">default</span>:
+				log.<span class="th-token th-function">ErrorContext</span>(r.<span class="th-token th-function">Context</span>(), <span class="th-token th-string">&quot;panic in handler&quot;</span>, <span class="th-token th-string">&quot;value&quot;</span>, v, <span class="th-token th-string">&quot;path&quot;</span>, r.URL.Path)
+				<span class="th-token th-function">write</span>(w, problemDetail{
+					Type: problemBase + <span class="th-token th-string">&quot;internal&quot;</span>, Title: <span class="th-token th-string">&quot;Internal server error&quot;</span>,
+					Status: http.StatusInternalServerError,
+				})
+			}
+		}()
+		next.<span class="th-token th-function">ServeHTTP</span>(w, r)
+	})
+}</pre>
+
+<pre class="l2"><span class="th-token th-comment">// internal/httpapi/health.go -- two endpoints, and they are not the same</span>
+<span class="th-token th-comment">// question. Getting this wrong is the single most common way to turn a</span>
+<span class="th-token th-comment">// dependency&#39;s bad thirty seconds into your own outage.</span>
+<span class="th-token th-keyword">package</span> httpapi
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;net/http&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+)
+
+<span class="th-token th-comment">// Liveness: is this process broken beyond recovery? Only a restart fixes</span>
+<span class="th-token th-comment">// that, and a restart is what a failed liveness probe causes -- so it</span>
+<span class="th-token th-comment">// checks nothing external. Put the database in here and one Postgres</span>
+<span class="th-token th-comment">// failover restarts every replica you own, simultaneously.</span>
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">healthz</span>(w http.ResponseWriter, _ *http.Request) {
+	w.<span class="th-token th-function">WriteHeader</span>(http.StatusOK)
+	_, _ = w.<span class="th-token th-function">Write</span>([]<span class="th-token th-type">byte</span>(<span class="th-token th-string">`{&quot;status&quot;:&quot;ok&quot;}`</span>))
+}
+
+<span class="th-token th-comment">// Readiness: should traffic come here right now? A replica that cannot</span>
+<span class="th-token th-comment">// reach Postgres cannot serve, but it will recover on its own, so the</span>
+<span class="th-token th-comment">// right answer is to stop routing to it -- not to kill it.</span>
+<span class="th-token th-keyword">func</span> (s *Server) <span class="th-token th-function">readyz</span>(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.<span class="th-token th-function">WithTimeout</span>(r.<span class="th-token th-function">Context</span>(), <span class="th-token th-number">2</span>*time.Second)
+	<span class="th-token th-keyword">defer</span> <span class="th-token th-function">cancel</span>()
+
+	<span class="th-token th-keyword">if</span> err := s.<span class="th-token th-function">ready</span>(ctx); err != <span class="th-token th-literal">nil</span> {
+		s.log.<span class="th-token th-function">WarnContext</span>(ctx, <span class="th-token th-string">&quot;not ready&quot;</span>, <span class="th-token th-string">&quot;error&quot;</span>, err)
+		w.<span class="th-token th-function">WriteHeader</span>(http.StatusServiceUnavailable)
+		_, _ = w.<span class="th-token th-function">Write</span>([]<span class="th-token th-type">byte</span>(<span class="th-token th-string">`{&quot;status&quot;:&quot;unavailable&quot;}`</span>))
+		<span class="th-token th-keyword">return</span>
+	}
+	w.<span class="th-token th-function">WriteHeader</span>(http.StatusOK)
+	_, _ = w.<span class="th-token th-function">Write</span>([]<span class="th-token th-type">byte</span>(<span class="th-token th-string">`{&quot;status&quot;:&quot;ready&quot;}`</span>))
+}</pre>
+
+<pre class="l1">{
+  <span class="th-token th-property">&quot;time&quot;</span>: <span class="th-token th-string">&quot;2026-08-31T14:32:07.418Z&quot;</span>,
+  <span class="th-token th-property">&quot;level&quot;</span>: <span class="th-token th-string">&quot;WARN&quot;</span>,
+  <span class="th-token th-property">&quot;msg&quot;</span>: <span class="th-token th-string">&quot;rate limiter unavailable&quot;</span>,
+  <span class="th-token th-property">&quot;service&quot;</span>: <span class="th-token th-string">&quot;shortlink&quot;</span>,
+  <span class="th-token th-property">&quot;error&quot;</span>: <span class="th-token th-string">&quot;rate limit: dial tcp 10.0.3.9:6379: i/o timeout&quot;</span>,
+  <span class="th-token th-property">&quot;request_id&quot;</span>: <span class="th-token th-string">&quot;6f1c2a943d554c1e9f0a2b7e6d4a1c33&quot;</span>
+}</pre>
+
+      <p>That is <code>slog.NewJSONHandler</code> wrapped in the twelve-line <code>ContextHandler</code> above, and nothing else &mdash; no logging library, no encoder configuration, no init function. <code>request_id</code> is there because the middleware put it in the context and the handler read it back out; <code>service</code> is there because <code>run</code> called <code>.With("service", "shortlink")</code> once at start-up, which is the cheap way to tag every line a process will ever emit.</p>
+    </section>
+
+    <section class="topic" id="svc-tests">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 38</span>
+        <h3>Tests that would actually have caught it</h3>
+        <p class="lede">Three kinds, and each buys something different. The table-driven ones run in microseconds and cover the parsing that is really a security control. The catalogue test buys back, at the cost of one slice, the exhaustiveness a sealed type would have given you. And one test starts a real Postgres in a container, because the single guarantee this service makes is a guarantee about a unique index, and no fake has one.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment">// internal/shortlink/code_test.go</span>
+<span class="th-token th-keyword">package</span> shortlink_test
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;errors&quot;</span>
+	<span class="th-token th-string">&quot;testing&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/shortlink&quot;</span>
+)
+
+<span class="th-token th-comment">// Package shortlink_test, not package shortlink. An external test package</span>
+<span class="th-token th-comment">// can only touch the exported API, which means the test is a second</span>
+<span class="th-token th-comment">// opinion on whether that API is usable rather than a friend with access</span>
+<span class="th-token th-comment">// to the internals.</span>
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">TestParseTarget</span>(t *testing.T) {
+	t.<span class="th-token th-function">Parallel</span>()
+
+	tests := []<span class="th-token th-keyword">struct</span> {
+		name <span class="th-token th-type">string</span>
+		in   <span class="th-token th-type">string</span>
+		want <span class="th-token th-type">error</span>   <span class="th-token th-comment">// nil means it should be accepted</span>
+	}{
+		{<span class="th-token th-string">&quot;plain https&quot;</span>, <span class="th-token th-string">&quot;https://example.com/a/b?c=d&quot;</span>, <span class="th-token th-literal">nil</span>},
+		{<span class="th-token th-string">&quot;plain http&quot;</span>, <span class="th-token th-string">&quot;http://example.com&quot;</span>, <span class="th-token th-literal">nil</span>},
+		{<span class="th-token th-string">&quot;trims&quot;</span>, <span class="th-token th-string">&quot;  https://example.com  &quot;</span>, <span class="th-token th-literal">nil</span>},
+
+		{<span class="th-token th-string">&quot;empty&quot;</span>, <span class="th-token th-string">&quot;&quot;</span>, shortlink.ErrInvalid},
+		{<span class="th-token th-string">&quot;javascript&quot;</span>, <span class="th-token th-string">&quot;javascript:alert(1)&quot;</span>, shortlink.ErrInvalid},
+		{<span class="th-token th-string">&quot;data uri&quot;</span>, <span class="th-token th-string">&quot;data:text/html,&lt;script&gt;x&lt;/script&gt;&quot;</span>, shortlink.ErrInvalid},
+		{<span class="th-token th-string">&quot;file&quot;</span>, <span class="th-token th-string">&quot;file:///etc/passwd&quot;</span>, shortlink.ErrInvalid},
+		{<span class="th-token th-string">&quot;relative&quot;</span>, <span class="th-token th-string">&quot;/just/a/path&quot;</span>, shortlink.ErrInvalid},
+		{<span class="th-token th-string">&quot;no host&quot;</span>, <span class="th-token th-string">&quot;https://&quot;</span>, shortlink.ErrInvalid},
+		{<span class="th-token th-string">&quot;credentials&quot;</span>, <span class="th-token th-string">&quot;https://user:pass@example.com&quot;</span>, shortlink.ErrInvalid},
+	}
+
+	<span class="th-token th-keyword">for</span> _, tc := <span class="th-token th-keyword">range</span> tests {
+		t.<span class="th-token th-function">Run</span>(tc.name, <span class="th-token th-keyword">func</span>(t *testing.T) {
+			t.<span class="th-token th-function">Parallel</span>()
+			_, err := shortlink.<span class="th-token th-function">ParseTarget</span>(tc.in)
+			<span class="th-token th-keyword">if</span> !errors.<span class="th-token th-function">Is</span>(err, tc.want) {
+				t.<span class="th-token th-function">Fatalf</span>(<span class="th-token th-string">&quot;ParseTarget(%q) error = %v, want %v&quot;</span>, tc.in, err, tc.want)
+			}
+		})
+	}
+}
+
+<span class="th-token th-comment">// Since Go 1.22 the loop variable is per-iteration, so tc is not shared</span>
+<span class="th-token th-comment">// between the parallel subtests above. Before that this exact shape was</span>
+<span class="th-token th-comment">// the single most common bug in Go test files -- every subtest saw the</span>
+<span class="th-token th-comment">// last case. If you read an older codebase and see `tc := tc` on the line</span>
+<span class="th-token th-comment">// after the range, that is what it was for.</span></pre>
+
+<pre class="l2"><span class="th-token th-comment">// internal/httpapi/problem_test.go</span>
+<span class="th-token th-keyword">package</span> httpapi
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;errors&quot;</span>
+	<span class="th-token th-string">&quot;testing&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/shortlink&quot;</span>
+)
+
+<span class="th-token th-comment">// The compiler cannot tell you that a new sentinel has no status code,</span>
+<span class="th-token th-comment">// because Go has no sealed types and no exhaustive switch. This is what</span>
+<span class="th-token th-comment">// buys that guarantee instead: eleven lines, run in microseconds, and it</span>
+<span class="th-token th-comment">// fails the moment somebody adds an error to shortlink.All without adding</span>
+<span class="th-token th-comment">// it to the catalogue -- which is exactly when it is cheap to fix.</span>
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">TestEverySentinelHasAStatus</span>(t *testing.T) {
+	<span class="th-token th-keyword">for</span> _, sentinel := <span class="th-token th-keyword">range</span> shortlink.All {
+		found := <span class="th-token th-literal">false</span>
+		<span class="th-token th-keyword">for</span> _, entry := <span class="th-token th-keyword">range</span> catalogue {
+			<span class="th-token th-keyword">if</span> errors.<span class="th-token th-function">Is</span>(sentinel, entry.err) {
+				found = <span class="th-token th-literal">true</span>
+				<span class="th-token th-keyword">break</span>
+			}
+		}
+		<span class="th-token th-keyword">if</span> !found {
+			t.<span class="th-token th-function">Errorf</span>(<span class="th-token th-string">&quot;%v has no entry in the problem catalogue: it would reach a client as a 500&quot;</span>, sentinel)
+		}
+	}
+}</pre>
+
+<pre class="l2"><span class="th-token th-comment">// internal/postgres/store_test.go</span>
+<span class="th-token th-keyword">package</span> postgres_test
+
+<span class="th-token th-keyword">import</span> (
+	<span class="th-token th-string">&quot;context&quot;</span>
+	<span class="th-token th-string">&quot;os&quot;</span>
+	<span class="th-token th-string">&quot;sync&quot;</span>
+	<span class="th-token th-string">&quot;testing&quot;</span>
+	<span class="th-token th-string">&quot;time&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/testcontainers/testcontainers-go&quot;</span>
+	tcpostgres <span class="th-token th-string">&quot;github.com/testcontainers/testcontainers-go/modules/postgres&quot;</span>
+	<span class="th-token th-string">&quot;github.com/testcontainers/testcontainers-go/wait&quot;</span>
+	<span class="th-token th-string">&quot;golang.org/x/sync/errgroup&quot;</span>
+
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/postgres&quot;</span>
+	<span class="th-token th-string">&quot;github.com/jaspreet/shortlink/internal/shortlink&quot;</span>
+)
+
+<span class="th-token th-comment">// TestMain starts one container for the whole package rather than one per</span>
+<span class="th-token th-comment">// test. A container per test turns a forty-second suite into four minutes,</span>
+<span class="th-token th-comment">// and a suite nobody waits for is a suite nobody runs.</span>
+<span class="th-token th-keyword">var</span> dsn <span class="th-token th-type">string</span>
+
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">TestMain</span>(m *testing.M) {
+	ctx := context.<span class="th-token th-function">Background</span>()
+	container, err := tcpostgres.<span class="th-token th-function">Run</span>(ctx, <span class="th-token th-string">&quot;postgres:16-alpine&quot;</span>,
+		tcpostgres.<span class="th-token th-function">WithDatabase</span>(<span class="th-token th-string">&quot;shortlink&quot;</span>),
+		tcpostgres.<span class="th-token th-function">WithUsername</span>(<span class="th-token th-string">&quot;test&quot;</span>),
+		tcpostgres.<span class="th-token th-function">WithPassword</span>(<span class="th-token th-string">&quot;test&quot;</span>),
+		<span class="th-token th-comment">// Postgres logs &quot;ready to accept connections&quot; once while it</span>
+		<span class="th-token th-comment">// initialises the data directory and again when it is actually</span>
+		<span class="th-token th-comment">// listening. Waiting for the first one is a flaky test that</span>
+		<span class="th-token th-comment">// passes on your laptop and fails in CI; WithOccurrence(2) is</span>
+		<span class="th-token th-comment">// the whole fix.</span>
+		testcontainers.<span class="th-token th-function">WithWaitStrategy</span>(
+			wait.<span class="th-token th-function">ForLog</span>(<span class="th-token th-string">&quot;database system is ready to accept connections&quot;</span>).
+				<span class="th-token th-function">WithOccurrence</span>(<span class="th-token th-number">2</span>).
+				<span class="th-token th-function">WithStartupTimeout</span>(<span class="th-token th-number">60</span>*time.Second)),
+	)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-function">panic</span>(err)
+	}
+	<span class="th-token th-keyword">if</span> dsn, err = container.<span class="th-token th-function">ConnectionString</span>(ctx, <span class="th-token th-string">&quot;sslmode=disable&quot;</span>); err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-function">panic</span>(err)
+	}
+	<span class="th-token th-keyword">if</span> err := postgres.<span class="th-token th-function">Migrate</span>(ctx, dsn); err != <span class="th-token th-literal">nil</span> {
+		<span class="th-token th-function">panic</span>(err)
+	}
+
+	code := m.<span class="th-token th-function">Run</span>()
+
+	<span class="th-token th-comment">// Not defer: os.Exit does not run deferred calls, so the container</span>
+	<span class="th-token th-comment">// would outlive the test binary and leak until the reaper noticed.</span>
+	_ = testcontainers.<span class="th-token th-function">TerminateContainer</span>(container)
+	os.<span class="th-token th-function">Exit</span>(code)
+}
+
+<span class="th-token th-comment">// The test a fake store cannot express. Sixteen goroutines released at the</span>
+<span class="th-token th-comment">// same instant with one idempotency key between them: the answer has to be</span>
+<span class="th-token th-comment">// one link, and it has to be the same link for all sixteen.</span>
+<span class="th-token th-comment">//</span>
+<span class="th-token th-comment">// Delete the partial unique index from 0001 and this fails with sixteen</span>
+<span class="th-token th-comment">// rows. Keep the index but delete the ErrIdempotencyClash branch from the</span>
+<span class="th-token th-comment">// service and it fails with fifteen errors. It tells those two apart,</span>
+<span class="th-token th-comment">// which is what makes the eight seconds a container costs worth paying.</span>
+<span class="th-token th-keyword">func</span> <span class="th-token th-function">TestSameIdempotencyKeyCreatesOneLink</span>(t *testing.T) {
+	ctx := context.<span class="th-token th-function">Background</span>()
+	svc := <span class="th-token th-function">newService</span>(t)
+	target, err := shortlink.<span class="th-token th-function">ParseTarget</span>(<span class="th-token th-string">&quot;https://example.com/one&quot;</span>)
+	<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+		t.<span class="th-token th-function">Fatal</span>(err)
+	}
+	req := shortlink.NewLink{
+		OwnerID: <span class="th-token th-string">&quot;owner-1&quot;</span>, Target: target, IdempotencyKey: <span class="th-token th-string">&quot;key-42&quot;</span>,
+	}
+
+	<span class="th-token th-keyword">var</span> (
+		mu    sync.Mutex
+		codes = <span class="th-token th-keyword">map</span>[shortlink.Code]<span class="th-token th-type">int</span>{}
+	)
+	release := <span class="th-token th-function">make</span>(<span class="th-token th-keyword">chan</span> <span class="th-token th-keyword">struct</span>{})
+	<span class="th-token th-keyword">var</span> g errgroup.Group
+
+	<span class="th-token th-keyword">for</span> <span class="th-token th-keyword">range</span> <span class="th-token th-number">16</span> {   <span class="th-token th-comment">// Go 1.22: range over an int</span>
+		g.<span class="th-token th-function">Go</span>(<span class="th-token th-keyword">func</span>() <span class="th-token th-type">error</span> {
+			&lt;-release   <span class="th-token th-comment">// every goroutine parked until they can all go at once</span>
+			link, err := svc.<span class="th-token th-function">Shorten</span>(ctx, req)
+			<span class="th-token th-keyword">if</span> err != <span class="th-token th-literal">nil</span> {
+				<span class="th-token th-keyword">return</span> err
+			}
+			mu.<span class="th-token th-function">Lock</span>()
+			<span class="th-token th-keyword">defer</span> mu.<span class="th-token th-function">Unlock</span>()
+			codes[link.Code]++
+			<span class="th-token th-keyword">return</span> <span class="th-token th-literal">nil</span>
+		})
+	}
+	<span class="th-token th-function">close</span>(release)
+
+	<span class="th-token th-keyword">if</span> err := g.<span class="th-token th-function">Wait</span>(); err != <span class="th-token th-literal">nil</span> {
+		t.<span class="th-token th-function">Fatalf</span>(<span class="th-token th-string">&quot;a caller failed instead of sharing the link: %v&quot;</span>, err)
+	}
+	<span class="th-token th-keyword">if</span> <span class="th-token th-function">len</span>(codes) != <span class="th-token th-number">1</span> {
+		t.<span class="th-token th-function">Fatalf</span>(<span class="th-token th-string">&quot;want every caller to get one code, got %d distinct: %v&quot;</span>, <span class="th-token th-function">len</span>(codes), codes)
+	}
+	<span class="th-token th-keyword">if</span> got := <span class="th-token th-function">countRows</span>(t, ctx); got != <span class="th-token th-number">1</span> {
+		t.<span class="th-token th-function">Fatalf</span>(<span class="th-token th-string">&quot;want 1 row in links, got %d&quot;</span>, got)
+	}
+}
+
+<span class="th-token th-comment">// newService and countRows are ten lines each at the bottom of this file:</span>
+<span class="th-token th-comment">// one opens a pool against dsn, truncates links, and wires a Service over</span>
+<span class="th-token th-comment">// a real Store; the other runs SELECT count(*). Truncating per test rather</span>
+<span class="th-token th-comment">// than wrapping each in a transaction is deliberate -- the thing under</span>
+<span class="th-token th-comment">// test is what happens when concurrent statements actually commit, and a</span>
+<span class="th-token th-comment">// transaction the test owns would hide exactly that.</span>
+
+<span class="th-token th-comment">// Run this one with -race and it also proves the map above is guarded.</span>
+<span class="th-token th-comment">// Without the mutex the detector reports a write/write race and the test</span>
+<span class="th-token th-comment">// fails for a reason that has nothing to do with Postgres -- which is the</span>
+<span class="th-token th-comment">// detector doing its job on the test rather than on the code.</span></pre>
+
+      <p>The fourth test file in the tree, <code>httpapi/api_test.go</code>, is the one that ties the rest together: <code>httptest.NewServer(api.Handler())</code>, a real <code>http.Client</code>, and assertions about status codes and <code>Content-Type</code>. It is worth having separately from the store tests because it is the only place the middleware chain, the routing patterns and the problem shape are exercised together &mdash; and because <code>httptest</code> makes it cost nothing: no port to pick, no server to shut down, and it runs in the same process so a failure gives you the handler&rsquo;s stack rather than a connection reset.</p>
+
+      <div class="note warn">
+        <h4>The fake and the container are answering different questions, so keep both</h4>
+        <p><code>shortlink.Store</code> is a four-method interface, so a fake is fifteen lines and the service&rsquo;s retry logic can be tested against it in microseconds &mdash; including the paths that are awkward to provoke for real, like &ldquo;the generator collided four times running&rdquo;. What the fake cannot do is have a unique index, so it will happily let sixteen concurrent inserts through and tell you the code is correct. Use the fake for the branches and the container for the guarantee, and be suspicious of any test suite that has only one of the two: all fakes means the thing you actually promised is untested, all containers means a four-minute suite that nobody runs before pushing.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-ship">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 39</span>
+        <h3>The image, the pipeline, and two runtime settings</h3>
+        <p class="lede">Go&rsquo;s deployment story is the best of the three languages in this series and it is almost entirely down to one property: the output is a single static binary with no runtime to install, so the runtime image can contain that binary and nothing else. What is left to get right is two environment settings that Go historically gets wrong inside a container, and both are one line.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># Dockerfile -- the runtime stage holds one file. There is no interpreter,</span>
+<span class="th-token th-comment"># no JVM, no package manager and no shell, which is a smaller attack</span>
+<span class="th-token th-comment"># surface than any amount of hardening buys you on a full base image.</span>
+<span class="th-token th-keyword">FROM</span> <span class="th-token th-string">golang:1.24-bookworm</span> AS build
+<span class="th-token th-keyword">WORKDIR</span> /src
+<span class="th-token th-comment">
+# The manifests first, alone. This layer is invalidated only when a</span>
+<span class="th-token th-comment"># dependency changes, so the module download is cached across every</span>
+<span class="th-token th-comment"># ordinary commit.</span>
+<span class="th-token th-keyword">COPY</span> go.mod go.sum ./
+<span class="th-token th-keyword">RUN</span> go mod download
+<span class="th-token th-keyword">
+COPY</span> . .
+<span class="th-token th-keyword">ARG</span> VERSION=dev
+<span class="th-token th-comment"># CGO_ENABLED=0 gives a genuinely static binary and the pure-Go DNS</span>
+<span class="th-token th-comment"># resolver, which is what you want in a container -- the cgo resolver</span>
+<span class="th-token th-comment"># needs libc and an /etc/nsswitch.conf that the runtime image will not</span>
+<span class="th-token th-comment"># have. -trimpath strips the build machine&#39;s paths out of the binary, so</span>
+<span class="th-token th-comment"># two machines building the same commit produce the same bytes.</span>
+<span class="th-token th-keyword">RUN</span> CGO_ENABLED=0 go build -trimpath \
+      -ldflags=&quot;-s -w -X main.version=<span class="th-token th-variable">${VERSION}</span>&quot; \
+      -o /out/shortlinkd ./cmd/shortlinkd
+<span class="th-token th-keyword">
+FROM</span> <span class="th-token th-string">gcr.io/distroless/static-debian12:nonroot</span>
+<span class="th-token th-comment"># The distroless static image is a CA bundle, timezone data, /etc/passwd</span>
+<span class="th-token th-comment"># and nothing else -- no shell, so a remote code execution has no /bin/sh</span>
+<span class="th-token th-comment"># to reach for. nonroot is uid 65532, and naming the number rather than</span>
+<span class="th-token th-comment"># the user lets Kubernetes&#39; runAsNonRoot verify it from the manifest.</span>
+<span class="th-token th-keyword">COPY</span> --from=build /out/shortlinkd /shortlinkd
+<span class="th-token th-keyword">USER</span> <span class="th-token th-string">65532:65532</span>
+<span class="th-token th-keyword">EXPOSE</span> 8080
+<span class="th-token th-comment">
+# Exec form, so the binary is PID 1 and SIGTERM reaches it. The shell form</span>
+<span class="th-token th-comment"># runs /bin/sh -c, the shell does not forward signals -- and here there is</span>
+<span class="th-token th-comment"># no shell at all, so the shell form would simply fail to start.</span>
+<span class="th-token th-keyword">ENTRYPOINT</span> [&quot;/shortlinkd&quot;]</pre>
+
+      <div class="note warn">
+        <h4>Two settings the Go runtime does not read from the container, and both cost you real money</h4>
+        <p><b><code>GOMAXPROCS</code>.</b> For most of Go&rsquo;s life the runtime sized its scheduler from the number of CPUs it could see on the <em>host</em>, not from the cgroup CPU quota the container was given. On a 64-core node with a 0.5-CPU limit that means 64 scheduler threads and 64 garbage-collector workers fighting for half a core, and the symptom is latency that gets worse when you scale the node up. <code>go.uber.org/automaxprocs</code> is the standard fix &mdash; a blank import that reads the cgroup and sets the value &mdash; and recent Go versions have started doing this in the runtime itself, so check what your version does rather than assuming either way. Whichever it is, log the value at start-up; it is one line and it settles the argument.</p>
+        <p style="margin:0"><b><code>GOMEMLIMIT</code>.</b> Go&rsquo;s collector runs when the heap has doubled, which means a service that is idle for ten minutes and then allocates hard can sail past the container&rsquo;s memory limit before a collection was due &mdash; and the kernel&rsquo;s OOM killer does not negotiate. <code>GOMEMLIMIT</code> is a <em>soft</em> limit: set it to about 90% of the container limit and the collector works harder as you approach it instead of the process being killed with no stack trace and no log line. It is one environment variable and it converts a hard crash into a CPU cost.</p>
+      </div>
+
+<pre class="l2"><span class="th-token th-comment"># .github/workflows/ci.yaml -- the same commands the Makefile runs, so a</span>
+<span class="th-token th-comment"># red build reproduces locally in one line and no guessing.</span>
+<span class="th-token th-property">name</span>: <span class="th-token th-string">ci</span>
+
+<span class="th-token th-property">on</span>:
+  <span class="th-token th-property">push</span>:
+    <span class="th-token th-property">branches</span>: <span class="th-token th-string">[main]</span>
+  <span class="th-token th-property">pull_request</span>:
+
+<span class="th-token th-property">permissions</span>:
+  <span class="th-token th-property">contents</span>: <span class="th-token th-string">read</span>          <span class="th-token th-comment"># the default is write. It should not be.</span>
+
+<span class="th-token th-property">jobs</span>:
+  <span class="th-token th-property">build</span>:
+    <span class="th-token th-property">runs-on</span>: <span class="th-token th-string">ubuntu-latest</span>
+    <span class="th-token th-property">steps</span>:
+      - <span class="th-token th-property">uses</span>: actions/checkout@v4
+
+      - <span class="th-token th-property">uses</span>: <span class="th-token th-string">actions/setup-go@v5</span>
+        <span class="th-token th-property">with</span>:
+          <span class="th-token th-property">go-version</span>: <span class="th-token th-string">&#39;1.24&#39;</span>
+          <span class="th-token th-property">cache</span>: <span class="th-token th-string">true</span>     <span class="th-token th-comment"># the module and build caches, keyed on go.sum</span>
+
+      - <span class="th-token th-property">run</span>: <span class="th-token th-string">go build ./...</span>
+      - <span class="th-token th-property">run</span>: <span class="th-token th-string">go vet ./...</span>
+
+      - <span class="th-token th-property">uses</span>: <span class="th-token th-string">golangci/golangci-lint-action@v6</span>
+        <span class="th-token th-property">with</span>:
+          <span class="th-token th-property">version</span>: v1.<span class="th-token th-number">62</span>
+
+      <span class="th-token th-comment"># -race, always. It is the flag that finds the bugs that only appear</span>
+      <span class="th-token th-comment"># under load in production, and testcontainers uses the runner&#39;s own</span>
+      <span class="th-token th-comment"># Docker daemon so there is nothing extra to install.</span>
+      - <span class="th-token th-property">run</span>: <span class="th-token th-string">go test -race -count=1 ./...</span>
+
+      <span class="th-token th-comment"># The supply chain is part of a passing build now. govulncheck is</span>
+      <span class="th-token th-comment"># better than a generic scanner here because it uses call-graph</span>
+      <span class="th-token th-comment"># analysis: it reports a CVE only if your code can actually reach</span>
+      <span class="th-token th-comment"># the vulnerable function, so the output is short enough to act on.</span>
+      - <span class="th-token th-property">run</span>: <span class="th-token th-string">go run golang.org/x/vuln/cmd/govulncheck@latest ./...</span>
+
+      - <span class="th-token th-property">name</span>: <span class="th-token th-string">Build the image</span>
+        <span class="th-token th-property">run</span>: <span class="th-token th-string">docker build -t shortlink:${{ github.sha }} --build-arg VERSION=${{ github.sha }} .</span></pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Before it is &ldquo;done&rdquo;</th><th>Why it is on this list</th></tr></thead>
+          <tbody>
+            <tr><td>Migrations run as their own step, not on every start</td><td><code>run</code> calls <code>Migrate</code> above, which is right for one replica and wrong for four. goose takes an advisory lock so the other three wait rather than corrupt anything &mdash; but they wait through their readiness deadline. Move it to a job before the rollout.</td></tr>
+            <tr><td><code>/readyz</code> on the readiness probe, <code>/healthz</code> on the liveness probe</td><td>They answer different questions. Pointing both at the one that checks Postgres restarts every replica the next time Postgres fails over.</td></tr>
+            <tr><td><code>GOMEMLIMIT</code> set, and the memory request equal to the limit</td><td>See the note above. A Go process killed by the OOM killer leaves no log line to find later.</td></tr>
+            <tr><td><code>pprof</code> served on a second listener, not the public one</td><td>The profiling part covered what each profile answers. <code>net/http/pprof</code> registers on <code>http.DefaultServeMux</code> the moment it is imported, so importing it and serving <code>DefaultServeMux</code> publishes a heap dump of your process to the internet.</td></tr>
+            <tr><td>Logs to stdout, and nowhere else</td><td>The platform collects stdout. A log file inside a container is a disk that fills and an incident nobody can explain.</td></tr>
+            <tr><td><code>govulncheck</code> on every build, not on a calendar</td><td>It is call-graph aware, so it is one of the few security gates whose output is short enough that people keep reading it.</td></tr>
+            <tr><td>Alerts on the 500 rate and on p99, not just dashboards</td><td>A dashboard is for after somebody noticed. An alert is for before.</td></tr>
+            <tr><td>A rollback that is one command, and that somebody has run</td><td>Every deploy plan has one. The ones that work were rehearsed on a Tuesday afternoon rather than discovered at 2am.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Read this part beside the Python and Java ones and the differences are smaller than the languages suggest. All three put the rules in a package that imports nothing, make idempotency a database constraint rather than a check, keep one error shape, hash the API key, share the rate limit, and fail the boot rather than the tenth request. What Go changes is the amount of machinery in between. There is no container, no proxy, no annotation and no reflection: <code>run</code> is the dependency graph, <code>defer</code> is the lifecycle, <code>context</code> carries the deadline and the request id that the other two need a framework and a thread-local for, and the deployable artefact is one file. What that costs is the guarantees a richer type system was giving you &mdash; <code>Code("")</code> compiles, the error switch is not exhaustive, and the layering is a linter rather than a compiler &mdash; so each of those is bought back here with a test. That trade, and being able to name both halves of it, is the answer to give when somebody asks why you would choose Go for a service.</p>
+    </section>
+  </div>
+</section>
+
 <div class="toc-backdrop" id="toc-backdrop" hidden></div>
 
 <aside class="toc" id="toc" aria-label="Contents">
@@ -3424,6 +5532,22 @@ mux.<span class="th-token th-function">Handle</span>(<span class="th-token th-st
       <li><a href="#checklist"><span class="n">28</span><span>The review checklist</span></a></li>
     </ol>
   </div>
+  <div class="toc-group">
+    <a href="#service">A whole service, file by file</a>
+    <ol>
+      <li><a href="#svc-layout"><span class="n">29</span><span>Where the files go, and why</span></a></li>
+      <li><a href="#svc-config"><span class="n">30</span><span>Configuration, read once, and every error at once</span></a></li>
+      <li><a href="#svc-domain"><span class="n">31</span><span>The core, which imports only the standard library</span></a></li>
+      <li><a href="#svc-db"><span class="n">32</span><span>The schema, the pool, and migrations inside the binary</span></a></li>
+      <li><a href="#svc-repo"><span class="n">33</span><span>The store, and the race you cannot check for</span></a></li>
+      <li><a href="#svc-api"><span class="n">34</span><span>The HTTP edge, and the twelve lines of main</span></a></li>
+      <li><a href="#svc-errors"><span class="n">35</span><span>Failure is part of the contract</span></a></li>
+      <li><a href="#svc-auth"><span class="n">36</span><span>Who is calling, and how often</span></a></li>
+      <li><a href="#svc-obs"><span class="n">37</span><span>Logs, and the two health checks</span></a></li>
+      <li><a href="#svc-tests"><span class="n">38</span><span>Tests that would actually have caught it</span></a></li>
+      <li><a href="#svc-ship"><span class="n">39</span><span>The image, the pipeline, and two runtime settings</span></a></li>
+    </ol>
+  </div>
   <div class="toc-series">
   <h3>The series</h3>
   <a href="index.html"><span class="t">The Backend Ladder</span><span class="s">Overview &middot; all three pillars</span></a>
@@ -3436,7 +5560,7 @@ mux.<span class="th-token th-function">Handle</span>(<span class="th-token th-st
   <a href="algorithms.html"><span class="t">Data Structures, In Motion</span><span class="s">Deep dive &middot; algorithms, interactive</span></a>
   <a href="ai-engineering.html"><span class="t">Prompt to Production</span><span class="s">Deep dive &middot; AI engineering, interactive</span></a>
 </div>
-  <p class="toc-foot" id="toc-foot">28 sections</p>
+  <p class="toc-foot" id="toc-foot">39 sections</p>
 </aside>
 
 <script>

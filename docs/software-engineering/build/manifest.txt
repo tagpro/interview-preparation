@@ -59,6 +59,7 @@ gloss_terms.py
 go_code.py
 go_cook.html
 go_extra.py
+go_svc.html
 hl_contrast.mjs
 hl_detect.mjs
 hl_inject.mjs

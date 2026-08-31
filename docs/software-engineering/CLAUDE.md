@@ -36,6 +36,13 @@ markup. Six of them are also assembled from fragments (`build_py.py`,
 `java_*.html`, `aws_*.html`, `dsa_*.html`, `ai_*.html`; `build_go.py` rebuilds
 `pillar-b-go.html` from itself). The three pillar pages have no fragments -- they *are* the source.
 
+`build_go.py` is the odd one and the difference matters when editing it. It
+explodes the built page and splices two fragments back in. `go_cook.html` is
+spliced only if absent, because its blocks were edited on the built page after
+that fragment was extracted and the two have drifted -- the page wins.
+`go_svc.html` is *replaced* on every build, so it stays the source of truth for
+part ten and an edit there actually reaches the page. Edit the right one.
+
 The cross-link rail every page carries is generated from `series.py`, which is
 the one list of pages in the series. `series_sync.py` writes it into all nine,
 including the three that have no build script.
@@ -73,7 +80,7 @@ Run what the change touches; run all of them before publishing.
     node hl_verify_dim.mjs            # no text that used to be dimmed lost it
     node audit2.mjs                   # SVG geometry -- must print TOTAL: 0
     node verify_gloss.mjs             # glossary wraps, misplaced: 0
-    python3 esc_pre.py --check ai_*.html py_svc.html java_svc.html
+    python3 esc_pre.py --check ai_*.html py_svc.html java_svc.html go_svc.html
                                       # no bare < or > inside a code block
     node verify_aws.mjs               # the Go/Python switch covers every pair
     python3 series_sync.py --check    # no page's rail has drifted from series.py

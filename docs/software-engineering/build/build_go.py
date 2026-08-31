@@ -28,6 +28,20 @@ def build():
         cook = open('go_cook.html', encoding='utf-8').read().strip()
         parts = parts.replace(anchor, cook + '\n\n' + anchor)
 
+    # The whole-service part goes last, after the review checklist, the way
+    # the Python and Java pages carry theirs. Unlike the cookbook above this
+    # one is *replaced* rather than skipped when it is already present, so
+    # go_svc.html stays the source of truth for it and an edit there reaches
+    # the page. (The cookbook cannot be re-spliced: its blocks were edited on
+    # the built page before go_cook.html was extracted, so the two differ.)
+    svc = open('go_svc.html', encoding='utf-8').read().strip()
+    start = parts.find('<section class="part" id="service">')
+    if start != -1:
+        end = re.compile(r'(?m)^</section>$').search(parts, start)
+        assert end, 'service part is not closed at column 0'
+        parts = (parts[:start] + parts[end.end():]).rstrip()
+    parts = parts + '\n\n' + svc
+
     n = tpl.build(PAGE, TITLE, MARK, hero, parts)
     s = open(PAGE, encoding='utf-8').read()
 
@@ -35,8 +49,10 @@ def build():
     for i, m in enumerate(reversed(kick)):
         s = s[:m.start()] + '<span class="kicker">Go deep &middot; %02d</span>' % (len(kick) - i) + s[m.end():]
 
-    words = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
+    words = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+             'eleven', 'twelve']
     pw = list(re.finditer(r'<span class="kicker">Part (\w+)</span>', s))
+    assert len(pw) <= len(words), 'more parts than number words: extend the list'
     for i, m in enumerate(reversed(pw)):
         s = s[:m.start()] + '<span class="kicker">Part %s</span>' % words[len(pw) - 1 - i] + s[m.end():]
 

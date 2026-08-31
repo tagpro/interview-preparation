@@ -1,0 +1,2107 @@
+<section class="part" id="service">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part ten</span>
+      <h2>A whole service, file by file</h2>
+      <p>The cookbook was five jobs in isolation. This is the repository they add up to &mdash; one small service, built in the order you would actually build it, with every file that has to exist before anyone will let you deploy it. The domain is a link shortener, chosen because it is small enough to hold in your head and still needs every production concern there is: validation, a database and a migration, idempotency under a race, authentication, rate limiting, structured logs, two health checks, tests that run in CI, and an image with nothing in it but your binary. It is the same service the Python and Java pages build, so you can read all three and see what the language actually changes &mdash; and here it changes a lot, because most of what those two reach for a framework to do, Go does with the standard library.</p>
+    </div>
+
+    <section class="topic" id="svc-layout">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>Where the files go, and why</h3>
+        <p class="lede">Go has one layout rule the compiler actually enforces, and it is the useful one: nothing outside this module may import anything under <code>internal/</code>. That single directory name does the job Java needs an architecture test for. What it does not do is police the layers <em>inside</em> the module, which is what the rest of this topic is about.</p>
+      </div>
+
+      <pre class="l1">shortlink/
+  go.mod                  the module path, the Go version, the direct deps
+  go.sum                  the hashes. Committed, and verified on every build.
+  Makefile                the four commands everyone needs, named the same way
+  compose.yaml            Postgres and Redis for local work, nothing else
+  Dockerfile              two stages; the second one contains a binary
+  .golangci.yaml          the linters, and the import rule from the table below
+
+  cmd/
+    shortlinkd/
+      main.go             twelve lines. Calls run, prints the error, exits 1.
+      run.go              wiring: config, pool, redis, routes, signals
+
+  internal/               the compiler's own boundary. Nothing outside imports it.
+    config/
+      config.go           every variable the service reads, parsed once
+    shortlink/            the domain. Imports the standard library only.
+      link.go             Link, Code, and the URL parse that is a security control
+      code.go             crypto/rand over an alphabet with no confusable pairs
+      service.go          the use cases. Knows no HTTP and no SQL.
+      errors.go           the sentinels every layer above matches on
+    postgres/
+      pool.go             one pool per process, sized on purpose
+      store.go            the only file in the repository that contains SQL
+      migrate.go          goose, over migrations embedded in the binary
+      migrations/
+        0001_create_links.sql
+    ratelimit/
+      redis.go            one INCR and one PEXPIRE, atomically
+    httpapi/
+      server.go           routes, middleware, and the five timeouts
+      links.go            the management handlers
+      redirect.go         GET /{code}: the only public route
+      auth.go             API keys, hashed, compared in constant time
+      problem.go          one error shape out, and the map that produces it
+      middleware.go       request id, logging, recovery
+
+  internal/shortlink/code_test.go       pure, fast, no container
+  internal/httpapi/problem_test.go      every sentinel has a status
+  internal/postgres/store_test.go       a real Postgres, and the race
+  internal/httpapi/api_test.go          through the real mux, over httptest
+
+  .github/workflows/ci.yaml</pre>
+
+      <p>Two decisions in that tree are worth defending in a review. There is no <code>pkg/</code> &mdash; it is a convention some repositories carry and it means nothing to the toolchain, whereas <code>internal/</code> means something exact. And the packages are named for what they <em>are</em> rather than for what they contain: <code>postgres</code>, not <code>repository</code>; <code>httpapi</code>, not <code>handlers</code>. A Go package name is a prefix on every identifier you export from it, so <code>postgres.Store</code> reads and <code>repository.LinkRepository</code> stutters.</p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Package</th><th>May import</th><th>Must never import</th></tr></thead>
+          <tbody>
+            <tr><td><code>internal/shortlink</code></td><td>The standard library, and nothing else</td><td><code>pgx</code>, <code>net/http</code>, <code>redis</code>. It is the part whose tests need no container.</td></tr>
+            <tr><td><code>internal/postgres</code></td><td><code>shortlink</code>, <code>pgx</code></td><td><code>net/http</code>. A store that writes a status code cannot be called from a worker.</td></tr>
+            <tr><td><code>internal/httpapi</code></td><td>Everything</td><td>Nothing &mdash; but it should hold no branching that is not about HTTP.</td></tr>
+            <tr><td><code>internal/config</code></td><td>The standard library</td><td>Everything else. It is imported by <code>cmd</code>, not by the layers.</td></tr>
+            <tr><td><code>cmd/shortlinkd</code></td><td>All of the above</td><td>Nothing. It is the only place that knows the whole graph.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The compiler will not check those rows for you, so a linter does. <code>depguard</code> is the direct equivalent of the rule Java needs ArchUnit for, and it costs eight lines:</p>
+
+<pre class="l2"># .golangci.yaml
+linters:
+  enable:
+    - depguard        # the import rule from the table above
+    - errcheck        # an ignored error is a decision; make it an explicit one
+    - errorlint       # err == ErrX instead of errors.Is is a wrapping bug
+    - bodyclose       # a leaked response body is a leaked connection
+    - contextcheck    # a handler that calls context.Background() has lost the deadline
+    - sqlclosecheck
+    - gosec
+    - revive
+
+linters-settings:
+  depguard:
+    rules:
+      domain:
+        files: ["**/internal/shortlink/**"]
+        deny:
+          - pkg: github.com/jackc/pgx
+            desc: the domain does not know a database exists
+          - pkg: net/http
+            desc: the domain does not know it is being served over HTTP
+      store:
+        files: ["**/internal/postgres/**"]
+        deny:
+          - pkg: net/http
+            desc: a store that writes status codes cannot be used by a worker</pre>
+
+<pre class="l2">// go.mod -- seven direct dependencies, and four of those lines are two
+// libraries: jackc for Postgres and testcontainers for the tests.
+module github.com/jaspreet/shortlink
+
+go 1.24
+
+require (
+	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
+	github.com/jackc/pgx/v5 v5.7.1
+	github.com/pressly/goose/v3 v3.22.1
+	github.com/redis/go-redis/v9 v9.7.0
+	github.com/testcontainers/testcontainers-go v0.34.0
+	github.com/testcontainers/testcontainers-go/modules/postgres v0.34.0
+	golang.org/x/sync v0.10.0
+)
+
+// What is absent is the point. There is no web framework, because Go 1.22's
+// ServeMux routes by method and path parameter and that was the only reason
+// left to import one. There is no logging library, because log/slog is in the
+// standard library and emits JSON. There is no configuration library, because
+// os.Getenv and a struct are less code than the library's tutorial. There is
+// no dependency injection container, because run() is one.
+//
+// Every dependency is a thing you will be reading the source of at 2am one
+// day. Seven is a number you can hold. Seventy is a supply chain.</pre>
+
+<pre class="l1"># Makefile -- four verbs, the same four in every repository you own.
+# CI runs these exact targets, so a red build reproduces locally in one line.
+.PHONY: up check test run image
+
+up:                     ## Postgres and Redis, nothing else
+	docker compose up -d
+
+check:                  ## what a reviewer would comment on, before they have to
+	go build ./...
+	go vet ./...
+	golangci-lint run
+
+test:                   ## -race is not optional in a language with goroutines
+	go test -race -count=1 ./...
+
+run: up                 ## against the compose services
+	go run ./cmd/shortlinkd
+
+image:                  ## exactly what CI builds
+	docker build -t shortlink:$(shell git rev-parse --short HEAD) .</pre>
+
+      <div class="note warn">
+        <h4><code>-race</code> is the single highest-value flag in the language, and it is off by default</h4>
+        <p>The race detector instruments every memory access and reports the two goroutines, with stacks, the moment one writes what another reads without synchronisation. It costs perhaps five times the CPU and ten times the memory, which is why it is not on in production &mdash; and it is why <code>go test -race</code> belongs in CI on every package, every run. A data race in Go is not a hypothetical: an unsynchronised map write is a runtime crash that takes the whole process down, and it will happen for the first time under load, in production, in the middle of the night. The detector only reports races it actually observes, so it is exactly as good as your test coverage of concurrent paths &mdash; which is one more reason the idempotency test later in this part starts sixteen goroutines rather than two.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-config">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>Configuration, read once, and every error at once</h3>
+        <p class="lede">A service reads its environment exactly once, on the way up, into a struct. The failure you are designing against is the mistyped variable discovered on the tenth request instead of in the first second &mdash; and Go lets you go one better than the other two languages here, because <code>errors.Join</code> means one restart tells you <em>everything</em> that is wrong rather than the first thing.</p>
+      </div>
+
+<pre class="l2">// internal/config/config.go
+package config
+
+import (
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"strconv"
+	"time"
+)
+
+// Config is every setting this service has. It is a plain struct with no
+// tags and no library behind it: the whole parser is sixty lines below and
+// you can read all of it, which is more than can be said for the tutorial
+// of any configuration package you might have imported instead.
+type Config struct {
+	Addr          string
+	DatabaseURL   string
+	RedisURL      string
+	PublicBaseURL *url.URL
+	CodeLength    int
+	DefaultTTL    time.Duration
+	RateLimit     int
+	RateWindow    time.Duration
+}
+
+func Load() (Config, error) {
+	var errs []error
+
+	cfg := Config{
+		Addr:        optional("SHORTLINK_ADDR", ":8080"),
+		DatabaseURL: required(&amp;errs, "DATABASE_URL"),
+		RedisURL:    required(&amp;errs, "REDIS_URL"),
+		CodeLength:  integer(&amp;errs, "SHORTLINK_CODE_LENGTH", 7),
+		DefaultTTL:  duration(&amp;errs, "SHORTLINK_DEFAULT_TTL", 90*24*time.Hour),
+		RateLimit:   integer(&amp;errs, "SHORTLINK_RATE_LIMIT", 60),
+		RateWindow:  duration(&amp;errs, "SHORTLINK_RATE_WINDOW", time.Minute),
+	}
+
+	if raw := required(&amp;errs, "SHORTLINK_PUBLIC_BASE_URL"); raw != "" {
+		u, err := url.Parse(raw)
+		switch {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("SHORTLINK_PUBLIC_BASE_URL: %w", err))
+		case u.Scheme == "" || u.Host == "":
+			errs = append(errs, errors.New("SHORTLINK_PUBLIC_BASE_URL: want an absolute URL"))
+		default:
+			cfg.PublicBaseURL = u
+		}
+	}
+	if cfg.CodeLength &lt; 4 || cfg.CodeLength &gt; 32 {
+		errs = append(errs, fmt.Errorf("SHORTLINK_CODE_LENGTH: want 4..32, got %d", cfg.CodeLength))
+	}
+
+	// One error listing every problem, not the first one. A deploy that fails
+	// four times because four variables are missing is four deploys; this is
+	// one, and the log line names all four.
+	return cfg, errors.Join(errs...)
+}
+
+func optional(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func required(errs *[]error, key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		*errs = append(*errs, fmt.Errorf("%s is required", key))
+	}
+	return v
+}
+
+func integer(errs *[]error, key string, fallback int) int {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		*errs = append(*errs, fmt.Errorf("%s: %w", key, err))
+		return fallback
+	}
+	return n
+}
+
+func duration(errs *[]error, key string, fallback time.Duration) time.Duration {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)   // "90m", "24h", "1500ms"
+	if err != nil {
+		*errs = append(*errs, fmt.Errorf("%s: %w", key, err))
+		return fallback
+	}
+	return d
+}</pre>
+
+      <p>Note which settings have a fallback and which do not. A port has a sensible default and a database connection string does not, because a default DSN is how a service quietly connects to something that happens to be listening. The rule generalises: <b>anything that is a secret, or that names another system, has no default.</b> Everything else may have one, and the default should be the value you would pick in production.</p>
+
+<pre class="l1">$ DATABASE_URL= REDIS_URL= go run ./cmd/shortlinkd
+shortlinkd: load config: DATABASE_URL is required
+REDIS_URL is required
+SHORTLINK_PUBLIC_BASE_URL is required
+$ echo $?
+1
+# Three seconds after the deploy started, and all three named at once.
+# errors.Join prints its members one per line, which is exactly what you
+# want a start-up failure to look like in a log aggregator.</pre>
+
+<pre class="l1"># compose.yaml -- the two services this needs, and nothing else. Not a
+# production topology; a way for a new engineer to be running in one command.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shortlink
+      POSTGRES_PASSWORD: local-only-not-a-secret
+      POSTGRES_DB: shortlink
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shortlink"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15</pre>
+    </section>
+
+    <section class="topic" id="svc-domain">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>The core, which imports only the standard library</h3>
+        <p class="lede">This package knows nothing about HTTP, SQL or Redis, which is why its tests run in milliseconds and why the rules survive the day somebody swaps the database. It is also where Go differs most honestly from the other two languages in this series: Go cannot make an invalid value unconstructable, so the discipline is one parse function at the edge, a re-check in the domain, and a constraint in the database.</p>
+      </div>
+
+<pre class="l2">// internal/shortlink/link.go
+package shortlink
+
+import (
+	"fmt"
+	"net/url"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// Code is the code in the short URL. A named string type, not a bare
+// string: it costs nothing at run time and it means the compiler rejects
+// ParseCode(ownerID) even though both are strings underneath.
+//
+// Be honest about the limit. Code("") and Code("NOT A CODE") both compile,
+// because a conversion between a named type and its underlying type is
+// always legal in Go. There is no equivalent of a private constructor. So
+// the invariant is held by convention -- ParseCode is the only way values
+// enter -- backed by a re-check wherever it matters and a unique, checked
+// column in Postgres. That is weaker than a Java record and it is worth
+// knowing that it is weaker.
+type Code string
+
+func (c Code) String() string { return string(c) }
+
+var codeShape = regexp.MustCompile(`^[a-z0-9]{4,32}$`)
+
+func ParseCode(raw string) (Code, error) {
+	c := strings.ToLower(strings.TrimSpace(raw))
+	if !codeShape.MatchString(c) {
+		return "", fmt.Errorf("%w: %q is not a short code", ErrInvalid, raw)
+	}
+	return Code(c), nil
+}
+
+// Link is the thing itself. No struct tags: this type is not the wire
+// format and it is not the table either, and the day somebody adds
+// `json:"..."` here is the day the API and the schema became the same
+// object and can no longer change independently.
+type Link struct {
+	Code      Code
+	Target    *url.URL
+	OwnerID   string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+func (l Link) Expired(now time.Time) bool {
+	return !l.ExpiresAt.IsZero() &amp;&amp; !now.Before(l.ExpiresAt)
+}
+
+const maxTargetLen = 2048
+
+// ParseTarget is a security control wearing the clothes of a format check.
+// url.Parse is deliberately permissive: it will parse "javascript:alert(1)"
+// without complaint and hand you a URL whose Scheme is "javascript". If you
+// then put that in a Location header, you have built an XSS vector on your
+// own domain and handed out short links to it.
+func ParseTarget(raw string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	switch {
+	case raw == "":
+		return nil, fmt.Errorf("%w: url is required", ErrInvalid)
+	case len(raw) &gt; maxTargetLen:
+		return nil, fmt.Errorf("%w: url longer than %d bytes", ErrInvalid, maxTargetLen)
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrInvalid, err)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+	default:
+		return nil, fmt.Errorf("%w: only http and https can be shortened", ErrInvalid)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("%w: url has no host", ErrInvalid)
+	}
+	if u.User != nil {
+		// http://user:pass@host is a credential in a database column.
+		return nil, fmt.Errorf("%w: credentials in a url are not stored", ErrInvalid)
+	}
+	return u, nil
+}</pre>
+
+<pre class="l2">// internal/shortlink/code.go
+package shortlink
+
+import (
+	"crypto/rand"
+	"fmt"
+)
+
+// Thirty-two characters, not thirty-six: 0/o, 1/l and their friends are
+// gone so a code read off a slide or down a phone survives the trip.
+//
+// Thirty-two is also a power of two, and that is not a coincidence. Folding
+// a random byte into an alphabet with `b % len(alphabet)` is only uniform
+// when the length divides 256. With 36 characters the first four would come
+// up about 12% more often than the rest -- a bias that is invisible in
+// testing, real in aggregate, and entirely avoidable by choosing 32.
+const alphabet = "23456789abcdefghijkmnpqrstuvwxyz"
+
+func NewCode(n int) (Code, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {   // crypto/rand, never math/rand
+		return "", fmt.Errorf("read random bytes: %w", err)
+	}
+	for i := range b {
+		b[i] = alphabet[int(b[i])%len(alphabet)]
+	}
+	return Code(b), nil
+}
+
+// math/rand would be a real vulnerability rather than a style mistake: its
+// output is predictable from a handful of observations, so anybody who
+// created three links could enumerate everybody else's. Recent Go has
+// crypto/rand.Text() for the case where you do not care which alphabet you
+// get, which is most cases -- this one cares, so it does the fold itself.
+//
+// 32^7 is about 34 billion codes. With ten million links already stored, a
+// fresh code collides roughly once in 3,400 inserts. Rare, but not never,
+// and "rare" is the failure mode that reaches production untested. The
+// unique index catches it and the service retries; see two topics down.
+// The generator does not have to be perfect, it has to be unpredictable.</pre>
+
+<pre class="l2">// internal/shortlink/errors.go
+package shortlink
+
+import "errors"
+
+// Every failure this service raises on purpose. Sentinels, matched with
+// errors.Is, so a caller can decide without string-matching a message and
+// without importing the package that produced it.
+var (
+	ErrInvalid          = errors.New("invalid request")
+	ErrNotFound         = errors.New("link not found")
+	ErrExpired          = errors.New("link expired")
+	ErrCodeTaken        = errors.New("code already in use")
+	ErrIdempotencyClash = errors.New("concurrent request with the same idempotency key")
+	ErrNoCode           = errors.New("no free code")
+)
+
+// Go has no sealed types, so nothing stops somebody adding a seventh
+// sentinel and forgetting to map it to a status code -- which is the one
+// guarantee the Java version gets from the compiler. This slice buys it
+// back at the cost of one line per error: the HTTP layer's test walks it
+// and fails if any member has no status. It is a worse mechanism than
+// exhaustiveness checking and it catches the same bug.
+var All = []error{
+	ErrInvalid, ErrNotFound, ErrExpired,
+	ErrCodeTaken, ErrIdempotencyClash, ErrNoCode,
+}</pre>
+
+      <div class="note warn">
+        <h4>Validating the host is not the same as blocking a private address</h4>
+        <p>It is tempting to add a check here that refuses <code>127.0.0.1</code>, <code>10.0.0.0/8</code> and <code>169.254.169.254</code>, and for a service that ever <em>fetches</em> the target &mdash; to unfurl a preview, to check the link is alive &mdash; you must, or your shortener is a proxy into your own VPC with the cloud metadata endpoint one request away. But do it at fetch time, against the resolved IP, not here against the hostname: a name that resolves to a public address when the link is created can resolve to a private one when it is followed, and no check written at creation time can see that. In Go the tool for it is a <code>net.Dialer</code> with a <code>Control</code> function that inspects the address the resolver actually returned and refuses to connect. This service only ever hands the URL back to a browser, so the parse above is the whole control &mdash; and the day somebody adds a preview fetcher is the day this note becomes code.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-db">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>The schema, the pool, and migrations inside the binary</h3>
+        <p class="lede">Three things with three different lifetimes: the schema, which the migrations own and the code is only allowed to assume; the pool, which is created once per process and sized on purpose; and the connection, which belongs to one query and is handed back. Go makes the third one easy to get wrong in exactly one way, and the linter in the last topic exists to catch it.</p>
+      </div>
+
+<pre class="l2">-- internal/postgres/migrations/0001_create_links.sql
+-- goose runs this once, in order, and records that it did. Once it has run
+-- anywhere but your laptop it is immutable: a fix is 0002, always.
+
+-- +goose Up
+CREATE TABLE links (
+    id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    code            TEXT        NOT NULL,
+    target_url      TEXT        NOT NULL,
+    owner_id        TEXT        NOT NULL,
+    idempotency_key TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at      TIMESTAMPTZ,
+
+    -- Named, not left to Postgres. The store matches on this name to tell
+    -- "that code is taken" apart from "that request already happened", and
+    -- a generated name is a name somebody will change by accident.
+    CONSTRAINT links_code_key UNIQUE (code)
+);
+
+-- Idempotency as a constraint rather than a check in application code.
+-- Partial, because most links carry no key and NULLs are not equal to one
+-- another -- without the WHERE clause this index would do nothing at all.
+CREATE UNIQUE INDEX links_owner_idempotency_key
+    ON links (owner_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+
+CREATE INDEX links_owner_created_at ON links (owner_id, created_at DESC);
+
+CREATE TABLE api_keys (
+    id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    owner_id   TEXT NOT NULL,
+    label      TEXT NOT NULL,
+    key_hash   TEXT NOT NULL,   -- sha-256 hex. Never the key itself.
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at TIMESTAMPTZ,
+
+    CONSTRAINT api_keys_key_hash_key UNIQUE (key_hash)
+);
+
+-- +goose Down
+DROP TABLE api_keys;
+DROP TABLE links;</pre>
+
+<pre class="l2">// internal/postgres/migrate.go
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"embed"
+	"fmt"
+
+	_ "github.com/jackc/pgx/v5/stdlib"   // registers the "pgx" database/sql driver
+	"github.com/pressly/goose/v3"
+)
+
+// The migrations are compiled into the binary. That is not a convenience:
+// it means the image is one file, the version of the schema is the version
+// of the binary, and there is no way to deploy a container whose SQL and
+// whose code disagree because somebody forgot to copy a directory.
+//
+//go:embed migrations/*.sql
+var migrations embed.FS
+
+func Migrate(ctx context.Context, dsn string) error {
+	// goose wants a database/sql handle; pgx ships one. This is the only
+	// place in the service that opens one, and it is closed before the
+	// pool below is created -- migrating and serving are separate jobs
+	// even when they happen in the same process.
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return fmt.Errorf("open for migrate: %w", err)
+	}
+	defer db.Close()
+
+	goose.SetBaseFS(migrations)
+	if err := goose.SetDialect("postgres"); err != nil {
+		return fmt.Errorf("goose dialect: %w", err)
+	}
+	if err := goose.UpContext(ctx, db, "migrations"); err != nil {
+		return fmt.Errorf("migrate: %w", err)
+	}
+	return nil
+}</pre>
+
+<pre class="l2">// internal/postgres/pool.go
+package postgres
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// One pool for the process, and it is the real concurrency limit of this
+// service. Goroutines are free; Postgres connections are not, and a
+// thousand goroutines behind a pool of ten means nine hundred and ninety
+// of them are waiting -- which is the correct design, because a database
+// has a ceiling and a pool is how you respect it rather than discover it.
+func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse dsn: %w", err)
+	}
+
+	cfg.MaxConns = 10
+	cfg.MinConns = 2                          // survive a burst without a handshake
+	cfg.MaxConnLifetime = 25 * time.Minute    // under any proxy's idle timeout
+	cfg.MaxConnIdleTime = 5 * time.Minute
+	cfg.HealthCheckPeriod = 30 * time.Second
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create pool: %w", err)
+	}
+
+	// Fail the start-up, not the first request. A service that comes up
+	// green and then 500s for ninety seconds while DNS settles is a
+	// service whose readiness probe is lying.
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("ping: %w", err)
+	}
+	return pool, nil
+}
+
+// Why pgxpool rather than database/sql, given the toolkit part used the
+// latter: pgx speaks the Postgres binary protocol directly, so timestamps
+// and arrays arrive as themselves instead of through a text round trip,
+// and errors arrive as *pgconn.PgError with the constraint name on them --
+// which the next topic depends on entirely. database/sql is the right
+// choice when you need one interface over several databases, or a library
+// that expects *sql.DB. This service needs neither.</pre>
+    </section>
+
+    <section class="topic" id="svc-repo">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>The store, and the race you cannot check for</h3>
+        <p class="lede">Two requests arrive in the same millisecond with the same <code>Idempotency-Key</code>. Both look for an existing link, both find none, both insert. Reading before writing does not fix that and no amount of application code can, because the gap between the read and the write is where the other request lives. The database closes it. What Go contributes is that closing it costs one <code>errors.As</code> and no transaction gymnastics at all.</p>
+      </div>
+
+<pre class="l2">// internal/postgres/store.go
+package postgres
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/url"
+	"time"
+
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/jaspreet/shortlink/internal/shortlink"
+)
+
+// The constraint names from 0001. They are part of this file's contract
+// with that migration, which is why they are constants with a comment
+// rather than string literals three functions down.
+const (
+	codeUnique        = "links_code_key"
+	idempotencyUnique = "links_owner_idempotency_key"
+)
+
+type Store struct{ pool *pgxpool.Pool }
+
+func NewStore(pool *pgxpool.Pool) *Store { return &amp;Store{pool: pool} }
+
+func (s *Store) Insert(ctx context.Context, l shortlink.Link, idempotencyKey string) error {
+	const q = `
+		INSERT INTO links (code, target_url, owner_id, idempotency_key, created_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`
+
+	_, err := s.pool.Exec(ctx, q,
+		string(l.Code), l.Target.String(), l.OwnerID,
+		nullable(idempotencyKey), l.CreatedAt, l.ExpiresAt)
+	if err == nil {
+		return nil
+	}
+
+	// Translate infrastructure into domain here, so that nothing above this
+	// package has to know pgx exists. errors.As unwraps until it finds a
+	// *pgconn.PgError -- which is why the sentinel comparison in the caller
+	// keeps working however many times this error gets wrapped on the way up.
+	var pgErr *pgconn.PgError
+	if errors.As(err, &amp;pgErr) &amp;&amp; pgErr.Code == pgerrcode.UniqueViolation {
+		switch pgErr.ConstraintName {
+		case codeUnique:
+			return shortlink.ErrCodeTaken
+		case idempotencyUnique:
+			return shortlink.ErrIdempotencyClash
+		}
+	}
+	return fmt.Errorf("insert link: %w", err)
+}
+
+func (s *Store) ByCode(ctx context.Context, code shortlink.Code) (shortlink.Link, error) {
+	const q = `
+		SELECT code, target_url, owner_id, created_at, expires_at
+		FROM links WHERE code = $1`
+	return s.one(ctx, q, string(code))
+}
+
+func (s *Store) ByIdempotencyKey(ctx context.Context, ownerID, key string) (shortlink.Link, error) {
+	const q = `
+		SELECT code, target_url, owner_id, created_at, expires_at
+		FROM links WHERE owner_id = $1 AND idempotency_key = $2`
+	return s.one(ctx, q, ownerID, key)
+}
+
+func (s *Store) DeleteOwned(ctx context.Context, ownerID string, code shortlink.Code) error {
+	const q = `DELETE FROM links WHERE code = $1 AND owner_id = $2`
+	tag, err := s.pool.Exec(ctx, q, string(code), ownerID)
+	if err != nil {
+		return fmt.Errorf("delete link: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Nought rows means it does not exist or it is not yours, and the
+		// API says the same thing for both. Telling an unauthorised caller
+		// that a code exists is how a database gets enumerated.
+		return shortlink.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) one(ctx context.Context, q string, args ...any) (shortlink.Link, error) {
+	var (
+		l    shortlink.Link
+		code string
+		raw  string
+		exp  *time.Time
+	)
+	err := s.pool.QueryRow(ctx, q, args...).
+		Scan(&amp;code, &amp;raw, &amp;l.OwnerID, &amp;l.CreatedAt, &amp;exp)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return shortlink.Link{}, shortlink.ErrNotFound
+	case err != nil:
+		return shortlink.Link{}, fmt.Errorf("query link: %w", err)
+	}
+
+	target, err := url.Parse(raw)
+	if err != nil {
+		// A row that cannot be parsed is corruption, not a 404. Say so.
+		return shortlink.Link{}, fmt.Errorf("stored url for %s: %w", code, err)
+	}
+	l.Code = shortlink.Code(code)
+	l.Target = target
+	if exp != nil {
+		l.ExpiresAt = *exp
+	}
+	return l, nil
+}
+
+func nullable(s string) *string {
+	if s == "" {
+		return nil   // NULL, so the partial index ignores this row
+	}
+	return &amp;s
+}</pre>
+
+      <div class="note warn">
+        <h4>Go had nothing to undo here, and that is the whole difference</h4>
+        <p>The Java version of this file needs a separate bean, annotated <code>REQUIRES_NEW</code>, purely so that the failed insert does not poison a transaction the caller was in the middle of. Go has no ambient transaction: <code>pool.Exec</code> outside a <code>Begin</code> is its own implicit transaction, so a unique violation rolls back exactly one statement and the caller simply tries a different code. The trap has not gone away, it has become visible &mdash; the moment this <code>Exec</code> is inside a <code>pgx.Tx</code>, Postgres marks that transaction aborted and every later statement in it fails with <em>current transaction is aborted</em> until you roll back. The fix there is a savepoint (<code>tx.Begin</code> nested inside a transaction is one) or doing the insert outside the transaction, which is what this code does by default rather than by accident.</p>
+      </div>
+
+<pre class="l2">// internal/shortlink/service.go
+package shortlink
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/url"
+	"time"
+)
+
+// Store is declared here, in the package that uses it, and not in the
+// package that implements it. That is the Go convention and it is not a
+// stylistic one: it means the domain names the four methods it needs
+// rather than depending on the thirty a database library offers, a test
+// can satisfy it with a fifteen-line fake, and internal/postgres does not
+// import this interface at all -- it simply happens to satisfy it.
+type Store interface {
+	Insert(ctx context.Context, l Link, idempotencyKey string) error
+	ByCode(ctx context.Context, code Code) (Link, error)
+	ByIdempotencyKey(ctx context.Context, ownerID, key string) (Link, error)
+	DeleteOwned(ctx context.Context, ownerID string, code Code) error
+}
+
+const maxCodeAttempts = 5
+
+type Service struct {
+	store      Store
+	now        func() time.Time   // injected, so a test can be about expiry
+	codeLength int
+	defaultTTL time.Duration
+}
+
+func NewService(store Store, now func() time.Time, codeLength int, ttl time.Duration) *Service {
+	return &amp;Service{store: store, now: now, codeLength: codeLength, defaultTTL: ttl}
+}
+
+// NewLink is everything one create needs, so the call cannot be made with
+// the arguments the wrong way round -- four of them are strings.
+type NewLink struct {
+	OwnerID        string
+	Target         *url.URL
+	Alias          Code           // optional: a caller's chosen code
+	TTL            time.Duration  // zero means the default
+	IdempotencyKey string
+}
+
+func (s *Service) Shorten(ctx context.Context, req NewLink) (Link, error) {
+	// The fast path: a client retrying after a timeout, seconds later. It
+	// is an optimisation and not the guarantee -- see the note above.
+	if req.IdempotencyKey != "" {
+		switch existing, err := s.store.ByIdempotencyKey(ctx, req.OwnerID, req.IdempotencyKey); {
+		case err == nil:
+			return existing, nil
+		case !errors.Is(err, ErrNotFound):
+			return Link{}, err
+		}
+	}
+
+	now := s.now()
+	ttl := req.TTL
+	if ttl == 0 {
+		ttl = s.defaultTTL
+	}
+
+	for attempt := 0; attempt &lt; maxCodeAttempts; attempt++ {
+		code := req.Alias
+		if code == "" {
+			generated, err := NewCode(s.codeLength)
+			if err != nil {
+				return Link{}, err
+			}
+			code = generated
+		}
+
+		link := Link{
+			Code: code, Target: req.Target, OwnerID: req.OwnerID,
+			CreatedAt: now, ExpiresAt: now.Add(ttl),
+		}
+		err := s.store.Insert(ctx, link, req.IdempotencyKey)
+		switch {
+		case err == nil:
+			return link, nil
+
+		case errors.Is(err, ErrIdempotencyClash):
+			// The slow path: a genuine race. The other request won, and
+			// its link is the correct answer to both of them.
+			return s.store.ByIdempotencyKey(ctx, req.OwnerID, req.IdempotencyKey)
+
+		case errors.Is(err, ErrCodeTaken) &amp;&amp; req.Alias != "":
+			// A caller's chosen alias is a 409 they can act on. A
+			// generated code that collided is our problem, not theirs.
+			return Link{}, fmt.Errorf("%w: %s", ErrCodeTaken, code)
+
+		case errors.Is(err, ErrCodeTaken):
+			continue   // try another code
+
+		default:
+			return Link{}, err
+		}
+	}
+	return Link{}, ErrNoCode
+}
+
+func (s *Service) Resolve(ctx context.Context, code Code) (Link, error) {
+	link, err := s.store.ByCode(ctx, code)
+	if err != nil {
+		return Link{}, err
+	}
+	if link.Expired(s.now()) {
+		// Deliberately not ErrNotFound: a client that is told "gone" can
+		// stop retrying, and an operator reading logs can tell them apart.
+		return Link{}, ErrExpired
+	}
+	return link, nil
+}
+
+func (s *Service) Delete(ctx context.Context, ownerID string, code Code) error {
+	return s.store.DeleteOwned(ctx, ownerID, code)
+}</pre>
+    </section>
+
+    <section class="topic" id="svc-api">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>The HTTP edge, and the twelve lines of <code>main</code></h3>
+        <p class="lede">Since Go 1.22 the standard <code>ServeMux</code> routes on method and on path parameters, which removed the last honest reason to import a router. What is left is a handler set that does only HTTP &mdash; decode, call, encode, choose a status &mdash; and a <code>run</code> function that owns every lifetime in the process.</p>
+      </div>
+
+<pre class="l2">// internal/httpapi/server.go
+package httpapi
+
+import (
+	"context"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/jaspreet/shortlink/internal/shortlink"
+)
+
+type Server struct {
+	links   *shortlink.Service
+	keys    KeyStore
+	limiter Limiter
+	base    *url.URL
+	log     *slog.Logger
+	ready   func(ctx context.Context) error
+}
+
+// Six dependencies is where a positional constructor stops being readable
+// and starts being a place to swap two arguments of the same type. A
+// struct makes every call site name what it is passing, and adding a
+// seventh dependency later does not break the four existing callers.
+type Deps struct {
+	Links   *shortlink.Service
+	Keys    KeyStore
+	Limiter Limiter
+	BaseURL *url.URL
+	Log     *slog.Logger
+
+	// Ready is passed in as a function rather than as a pool and a Redis
+	// client, which is the only reason this package imports neither pgx
+	// nor go-redis. The layering rule from the first topic, held by one
+	// field.
+	Ready func(ctx context.Context) error
+}
+
+func New(d Deps) *Server {
+	return &amp;Server{
+		links: d.Links, keys: d.Keys, limiter: d.Limiter,
+		base: d.BaseURL, log: d.Log, ready: d.Ready,
+	}
+}
+
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+
+	// Method and path parameter in the pattern, matched by the standard
+	// library. The specific pattern wins over the general one, so
+	// "GET /healthz" is not swallowed by "GET /{code}" -- ServeMux picks
+	// the most specific match rather than the first registered, which is
+	// the behaviour that made third-party routers necessary before 1.22.
+	mux.Handle("POST /v1/links", s.authenticate(http.HandlerFunc(s.createLink)))
+	mux.Handle("GET /v1/links/{code}", s.authenticate(http.HandlerFunc(s.readLink)))
+	mux.Handle("DELETE /v1/links/{code}", s.authenticate(http.HandlerFunc(s.deleteLink)))
+
+	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.HandleFunc("GET /readyz", s.readyz)
+
+	// The only unauthenticated route, and the only one with real traffic.
+	mux.HandleFunc("GET /{code}", s.redirect)
+
+	// Outermost first: a panic in the logger should still be recovered,
+	// and the request id has to exist before anything logs.
+	return requestID(logging(s.log, recovery(s.log, mux)))
+}
+
+// NewHTTPServer is the five timeouts from the service part, applied. The
+// only one with a default is none of them: an http.Server{} left alone
+// will hold a connection open until the client goes away, which is how a
+// single slow-loris client takes a service down with no traffic at all.
+func NewHTTPServer(ctx context.Context, addr string, h http.Handler, log *slog.Logger) *http.Server {
+	return &amp;http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 &lt;&lt; 16,
+		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelError),
+		BaseContext:       func(net.Listener) context.Context { return ctx },
+	}
+}</pre>
+
+<pre class="l2">// internal/httpapi/links.go
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"time"
+
+	"github.com/jaspreet/shortlink/internal/shortlink"
+)
+
+// The wire contract. It exists separately from shortlink.Link because the
+// two change for different reasons: this one when a consumer needs
+// something, that one when the rules do.
+type createRequest struct {
+	URL     string `json:"url"`
+	Alias   string `json:"alias,omitempty"`
+	TTLDays int    `json:"ttl_days,omitempty"`
+}
+
+type linkResponse struct {
+	Code      string     `json:"code"`
+	ShortURL  string     `json:"short_url"`
+	URL       string     `json:"url"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
+	caller, _ := callerFrom(r.Context())
+
+	var body createRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16&lt;&lt;10))
+	dec.DisallowUnknownFields()   // a typo in a field name is a 400, not a shrug
+	if err := dec.Decode(&amp;body); err != nil {
+		s.problem(w, r, invalid(err))
+		return
+	}
+
+	target, err := shortlink.ParseTarget(body.URL)
+	if err != nil {
+		s.problem(w, r, err)
+		return
+	}
+	req := shortlink.NewLink{
+		OwnerID:        caller.OwnerID,
+		Target:         target,
+		TTL:            time.Duration(body.TTLDays) * 24 * time.Hour,
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}
+	if body.Alias != "" {
+		alias, err := shortlink.ParseCode(body.Alias)
+		if err != nil {
+			s.problem(w, r, err)
+			return
+		}
+		req.Alias = alias
+	}
+
+	// The write gets its own deadline rather than inheriting the client's
+	// patience. r.Context() is cancelled the moment the client hangs up,
+	// and a write cancelled halfway is a request nobody can answer
+	// afterwards; WithoutCancel keeps the values -- the request id, the
+	// trace -- and drops only the cancellation.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 3*time.Second)
+	defer cancel()
+
+	link, err := s.links.Shorten(ctx, req)
+	if err != nil {
+		s.problem(w, r, err)
+		return
+	}
+
+	short := s.base.JoinPath(link.Code.String())
+	w.Header().Set("Location", short.String())
+	s.writeJSON(w, http.StatusCreated, s.response(link))
+}
+
+func (s *Server) readLink(w http.ResponseWriter, r *http.Request) {
+	caller, _ := callerFrom(r.Context())
+	code, err := shortlink.ParseCode(r.PathValue("code"))   // Go 1.22
+	if err != nil {
+		s.problem(w, r, err)
+		return
+	}
+	link, err := s.links.Resolve(r.Context(), code)
+	if err != nil || link.OwnerID != caller.OwnerID {
+		// Not yours reads as not found, on purpose.
+		s.problem(w, r, orNotFound(err))
+		return
+	}
+	s.writeJSON(w, http.StatusOK, s.response(link))
+}
+
+func (s *Server) deleteLink(w http.ResponseWriter, r *http.Request) {
+	caller, _ := callerFrom(r.Context())
+	code, err := shortlink.ParseCode(r.PathValue("code"))
+	if err != nil {
+		s.problem(w, r, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 3*time.Second)
+	defer cancel()
+
+	if err := s.links.Delete(ctx, caller.OwnerID, code); err != nil {
+		s.problem(w, r, err)
+		return
+	}
+	// 204: it is gone, there is nothing to say about it, and a body on a
+	// delete is something clients start depending on.
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) response(l shortlink.Link) linkResponse {
+	out := linkResponse{
+		Code:      l.Code.String(),
+		ShortURL:  s.base.JoinPath(l.Code.String()).String(),
+		URL:       l.Target.String(),
+		CreatedAt: l.CreatedAt,
+	}
+	if !l.ExpiresAt.IsZero() {
+		out.ExpiresAt = &amp;l.ExpiresAt
+	}
+	return out
+}
+
+func (s *Server) writeJSON(w http.ResponseWriter, status int, v any) {
+	// Marshal before writing the header. json.NewEncoder(w).Encode writes
+	// the 200 first and then discovers the value will not marshal, which
+	// leaves the client a truncated body under a success status.
+	buf, err := json.Marshal(v)
+	if err != nil {
+		s.log.Error("marshal response", "error", err)
+		http.Error(w, `{"title":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(buf)
+}</pre>
+
+<pre class="l2">// internal/httpapi/redirect.go
+package httpapi
+
+import (
+	"net/http"
+
+	"github.com/jaspreet/shortlink/internal/shortlink"
+)
+
+func (s *Server) redirect(w http.ResponseWriter, r *http.Request) {
+	code, err := shortlink.ParseCode(r.PathValue("code"))
+	if err != nil {
+		s.problem(w, r, shortlink.ErrNotFound)   // a malformed code is simply not a link
+		return
+	}
+	link, err := s.links.Resolve(r.Context(), code)
+	if err != nil {
+		s.problem(w, r, err)
+		return
+	}
+
+	// 302 and no-store, not 301, and this is not a style preference. A 301
+	// is permanent and browsers treat it that way: Chrome caches it, often
+	// for the life of the profile, and stops asking. Ship a 301 and you
+	// have given away the three things a shortener exists to have -- you
+	// can never re-point the link, never expire or delete it, and your
+	// click metrics fall off a cliff because every repeat visit redirects
+	// locally and you never see it. The 301 buys the user one round trip
+	// and costs you the product. Buy the latency back at a CDN, where you
+	// can still purge.
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, link.Target.String(), http.StatusFound)
+}</pre>
+
+<pre class="l2">// cmd/shortlinkd/main.go -- the whole file.
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+)
+
+func main() {
+	// NotifyContext gives the whole program one cancellation to hang off,
+	// and the deferred stop restores the default handler -- so a second
+	// SIGTERM during a slow shutdown kills the process, which is what an
+	// operator pressing Ctrl-C twice is asking for.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// main does nothing but call run and exit. A function returning an
+	// error is testable; a function calling os.Exit is not, because
+	// os.Exit skips every deferred call in the process including the
+	// test framework's.
+	if err := run(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "shortlinkd: %v\n", err)
+		os.Exit(1)
+	}
+}</pre>
+
+<pre class="l2">// cmd/shortlinkd/run.go -- every lifetime in the process, in one function.
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+
+	"github.com/jaspreet/shortlink/internal/config"
+	"github.com/jaspreet/shortlink/internal/httpapi"
+	"github.com/jaspreet/shortlink/internal/postgres"
+	"github.com/jaspreet/shortlink/internal/ratelimit"
+	"github.com/jaspreet/shortlink/internal/shortlink"
+)
+
+func run(ctx context.Context) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	log := slog.New(httpapi.ContextHandler{
+		Handler: slog.NewJSONHandler(os.Stdout, &amp;slog.HandlerOptions{Level: slog.LevelInfo}),
+	}).With("service", "shortlink")
+	slog.SetDefault(log)
+
+	if err := postgres.Migrate(ctx, cfg.DatabaseURL); err != nil {
+		return err
+	}
+
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	redisOpts, err := redis.ParseURL(cfg.RedisURL)
+	if err != nil {
+		return fmt.Errorf("parse redis url: %w", err)
+	}
+	rdb := redis.NewClient(redisOpts)
+	defer rdb.Close()
+
+	store := postgres.NewStore(pool)
+	svc := shortlink.NewService(store, time.Now, cfg.CodeLength, cfg.DefaultTTL)
+
+	api := httpapi.New(httpapi.Deps{
+		Links:   svc,
+		Keys:    postgres.NewKeyStore(pool),
+		Limiter: ratelimit.NewRedis(rdb, cfg.RateLimit, cfg.RateWindow),
+		BaseURL: cfg.PublicBaseURL,
+		Log:     log,
+		Ready: func(ctx context.Context) error {
+			if err := pool.Ping(ctx); err != nil {
+				return fmt.Errorf("postgres: %w", err)
+			}
+			if err := rdb.Ping(ctx).Err(); err != nil {
+				return fmt.Errorf("redis: %w", err)
+			}
+			return nil
+		},
+	})
+
+	srv := httpapi.NewHTTPServer(ctx, cfg.Addr, api.Handler(), log)
+
+	// The listener goes on its own goroutine so that this one can wait on
+	// whichever happens first: the server failing, or the signal arriving.
+	// The channel is buffered so that goroutine can exit either way and
+	// does not leak when we return through the other branch.
+	serverFailed := make(chan error, 1)
+	go func() {
+		log.Info("listening", "addr", cfg.Addr)
+		serverFailed &lt;- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := &lt;-serverFailed:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serve: %w", err)
+		}
+	case &lt;-ctx.Done():
+		log.Info("signal received, draining")
+	}
+
+	// WithoutCancel is load-bearing and this is the bug it prevents: ctx is
+	// already cancelled by the time we get here, so context.WithTimeout(ctx,
+	// 20s) would hand back a context that is cancelled at birth, Shutdown
+	// would return immediately, and every in-flight request would be cut
+	// off -- a graceful shutdown that drains nothing, on every deploy,
+	// silently.
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown: %w", err)
+	}
+	log.Info("stopped cleanly")
+	return nil
+}</pre>
+
+      <div class="note warn">
+        <h4>The order of the deferred closes is the order of the dependencies, backwards</h4>
+        <p><code>defer pool.Close()</code> runs after <code>defer rdb.Close()</code>, which runs after <code>srv.Shutdown</code> returns, because deferred calls run last-in first-out. That is exactly right and it is free: the pool was created before Redis, Redis before the server, so the teardown unwinds in the reverse order without anybody maintaining a list. Get it wrong &mdash; close the pool before the server drains &mdash; and every request still in flight gets <em>use of closed connection</em> instead of an answer, on every single deploy. This is the one place where Go&rsquo;s least fashionable feature quietly does a job that other languages need a lifecycle framework and an annotation for.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-errors">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>Failure is part of the contract</h3>
+        <p class="lede">A service has two APIs and only one of them is documented. The other is what happens when things go wrong, and it is the one clients actually integrate against: which statuses mean retry, which mean stop, and whether the body parses when it is not a 200. The taxonomy part said an error should carry a decision; this is that idea with a status code on the end of it.</p>
+      </div>
+
+<pre class="l2">// internal/httpapi/problem.go
+package httpapi
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+
+	"github.com/jaspreet/shortlink/internal/shortlink"
+)
+
+// RFC 9457 problem+json: one shape for every failure that leaves the
+// service, so a client writes one parser instead of one per endpoint.
+type problemDetail struct {
+	Type   string `json:"type"`
+	Title  string `json:"title"`
+	Status int    `json:"status"`
+	Detail string `json:"detail,omitempty"`
+}
+
+const problemBase = "https://study.jaspreet.info/problems/"
+
+// One table, walked by errors.Is in order. Go has no exhaustive switch
+// over a sealed set, so the guarantee the Java version gets from its
+// compiler is bought here by a test: problem_test.go walks shortlink.All
+// and fails if any sentinel is missing from this slice.
+var catalogue = []struct {
+	err    error
+	status int
+	slug   string
+	title  string
+}{
+	{shortlink.ErrInvalid, http.StatusBadRequest, "invalid-request", "Invalid request"},
+	{shortlink.ErrNotFound, http.StatusNotFound, "link-not-found", "Link not found"},
+	{shortlink.ErrExpired, http.StatusGone, "link-expired", "Link expired"},
+	{shortlink.ErrCodeTaken, http.StatusConflict, "code-taken", "Code taken"},
+	{shortlink.ErrIdempotencyClash, http.StatusConflict, "in-flight", "Request in flight"},
+	{shortlink.ErrNoCode, http.StatusServiceUnavailable, "no-code", "Try again"},
+}
+
+func (s *Server) problem(w http.ResponseWriter, r *http.Request, err error) {
+	for _, entry := range catalogue {
+		if errors.Is(err, entry.err) {
+			write(w, problemDetail{
+				Type:   problemBase + entry.slug,
+				Title:  entry.title,
+				Status: entry.status,
+				Detail: err.Error(),
+			})
+			return
+		}
+	}
+
+	// Anything unmatched. Log everything, tell the client nothing: a Go
+	// error string routinely contains a DSN, a hostname or a driver
+	// version, and none of that belongs in a response body.
+	s.log.ErrorContext(r.Context(), "unhandled error",
+		"error", err, "method", r.Method, "path", r.URL.Path)
+	write(w, problemDetail{
+		Type:   problemBase + "internal",
+		Title:  "Internal server error",
+		Status: http.StatusInternalServerError,
+	})
+}
+
+func write(w http.ResponseWriter, p problemDetail) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(p.Status)
+	_ = json.NewEncoder(w).Encode(p)
+}
+
+func invalid(err error) error {
+	return fmt.Errorf("%w: %s", shortlink.ErrInvalid, err)
+}
+
+func orNotFound(err error) error {
+	if err == nil {
+		return shortlink.ErrNotFound
+	}
+	return err
+}</pre>
+
+<pre class="l1">$ curl -sS -i -X POST localhost:8080/v1/links \
+    -H 'Authorization: Bearer sl_live_notarealkey' \
+    -H 'Content-Type: application/json' \
+    -d '{"url":"javascript:alert(1)"}'
+HTTP/1.1 400 Bad Request
+Content-Type: application/problem+json
+
+{"type":"https://study.jaspreet.info/problems/invalid-request",
+ "title":"Invalid request","status":400,
+ "detail":"invalid request: only http and https can be shortened"}
+
+# a typo in a field name, because DisallowUnknownFields is on:
+$ curl -sS -o /dev/null -w '%{http_code}\n' -X POST localhost:8080/v1/links \
+    -H 'Authorization: Bearer sl_live_notarealkey' \
+    -d '{"ur1":"https://example.com"}'
+400
+
+# and the one every client actually codes against:
+$ curl -sS -o /dev/null -w '%{http_code}\n' localhost:8080/gone4evr
+410</pre>
+
+      <div class="note warn">
+        <h4><code>errors.Is</code>, never <code>==</code>, and the linter that knows the difference</h4>
+        <p>Every error in this service is wrapped with <code>%w</code> on the way up, which is what makes the message useful &mdash; <code>insert link: invalid request: url has no host</code> tells you where as well as what. It also means <code>err == shortlink.ErrInvalid</code> is false for every one of them, because the value you are holding is a <code>*fmt.wrapError</code> with the sentinel somewhere inside it. <code>errors.Is</code> unwraps until it finds a match, <code>errors.As</code> does the same for a concrete type, and <code>errorlint</code> in the golangci config fails the build on a bare comparison to an error value. This is the single most common Go bug that gets through review, because the broken version works right up until somebody adds context to an error three layers down.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-auth">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>Who is calling, and how often</h3>
+        <p class="lede">Two controls that fail in opposite directions. Authentication decides whether a request happens at all, so it must be impossible to skip &mdash; which is why it wraps the handler rather than being a call at the top of one. Rate limiting decides how much of you a caller gets, so it must be shared across every replica &mdash; which is why it is in Redis and not in a <code>map</code> behind a mutex.</p>
+      </div>
+
+<pre class="l2">// internal/httpapi/auth.go
+package httpapi
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/jaspreet/shortlink/internal/shortlink"
+)
+
+// APIKey is who is calling. KeyStore and Limiter are declared here, in the
+// package that uses them, so internal/postgres and internal/ratelimit do
+// not import this package at all -- they just happen to satisfy it.
+type APIKey struct {
+	OwnerID string
+	Label   string
+	Digest  string
+}
+
+type KeyStore interface {
+	ByDigest(ctx context.Context, digest string) (APIKey, error)
+}
+
+type Limiter interface {
+	Allow(ctx context.Context, ownerID string) (bool, error)
+}
+
+// The context key is an unexported empty struct type, not a string. A
+// string key can collide with one set by any other package in the process
+// -- including a library you did not write -- and the collision is silent.
+// An unexported type cannot be named from outside this package, so it
+// cannot collide, and it costs nothing at run time.
+type callerKey struct{}
+
+func withCaller(ctx context.Context, k APIKey) context.Context {
+	return context.WithValue(ctx, callerKey{}, k)
+}
+
+func callerFrom(ctx context.Context) (APIKey, bool) {
+	k, ok := ctx.Value(callerKey{}).(APIKey)
+	return k, ok
+}
+
+func (s *Server) authenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		presented, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || presented == "" {
+			s.unauthorized(w)
+			return
+		}
+
+		sum := sha256.Sum256([]byte(presented))
+		digest := hex.EncodeToString(sum[:])
+
+		// The lookup is by digest, so a database that leaks tells an
+		// attacker nothing usable: they get hashes, and a 256-bit random
+		// key does not come back out of one.
+		key, err := s.keys.ByDigest(r.Context(), digest)
+		if err != nil {
+			if !errors.Is(err, shortlink.ErrNotFound) {
+				s.log.ErrorContext(r.Context(), "key lookup failed", "error", err)
+			}
+			s.unauthorized(w)
+			return
+		}
+		// Redundant on its face -- the row was found by this digest -- and
+		// kept anyway, because it stays correct the day the lookup becomes
+		// a cache or a prefix scan. Constant time, so no attacker learns
+		// anything from how long a miss took.
+		if subtle.ConstantTimeCompare([]byte(key.Digest), []byte(digest)) != 1 {
+			s.unauthorized(w)
+			return
+		}
+
+		allowed, err := s.limiter.Allow(r.Context(), key.OwnerID)
+		if err != nil {
+			// Fail open, loudly. See the note under the limiter.
+			s.log.WarnContext(r.Context(), "rate limiter unavailable", "error", err)
+		} else if !allowed {
+			s.tooManyRequests(w)
+			return
+		}
+
+		next.ServeHTTP(w, r.WithContext(withCaller(r.Context(), key)))
+	})
+}
+
+func (s *Server) unauthorized(w http.ResponseWriter) {
+	// The header is not optional: without it a client cannot tell "you
+	// need a key" from "your key is wrong from the wrong scheme".
+	w.Header().Set("WWW-Authenticate", "Bearer")
+	write(w, problemDetail{
+		Type: problemBase + "unauthorized", Title: "Unauthorized",
+		Status: http.StatusUnauthorized, Detail: "a valid API key is required",
+	})
+}
+
+func (s *Server) tooManyRequests(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "60")   // seconds, and mean it
+	write(w, problemDetail{
+		Type: problemBase + "rate-limited", Title: "Too many requests",
+		Status: http.StatusTooManyRequests, Detail: "the per-minute quota for this key is spent",
+	})
+}</pre>
+
+      <p><code>postgres.KeyStore</code> is four lines of the same shape as the store above &mdash; one <code>SELECT owner_id, label, key_hash FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL</code>, one <code>Scan</code>, <code>pgx.ErrNoRows</code> mapped to <code>shortlink.ErrNotFound</code>. Worth noticing what is <em>not</em> there: no cache. One indexed lookup per request is a fraction of a millisecond, and a cache is a place for a revoked key to keep working. Add one when a profile says to, with a short TTL, and know that you have chosen a revocation delay.</p>
+
+<pre class="l2">// internal/ratelimit/redis.go
+package ratelimit
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+// Two commands as one round trip and one atomic step. INCR and PEXPIRE
+// sent separately have a window in which the process dies between them,
+// which leaves a key with no TTL -- and that bans the caller permanently.
+var increment = redis.NewScript(`
+	local hits = redis.call('INCR', KEYS[1])
+	if hits == 1 then
+		redis.call('PEXPIRE', KEYS[1], ARGV[1])
+	end
+	return hits
+`)
+
+type Redis struct {
+	client    *redis.Client
+	permitted int
+	window    time.Duration
+}
+
+func NewRedis(client *redis.Client, permitted int, window time.Duration) *Redis {
+	return &amp;Redis{client: client, permitted: permitted, window: window}
+}
+
+func (r *Redis) Allow(ctx context.Context, ownerID string) (bool, error) {
+	// The key carries the window, so the previous window's key expires on
+	// its own and there is nothing to sweep up.
+	bucket := time.Now().UnixMilli() / r.window.Milliseconds()
+	key := fmt.Sprintf("rl:%s:%d", ownerID, bucket)
+
+	// A limiter that is slow is worse than no limiter: it adds its latency
+	// to every request it permits. This deadline is separate from the
+	// request's and much shorter.
+	ctx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+
+	hits, err := increment.Run(ctx, r.client, []string{key}, r.window.Milliseconds()).Int64()
+	if err != nil {
+		return false, fmt.Errorf("rate limit: %w", err)
+	}
+	return hits &lt;= int64(r.permitted), nil
+}
+
+// A map behind a sync.Mutex is not a rate limiter, and it is worth being
+// able to say exactly why in an interview. Four replicas each with their
+// own map give one caller four times the quota. A deploy resets everyone's
+// counter to zero, which is precisely when you least want it. And the map
+// grows forever unless somebody writes the sweeper, which nobody does.
+//
+// A fixed window lets a caller spend twice the quota across a boundary --
+// sixty at 11:59:59 and sixty more at 12:00:00. For an API key that is
+// fine and the simplicity is worth it. When it is not, a sliding window
+// log or a token bucket is the same INCR-in-Lua shape with more
+// arithmetic, and both still live in Redis for the same reason.</pre>
+
+      <div class="note warn">
+        <h4>SHA-256 for an API key, bcrypt for a password &mdash; and swapping them is a bug both ways</h4>
+        <p>A password is a low-entropy secret a human chose, so the defence against a stolen table is to make each guess expensive: bcrypt, scrypt or argon2, deliberately slow, salted per row. An API key is 256 bits out of <code>crypto/rand</code>; there is no dictionary to run against it and no amount of GPU that gets through the space, so a plain SHA-256 is enough. It is also <em>necessary</em>: put bcrypt on this path and you have added a hundred milliseconds of CPU to every authenticated request, which at any real rate is a fleet of pods spent hashing. Fast hash for high-entropy secrets, slow hash for human-chosen ones, and be able to say why in one sentence &mdash; this gets asked constantly.</p>
+        <p style="margin:0">The other half is the key&rsquo;s life: generate it with <code>crypto/rand</code>, show the plaintext exactly once at creation, store only the digest, and give every key a <code>revoked_at</code> so revocation is an update you can audit rather than a delete you cannot. A prefix like <code>sl_live_</code> costs nothing and lets a secret scanner find it in a public repository before an attacker does.</p>
+      </div>
+
+      <div class="note warn">
+        <h4>Failing open is a decision, and it has to be made on purpose</h4>
+        <p>The middleware above logs and continues when Redis is unreachable, which means a Redis outage becomes unlimited traffic rather than a total outage. That is the right trade for this service and the wrong one for a limiter protecting something that genuinely cannot absorb the load &mdash; a payment endpoint, a third-party quota you are billed for, a login path being credential-stuffed. Whichever you choose, choose it in the code with a comment saying so, because the version that gets chosen by accident is always fail-open, and it is discovered during the incident.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-obs">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>Logs, and the two health checks</h3>
+        <p class="lede">The question you are building for is &ldquo;a customer says their request failed at 14:32, what happened&rdquo;, answerable from a laptop in under a minute. That needs every log line from one request to carry the same id &mdash; and Go&rsquo;s answer, unusually, is better than the thread-local one the other two languages use, because it is the context you were already passing.</p>
+      </div>
+
+<pre class="l2">// internal/httpapi/middleware.go
+package httpapi
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"log/slog"
+	"net/http"
+	"regexp"
+	"time"
+)
+
+type requestIDKey struct{}
+
+// ContextHandler is the whole request-id mechanism. slog hands every
+// Handler the context, so a handler can pull values out of it -- which
+// means no thread-local, no MDC, nothing to clear in a defer, and nothing
+// that can leak one request's id onto another's log line.
+//
+// The catch, and it is a real one: this only fires for the *Context
+// variants. log.Info("x") and log.InfoContext(ctx, "x") produce different
+// lines, and the first is missing the id. Make the reviewer's rule "no
+// bare slog calls inside a handler" and it stays honest.
+type ContextHandler struct{ slog.Handler }
+
+func (h ContextHandler) Handle(ctx context.Context, r slog.Record) error {
+	if id, ok := ctx.Value(requestIDKey{}).(string); ok {
+		r.AddAttrs(slog.String("request_id", id))
+	}
+	return h.Handler.Handle(ctx, r)
+}
+
+// An id from outside ends up in every log line, so it is validated before
+// it is trusted: a newline in that header would otherwise let a caller
+// write a convincing fake log entry.
+var safeID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+
+func requestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get("X-Request-Id")
+		if !safeID.MatchString(id) {
+			var b [16]byte
+			_, _ = rand.Read(b[:])
+			id = hex.EncodeToString(b[:])
+		}
+		// Echoed, so support can paste the header out of a customer's HAR
+		// file straight into the log search.
+		w.Header().Set("X-Request-Id", id)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id)))
+	})
+}
+
+// statusRecorder exists because ResponseWriter will not tell you what was
+// written. Note it embeds the interface rather than reimplementing it, so
+// it stays a valid ResponseWriter -- but embedding also hides Flush and
+// Hijack, which matters the day somebody adds server-sent events here.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Write(b []byte) (int, error) {
+	n, err := s.ResponseWriter.Write(b)
+	s.bytes += n
+	return n, err
+}
+
+func logging(log *slog.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &amp;statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+
+		// Attributes, never a formatted sentence. "link %s expired" is a
+		// string you can grep; separate keys are fields you can filter,
+		// group and alert on.
+		log.InfoContext(r.Context(), "request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.status,
+			"bytes", rec.bytes,
+			"duration_ms", time.Since(start).Milliseconds(),
+		)
+	})
+}
+
+func recovery(log *slog.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			v := recover()
+			switch {
+			case v == nil:
+				return
+			case v == http.ErrAbortHandler:
+				// The standard library's own signal that a handler is
+				// deliberately abandoning the connection. Re-panic, or
+				// net/http cannot do what it was asked.
+				panic(v)
+			default:
+				log.ErrorContext(r.Context(), "panic in handler", "value", v, "path", r.URL.Path)
+				write(w, problemDetail{
+					Type: problemBase + "internal", Title: "Internal server error",
+					Status: http.StatusInternalServerError,
+				})
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}</pre>
+
+<pre class="l2">// internal/httpapi/health.go -- two endpoints, and they are not the same
+// question. Getting this wrong is the single most common way to turn a
+// dependency's bad thirty seconds into your own outage.
+package httpapi
+
+import (
+	"context"
+	"net/http"
+	"time"
+)
+
+// Liveness: is this process broken beyond recovery? Only a restart fixes
+// that, and a restart is what a failed liveness probe causes -- so it
+// checks nothing external. Put the database in here and one Postgres
+// failover restarts every replica you own, simultaneously.
+func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+// Readiness: should traffic come here right now? A replica that cannot
+// reach Postgres cannot serve, but it will recover on its own, so the
+// right answer is to stop routing to it -- not to kill it.
+func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	if err := s.ready(ctx); err != nil {
+		s.log.WarnContext(ctx, "not ready", "error", err)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"unavailable"}`))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ready"}`))
+}</pre>
+
+<pre class="l1">{
+  "time": "2026-08-31T14:32:07.418Z",
+  "level": "WARN",
+  "msg": "rate limiter unavailable",
+  "service": "shortlink",
+  "error": "rate limit: dial tcp 10.0.3.9:6379: i/o timeout",
+  "request_id": "6f1c2a943d554c1e9f0a2b7e6d4a1c33"
+}</pre>
+
+      <p>That is <code>slog.NewJSONHandler</code> wrapped in the twelve-line <code>ContextHandler</code> above, and nothing else &mdash; no logging library, no encoder configuration, no init function. <code>request_id</code> is there because the middleware put it in the context and the handler read it back out; <code>service</code> is there because <code>run</code> called <code>.With("service", "shortlink")</code> once at start-up, which is the cheap way to tag every line a process will ever emit.</p>
+    </section>
+
+    <section class="topic" id="svc-tests">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>Tests that would actually have caught it</h3>
+        <p class="lede">Three kinds, and each buys something different. The table-driven ones run in microseconds and cover the parsing that is really a security control. The catalogue test buys back, at the cost of one slice, the exhaustiveness a sealed type would have given you. And one test starts a real Postgres in a container, because the single guarantee this service makes is a guarantee about a unique index, and no fake has one.</p>
+      </div>
+
+<pre class="l2">// internal/shortlink/code_test.go
+package shortlink_test
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/jaspreet/shortlink/internal/shortlink"
+)
+
+// Package shortlink_test, not package shortlink. An external test package
+// can only touch the exported API, which means the test is a second
+// opinion on whether that API is usable rather than a friend with access
+// to the internals.
+func TestParseTarget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want error   // nil means it should be accepted
+	}{
+		{"plain https", "https://example.com/a/b?c=d", nil},
+		{"plain http", "http://example.com", nil},
+		{"trims", "  https://example.com  ", nil},
+
+		{"empty", "", shortlink.ErrInvalid},
+		{"javascript", "javascript:alert(1)", shortlink.ErrInvalid},
+		{"data uri", "data:text/html,&lt;script&gt;x&lt;/script&gt;", shortlink.ErrInvalid},
+		{"file", "file:///etc/passwd", shortlink.ErrInvalid},
+		{"relative", "/just/a/path", shortlink.ErrInvalid},
+		{"no host", "https://", shortlink.ErrInvalid},
+		{"credentials", "https://user:pass@example.com", shortlink.ErrInvalid},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := shortlink.ParseTarget(tc.in)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("ParseTarget(%q) error = %v, want %v", tc.in, err, tc.want)
+			}
+		})
+	}
+}
+
+// Since Go 1.22 the loop variable is per-iteration, so tc is not shared
+// between the parallel subtests above. Before that this exact shape was
+// the single most common bug in Go test files -- every subtest saw the
+// last case. If you read an older codebase and see `tc := tc` on the line
+// after the range, that is what it was for.</pre>
+
+<pre class="l2">// internal/httpapi/problem_test.go
+package httpapi
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/jaspreet/shortlink/internal/shortlink"
+)
+
+// The compiler cannot tell you that a new sentinel has no status code,
+// because Go has no sealed types and no exhaustive switch. This is what
+// buys that guarantee instead: eleven lines, run in microseconds, and it
+// fails the moment somebody adds an error to shortlink.All without adding
+// it to the catalogue -- which is exactly when it is cheap to fix.
+func TestEverySentinelHasAStatus(t *testing.T) {
+	for _, sentinel := range shortlink.All {
+		found := false
+		for _, entry := range catalogue {
+			if errors.Is(sentinel, entry.err) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("%v has no entry in the problem catalogue: it would reach a client as a 500", sentinel)
+		}
+	}
+}</pre>
+
+<pre class="l2">// internal/postgres/store_test.go
+package postgres_test
+
+import (
+	"context"
+	"os"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/testcontainers/testcontainers-go"
+	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/jaspreet/shortlink/internal/postgres"
+	"github.com/jaspreet/shortlink/internal/shortlink"
+)
+
+// TestMain starts one container for the whole package rather than one per
+// test. A container per test turns a forty-second suite into four minutes,
+// and a suite nobody waits for is a suite nobody runs.
+var dsn string
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+	container, err := tcpostgres.Run(ctx, "postgres:16-alpine",
+		tcpostgres.WithDatabase("shortlink"),
+		tcpostgres.WithUsername("test"),
+		tcpostgres.WithPassword("test"),
+		// Postgres logs "ready to accept connections" once while it
+		// initialises the data directory and again when it is actually
+		// listening. Waiting for the first one is a flaky test that
+		// passes on your laptop and fails in CI; WithOccurrence(2) is
+		// the whole fix.
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(60*time.Second)),
+	)
+	if err != nil {
+		panic(err)
+	}
+	if dsn, err = container.ConnectionString(ctx, "sslmode=disable"); err != nil {
+		panic(err)
+	}
+	if err := postgres.Migrate(ctx, dsn); err != nil {
+		panic(err)
+	}
+
+	code := m.Run()
+
+	// Not defer: os.Exit does not run deferred calls, so the container
+	// would outlive the test binary and leak until the reaper noticed.
+	_ = testcontainers.TerminateContainer(container)
+	os.Exit(code)
+}
+
+// The test a fake store cannot express. Sixteen goroutines released at the
+// same instant with one idempotency key between them: the answer has to be
+// one link, and it has to be the same link for all sixteen.
+//
+// Delete the partial unique index from 0001 and this fails with sixteen
+// rows. Keep the index but delete the ErrIdempotencyClash branch from the
+// service and it fails with fifteen errors. It tells those two apart,
+// which is what makes the eight seconds a container costs worth paying.
+func TestSameIdempotencyKeyCreatesOneLink(t *testing.T) {
+	ctx := context.Background()
+	svc := newService(t)
+	target, err := shortlink.ParseTarget("https://example.com/one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := shortlink.NewLink{
+		OwnerID: "owner-1", Target: target, IdempotencyKey: "key-42",
+	}
+
+	var (
+		mu    sync.Mutex
+		codes = map[shortlink.Code]int{}
+	)
+	release := make(chan struct{})
+	var g errgroup.Group
+
+	for range 16 {   // Go 1.22: range over an int
+		g.Go(func() error {
+			&lt;-release   // every goroutine parked until they can all go at once
+			link, err := svc.Shorten(ctx, req)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			codes[link.Code]++
+			return nil
+		})
+	}
+	close(release)
+
+	if err := g.Wait(); err != nil {
+		t.Fatalf("a caller failed instead of sharing the link: %v", err)
+	}
+	if len(codes) != 1 {
+		t.Fatalf("want every caller to get one code, got %d distinct: %v", len(codes), codes)
+	}
+	if got := countRows(t, ctx); got != 1 {
+		t.Fatalf("want 1 row in links, got %d", got)
+	}
+}
+
+// newService and countRows are ten lines each at the bottom of this file:
+// one opens a pool against dsn, truncates links, and wires a Service over
+// a real Store; the other runs SELECT count(*). Truncating per test rather
+// than wrapping each in a transaction is deliberate -- the thing under
+// test is what happens when concurrent statements actually commit, and a
+// transaction the test owns would hide exactly that.
+
+// Run this one with -race and it also proves the map above is guarded.
+// Without the mutex the detector reports a write/write race and the test
+// fails for a reason that has nothing to do with Postgres -- which is the
+// detector doing its job on the test rather than on the code.</pre>
+
+      <p>The fourth test file in the tree, <code>httpapi/api_test.go</code>, is the one that ties the rest together: <code>httptest.NewServer(api.Handler())</code>, a real <code>http.Client</code>, and assertions about status codes and <code>Content-Type</code>. It is worth having separately from the store tests because it is the only place the middleware chain, the routing patterns and the problem shape are exercised together &mdash; and because <code>httptest</code> makes it cost nothing: no port to pick, no server to shut down, and it runs in the same process so a failure gives you the handler&rsquo;s stack rather than a connection reset.</p>
+
+      <div class="note warn">
+        <h4>The fake and the container are answering different questions, so keep both</h4>
+        <p><code>shortlink.Store</code> is a four-method interface, so a fake is fifteen lines and the service&rsquo;s retry logic can be tested against it in microseconds &mdash; including the paths that are awkward to provoke for real, like &ldquo;the generator collided four times running&rdquo;. What the fake cannot do is have a unique index, so it will happily let sixteen concurrent inserts through and tell you the code is correct. Use the fake for the branches and the container for the guarantee, and be suspicious of any test suite that has only one of the two: all fakes means the thing you actually promised is untested, all containers means a four-minute suite that nobody runs before pushing.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-ship">
+      <div class="topic-head">
+        <span class="kicker">Go deep &middot; 00</span>
+        <h3>The image, the pipeline, and two runtime settings</h3>
+        <p class="lede">Go&rsquo;s deployment story is the best of the three languages in this series and it is almost entirely down to one property: the output is a single static binary with no runtime to install, so the runtime image can contain that binary and nothing else. What is left to get right is two environment settings that Go historically gets wrong inside a container, and both are one line.</p>
+      </div>
+
+<pre class="l2"># Dockerfile -- the runtime stage holds one file. There is no interpreter,
+# no JVM, no package manager and no shell, which is a smaller attack
+# surface than any amount of hardening buys you on a full base image.
+FROM golang:1.24-bookworm AS build
+WORKDIR /src
+
+# The manifests first, alone. This layer is invalidated only when a
+# dependency changes, so the module download is cached across every
+# ordinary commit.
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+ARG VERSION=dev
+# CGO_ENABLED=0 gives a genuinely static binary and the pure-Go DNS
+# resolver, which is what you want in a container -- the cgo resolver
+# needs libc and an /etc/nsswitch.conf that the runtime image will not
+# have. -trimpath strips the build machine's paths out of the binary, so
+# two machines building the same commit produce the same bytes.
+RUN CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w -X main.version=${VERSION}" \
+      -o /out/shortlinkd ./cmd/shortlinkd
+
+FROM gcr.io/distroless/static-debian12:nonroot
+# The distroless static image is a CA bundle, timezone data, /etc/passwd
+# and nothing else -- no shell, so a remote code execution has no /bin/sh
+# to reach for. nonroot is uid 65532, and naming the number rather than
+# the user lets Kubernetes' runAsNonRoot verify it from the manifest.
+COPY --from=build /out/shortlinkd /shortlinkd
+USER 65532:65532
+EXPOSE 8080
+
+# Exec form, so the binary is PID 1 and SIGTERM reaches it. The shell form
+# runs /bin/sh -c, the shell does not forward signals -- and here there is
+# no shell at all, so the shell form would simply fail to start.
+ENTRYPOINT ["/shortlinkd"]</pre>
+
+      <div class="note warn">
+        <h4>Two settings the Go runtime does not read from the container, and both cost you real money</h4>
+        <p><b><code>GOMAXPROCS</code>.</b> For most of Go&rsquo;s life the runtime sized its scheduler from the number of CPUs it could see on the <em>host</em>, not from the cgroup CPU quota the container was given. On a 64-core node with a 0.5-CPU limit that means 64 scheduler threads and 64 garbage-collector workers fighting for half a core, and the symptom is latency that gets worse when you scale the node up. <code>go.uber.org/automaxprocs</code> is the standard fix &mdash; a blank import that reads the cgroup and sets the value &mdash; and recent Go versions have started doing this in the runtime itself, so check what your version does rather than assuming either way. Whichever it is, log the value at start-up; it is one line and it settles the argument.</p>
+        <p style="margin:0"><b><code>GOMEMLIMIT</code>.</b> Go&rsquo;s collector runs when the heap has doubled, which means a service that is idle for ten minutes and then allocates hard can sail past the container&rsquo;s memory limit before a collection was due &mdash; and the kernel&rsquo;s OOM killer does not negotiate. <code>GOMEMLIMIT</code> is a <em>soft</em> limit: set it to about 90% of the container limit and the collector works harder as you approach it instead of the process being killed with no stack trace and no log line. It is one environment variable and it converts a hard crash into a CPU cost.</p>
+      </div>
+
+<pre class="l2"># .github/workflows/ci.yaml -- the same commands the Makefile runs, so a
+# red build reproduces locally in one line and no guessing.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read          # the default is write. It should not be.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true     # the module and build caches, keyed on go.sum
+
+      - run: go build ./...
+      - run: go vet ./...
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.62
+
+      # -race, always. It is the flag that finds the bugs that only appear
+      # under load in production, and testcontainers uses the runner's own
+      # Docker daemon so there is nothing extra to install.
+      - run: go test -race -count=1 ./...
+
+      # The supply chain is part of a passing build now. govulncheck is
+      # better than a generic scanner here because it uses call-graph
+      # analysis: it reports a CVE only if your code can actually reach
+      # the vulnerable function, so the output is short enough to act on.
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Build the image
+        run: docker build -t shortlink:${{ github.sha }} --build-arg VERSION=${{ github.sha }} .</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Before it is &ldquo;done&rdquo;</th><th>Why it is on this list</th></tr></thead>
+          <tbody>
+            <tr><td>Migrations run as their own step, not on every start</td><td><code>run</code> calls <code>Migrate</code> above, which is right for one replica and wrong for four. goose takes an advisory lock so the other three wait rather than corrupt anything &mdash; but they wait through their readiness deadline. Move it to a job before the rollout.</td></tr>
+            <tr><td><code>/readyz</code> on the readiness probe, <code>/healthz</code> on the liveness probe</td><td>They answer different questions. Pointing both at the one that checks Postgres restarts every replica the next time Postgres fails over.</td></tr>
+            <tr><td><code>GOMEMLIMIT</code> set, and the memory request equal to the limit</td><td>See the note above. A Go process killed by the OOM killer leaves no log line to find later.</td></tr>
+            <tr><td><code>pprof</code> served on a second listener, not the public one</td><td>The profiling part covered what each profile answers. <code>net/http/pprof</code> registers on <code>http.DefaultServeMux</code> the moment it is imported, so importing it and serving <code>DefaultServeMux</code> publishes a heap dump of your process to the internet.</td></tr>
+            <tr><td>Logs to stdout, and nowhere else</td><td>The platform collects stdout. A log file inside a container is a disk that fills and an incident nobody can explain.</td></tr>
+            <tr><td><code>govulncheck</code> on every build, not on a calendar</td><td>It is call-graph aware, so it is one of the few security gates whose output is short enough that people keep reading it.</td></tr>
+            <tr><td>Alerts on the 500 rate and on p99, not just dashboards</td><td>A dashboard is for after somebody noticed. An alert is for before.</td></tr>
+            <tr><td>A rollback that is one command, and that somebody has run</td><td>Every deploy plan has one. The ones that work were rehearsed on a Tuesday afternoon rather than discovered at 2am.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Read this part beside the Python and Java ones and the differences are smaller than the languages suggest. All three put the rules in a package that imports nothing, make idempotency a database constraint rather than a check, keep one error shape, hash the API key, share the rate limit, and fail the boot rather than the tenth request. What Go changes is the amount of machinery in between. There is no container, no proxy, no annotation and no reflection: <code>run</code> is the dependency graph, <code>defer</code> is the lifecycle, <code>context</code> carries the deadline and the request id that the other two need a framework and a thread-local for, and the deployable artefact is one file. What that costs is the guarantees a richer type system was giving you &mdash; <code>Code("")</code> compiles, the error switch is not exhaustive, and the layering is a linter rather than a compiler &mdash; so each of those is bought back here with a test. That trade, and being able to name both halves of it, is the answer to give when somebody asks why you would choose Go for a service.</p>
+    </section>
+  </div>
+</section>
