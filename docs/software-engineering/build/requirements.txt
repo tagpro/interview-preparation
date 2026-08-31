@@ -1,3 +1,0 @@
-# Only the print checks need anything beyond the standard library: they read
-# the rendered PDFs back and measure them.
-pymupdf>=1.24

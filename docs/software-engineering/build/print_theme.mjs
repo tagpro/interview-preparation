@@ -30,7 +30,9 @@ export const seriesTokens = {
 // backend rewrites certain colours on the way to the page -- #6F42AF lands as
 // #39225B, half its brightness, which kills the distinction from plain text
 // that the violet exists to make. #6A3FA8 is visually the same colour and
-// survives the trip; print_ink.mjs is the check that says which do.
+// survives the trip. That was measured by rendering the palette through
+// Chrome's own print backend; the tool that did it is gone with the rest of
+// the PDF checks, so treat these two values as findings, not as guesses.
 export const printTheme = {
   name: 'ladder-print', type: 'print', background: '#FFFFFF', foreground: seriesTokens.ink,
   tokens: {

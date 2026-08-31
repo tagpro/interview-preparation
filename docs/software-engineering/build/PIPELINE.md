@@ -3,8 +3,8 @@
 Eight pages. Five are assembled from fragments; two carry no code; the hub is
 hand-maintained. Three post-processing passes run over the **built** HTML.
 
-Node dependencies are in `package.json` (`npm install`); the print checks also
-need `pymupdf` (`pip install -r requirements.txt`). Nothing else does.
+Node dependencies are in `package.json` (`npm install`). Nothing else is needed;
+the Python scripts use the standard library only.
 
 ## Order
 
@@ -41,9 +41,17 @@ artifact CSP is untouched and the reader downloads no extra JavaScript.
 | --- | --- |
 | `hl_langs.mjs` | Go, Java, go.mod, Terraform and console definitions, plus the `withCodas` wrapper |
 | `hl_detect.mjs` | Per-block language detection, page defaults, fingerprint overrides |
+
+Detection reads the opening comment before it reads syntax, because these pages
+name the file there (`// config.go`, `# application.yaml`, `-- V1__create.sql`).
+Two names carry no extension and are keyed by the whole name instead:
+`Dockerfile`, and `Makefile`, whose recipes are highlighted as shell. A block
+that is several bare directory names and paths with an aligned comment column is
+a repository tree, not code, and is left as plaintext.
+
 | `hl_theme.mjs` | Light and dark token palettes drawn from the series' own `--l1/--l2/--l3` |
 | `hl_inject.mjs` | The pass itself |
-| `hl_report.mjs` | Prints the language assigned to all 334 blocks |
+| `hl_report.mjs` | Prints the language assigned to all 487 blocks |
 | `hl_contrast.mjs` | Asserts every token colour clears 4.5:1 (3.5:1 for comments) |
 | `hl_verify_dim.mjs` | Asserts no text the pages used to dim lost its dimming |
 
@@ -52,12 +60,6 @@ artifact CSP is untouched and the reader downloads no extra JavaScript.
 | `print.css` | The stylesheet, one `@media print` block |
 | `print_theme.mjs` | Print palette, derived from `hl_theme.mjs` |
 | `print_inject.mjs` | The pass itself |
-| `print_ink.mjs` | Asserts Chrome's print pipeline writes the colour that was asked for |
-| `print_pdf.mjs` | Renders all seven to PDF the way Ctrl-P would |
-| `print_check.py` | Asserts nothing is clipped and no page came out blank |
-| `print_contrast.py` | Reads the colours back out of the PDF and checks them against white |
-| `print_same.py` | Asserts a dark-themed browser prints the same ink as a light one |
-| `print_sheet.py` / `print_page.py` | Contact sheet and single-page renders, for looking at it |
 | `fonts_local.mjs` | Self-hosts the site's fonts, keeping only the subsets it uses |
 
 | Site file | What it is |
@@ -109,7 +111,7 @@ What it has to deal with, in the order the stylesheet addresses it:
 | Problem | What print does |
 | --- | --- |
 | A printer has no dark mode | Pins every design token to its light value. Chrome prints with "Background graphics" off by default, so a page printed from a dark theme would otherwise be pale text on unprinted white |
-| Chrome darkens light *text* so it survives on paper | Nothing -- but `print_ink.mjs` checks it, because it rewrites some mid-tone colours too, and `--th-type` was landing at half its brightness |
+| Chrome darkens light *text* so it survives on paper | Nothing -- but it rewrites some mid-tone colours too, and `--th-type` was landing at half its brightness, so `print_theme.mjs` ships a value measured to survive the trip |
 | The sticky bar, the progress meter and the tooltip mean nothing on paper | Dropped |
 | The contents rail is a fixed side rail, last in the DOM | Becomes front matter: the body is a flex column purely to reorder it after the title page |
 | A scroll bar is a clip on paper | `pre` wraps, figures and table wrappers stop scrolling |
@@ -118,25 +120,16 @@ What it has to deal with, in the order the stylesheet addresses it:
 | The abbreviation expansions live in a tooltip | Spelled out inline at each first mention, from the same `data-full` the tooltip reads |
 | The AWS page hides half its snippets behind a switch in the bar | Prints what is on screen, and says which half on the title page |
 | The algorithms page is half interactive figures | Controls dropped; the figure prints the state it opens in. `print-color-adjust: exact` keeps the fills, because a bar chart with the fills off is blank paper |
-| A highlighted cell reverses white text out of a colour | Becomes an outline, so every character on the paper is dark on white and `print_contrast.py` can check all of them |
+| A highlighted cell reverses white text out of a colour | Becomes an outline, so every character on the paper is dark on white |
 
 ### Checks
 
-    node print_ink.mjs                 # every print colour survives Chrome's print pipeline
-    node print_pdf.mjs                 # render all seven the way Ctrl-P would
-    node print_pdf.mjs --dark          # ... from a dark-themed browser
-    node print_pdf.mjs --bg            # ... with background graphics on
-    node print_pdf.mjs --letter        # ... on US Letter
-    python3 print_check.py  'pdf/*.pdf'   # nothing clipped, no blank or near-blank pages
-    python3 print_contrast.py 'pdf/*.pdf' # every colour that reached the paper, against white
-    python3 print_sheet.py pdf/x.pdf out.png 8   # contact sheet, for looking at it
-
-    python3 print_same.py                 # a dark-themed browser prints the same ink
-
-`print_pdf.mjs` serves the site's own faces from `docs/fonts/` rather than the
-network, because font metrics decide where code lines wrap and a fallback mono
-would measure the wrong thing. Pass a different stylesheet as an argument to
-override it.
+There are none. The stylesheet was developed against PDFs rendered through
+Chrome's own print backend and checked for clipping, blank pages, ink identical
+between a light and a dark browser, and every colour that reached the paper --
+and that tooling has been removed, because the pages are read on a screen. What
+is left is the stylesheet, unchanged and still correct as of its last render.
+Treat a change to it as unverified: open `Ctrl-P` and look.
 
 ## The site
 
@@ -240,16 +233,16 @@ knob panel over a picture that recomputes, because most of what an AI engineer
 is asked is arithmetic with a shape to it.
 
 Nothing autoplays, and no knob starts anywhere but a fixed value. That is not a
-style preference: `print_same.py` compares two renders of the same page, so a
-figure that started moving on its own would make the printed output depend on
-when Chrome took the snapshot. It would also be noise beside the paragraph
+style preference: a page has to render the same way twice, so a figure that
+started moving on its own would make a print or a screenshot depend on when it
+was taken. It would also be noise beside the paragraph
 explaining it.
 
 Everything is drawn as DOM or SVG, never a canvas, so it prints. The print pass
 hides the controls and the knob panel, forces `print-color-adjust: exact` on
 every fill, and turns any highlight that reverses white text out of a colour
-into an outline -- white-on-colour is the one thing `print_contrast.py` cannot
-check.
+into an outline, because white text on a colour becomes white text on white
+paper as soon as background graphics are off.
 
 Both build scripts fail the build if a topic is missing one of the three
 languages, if a figure names a demo the script does not register, or if a demo

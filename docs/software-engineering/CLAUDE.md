@@ -12,6 +12,13 @@ in `build/`.
     build/PIPELINE.md   how the build works, in detail
 
 `index.html` is the hub page (`build/backend-go-ladder.html`), not a listing.
+It is also where the design system lives: `tpl.py` lifts the hub's `<style>`
+blocks verbatim so the six built pages cannot drift from it. A change to a token,
+a type rule or a colour therefore has to be made in the hub **and** in the two
+other pages with no build script -- `pillar-a-foundations.html` and
+`pillar-c-cloud.html` -- which carry their own copy. Prose is set at
+`font-weight:500`; `pre` and `code` pin themselves back to 400, so the weight is
+a decision about reading prose and not about how code looks.
 
 One level up: `../fonts/` holds the site's self-hosted typefaces and `../sw.js`
 its offline cache -- both **generated**, by `build/fonts_local.mjs` and
@@ -40,7 +47,6 @@ wrong: the next `site_build.mjs` overwrites them.
 
     cd build
     npm install                       # once
-    pip install -r requirements.txt   # pymupdf, for the print checks only
     python3 build_go.py && python3 build_py.py && python3 build_java.py
     python3 build_aws.py && python3 build_dsa.py && python3 build_ai.py
     python3 series_sync.py            # the cross-link rail, from series.py
@@ -67,7 +73,8 @@ Run what the change touches; run all of them before publishing.
     node hl_verify_dim.mjs            # no text that used to be dimmed lost it
     node audit2.mjs                   # SVG geometry -- must print TOTAL: 0
     node verify_gloss.mjs             # glossary wraps, misplaced: 0
-    python3 esc_pre.py --check ai_*.html   # no bare < or > inside a code block
+    python3 esc_pre.py --check ai_*.html py_svc.html java_svc.html
+                                      # no bare < or > inside a code block
     node verify_aws.mjs               # the Go/Python switch covers every pair
     python3 series_sync.py --check    # no page's rail has drifted from series.py
     python3 theme_sync.py --check     # nor has any page's theme switch
@@ -75,12 +82,6 @@ Run what the change touches; run all of them before publishing.
     node site_check.mjs ..            # the built site: links, passes, structure
     node offline_check.mjs ../..      # no page reaches for the network at all
     node sw_check.mjs ../..           # install the cache, stop the server, walk every page
-    node print_ink.mjs                # print colours survive Chrome's pipeline
-    node print_pdf.mjs && python3 print_check.py 'pdf/*.pdf'
-
-`print_pdf.mjs` uses the site's own faces from `../fonts/`, because font metrics
-decide where code lines wrap and the fallback mono measures a different
-document.
 
 ## Constraints that are easy to break
 
@@ -116,7 +117,9 @@ document.
   site's two hand-written pages and regenerates `theme_block.html`, which
   `site_build.mjs` reads and refuses to build without.
 - **Chrome rewrites some colours on the way to the printer.** `#6F42AF` lands at
-  half its brightness. Never add a print colour without `print_ink.mjs`.
+  half its brightness, which is why `print_theme.mjs` uses `#6A3FA8` instead.
+  That was measured; the tooling that measured it is gone, so a new print colour
+  is now an untested guess. Prefer reusing a value already in the palette.
 - **The site pass rewrites the series links.** Pages carry `claude.ai/code/...`
   URLs because they are also published as artifacts; `site_build.mjs` maps them
   to local filenames and fails if one is unrecognised. Adding a page means one
@@ -126,9 +129,9 @@ document.
 - **Nothing on the interactive pages autoplays, and that is load-bearing.** The
   twenty-six figures on the algorithms and AI pages are precomputed traces with
   a fixed opening frame, or calculators whose knobs start at fixed values, so
-  the printed page does not depend on when Chrome took the snapshot -- which is
-  what lets `print_same.py` compare two renders at all. A figure that started
-  itself would also be noise beside the paragraph explaining it.
+  a run of the build produces the same page twice and a figure is never caught
+  mid-animation by a screenshot. A figure that started itself would also be
+  noise beside the paragraph explaining it.
 - **The player and the figure chrome live in `demo_ui.py`, once.** Both
   interactive pages import it; each supplies only its own stage CSS and its own
   demos. It also generates the language switch, which is why the two pages can

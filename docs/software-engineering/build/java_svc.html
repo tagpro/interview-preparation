@@ -1,0 +1,2099 @@
+<section class="part" id="service">
+  <div class="shell">
+    <div class="part-head">
+      <span class="kicker">Part eleven</span>
+      <h2>A whole service, file by file</h2>
+      <p>Everything before this was a mechanism, a snippet, or one slice of Spring. This is the repository &mdash; one small service, built in the order you would actually build it, with every file that has to exist before anyone will let you deploy it. The domain is a link shortener, chosen because it is small enough to hold in your head and still needs every production concern there is: validation, a database and a migration, idempotency under a race, authentication, rate limiting, structured logs, two different health checks, tests that run in CI, and an image that starts as a non-root user. It is the same service the Python page builds, in the same order, so you can read the two side by side and see what the language actually changes.</p>
+    </div>
+
+    <section class="topic" id="svc-layout">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Where the files go, and why</h3>
+        <p class="lede">Layout is the first architectural decision and the one nobody revisits. Maven fixes half of it for you &mdash; <code>src/main/java</code>, <code>src/test/java</code>, <code>src/main/resources</code>, and no arguments &mdash; which leaves the half that matters: what the packages are, and which way an import is allowed to point.</p>
+      </div>
+
+      <pre class="l1">shortlink/
+  pom.xml                 the one file in the repository that names a version
+  mvnw                    the Maven wrapper. Committed, so CI needs no Maven.
+  .mvn/
+    wrapper/              the wrapper's properties: which Maven, from where
+  .env.example            every variable the app reads, with safe placeholders
+  compose.yaml            Postgres and Redis for local work, nothing else
+  Dockerfile              multi-stage; the runtime stage has no compiler in it
+  Makefile                the four commands everyone needs, named the same way
+
+  src/
+    main/
+      java/
+        info/jaspreet/shortlink/
+          ShortlinkApplication.java   the entry point. Three lines, no logic.
+          config/
+            ShortlinkProperties.java  typed settings, validated at boot
+            SecurityConfig.java       the filter chain, and what is public
+          domain/
+            ShortCode.java            a value object that cannot be malformed
+            TargetUrl.java            the parse that keeps javascript: out
+            Link.java                 the thing itself. No annotations at all.
+            CodeGenerator.java        SecureRandom over a confusable-free set
+          persistence/
+            LinkStore.java            the four methods the service actually uses
+            LinkEntity.java           the table. A class, because JPA needs one.
+            LinkRecordRepository.java Spring Data, and two deletes in JPQL
+            LinkWriter.java           the insert, in its own transaction
+            ApiKeyStore.java          one lookup, by hash, and nothing else
+          service/
+            LinkService.java          the use cases. Knows no HTTP.
+          web/
+            LinkController.java       /v1/links: create, read, delete
+            RedirectController.java   GET /{code}: the only public route
+            LinkDtos.java             the wire contract, with the constraints
+            ApiExceptionHandler.java  one advice, one problem+json shape
+            RequestIdFilter.java      the id every log line carries
+          error/
+            ShortlinkException.java   a sealed hierarchy the compiler checks
+          security/
+            ApiKey.java               who is calling: the principal, a record
+            ApiKeyFilter.java         hash, look up, compare in constant time
+            RateLimiter.java          Redis, because a HashMap is not one
+      resources/
+        application.yaml              defaults and the shape of every setting
+        application-local.yaml        the profile compose.yaml matches
+        db/migration/
+          V1__create_links.sql        Flyway. One file per schema change.
+    test/
+      java/
+        info/jaspreet/shortlink/
+          ArchitectureTest.java       the layering rule, as a failing build
+          domain/ShortCodeTest.java   pure, fast, no Spring context at all
+          IntegrationTest.java        the base class that owns the containers
+          web/LinkApiTest.java        through the real app, real Postgres
+          web/ErrorContractTest.java  the failure shape, which is also an API
+
+  .github/workflows/ci.yaml</pre>
+
+      <p>Two things in that tree are opinions rather than conventions, and both are worth defending in a review. The packages are named for <em>layers</em>, not for features, because this service has exactly one feature; the moment it has four, the top level becomes <code>links/</code>, <code>owners/</code>, <code>billing/</code> and each of those gets this same inside. And the domain package sits at the bottom with nothing under it, because the direction of every import in the tree points inward toward it.</p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Package</th><th>May import</th><th>Must never import</th></tr></thead>
+          <tbody>
+            <tr><td><code>domain</code></td><td>The JDK, and nothing else</td><td>Spring, Jakarta, Hibernate. It is the part you can test without a context.</td></tr>
+            <tr><td><code>error</code></td><td><code>domain</code></td><td>Anything with <code>Http</code> in the name. An exception that knows its status code cannot be reused by a worker.</td></tr>
+            <tr><td><code>persistence</code></td><td><code>domain</code>, Spring Data, Hibernate</td><td><code>web</code>. A repository that throws <code>ResponseStatusException</code> is a repository you can only call from a controller.</td></tr>
+            <tr><td><code>service</code></td><td><code>persistence</code>, <code>domain</code>, <code>error</code></td><td><code>web</code>, and <code>HttpServletRequest</code> above all.</td></tr>
+            <tr><td><code>web</code></td><td>Everything</td><td>Nothing &mdash; but it should hold no branching that is not about HTTP.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>That table is the whole architecture, and unlike a diagram it can fail a pull request: <code>ArchitectureTest</code> in the tests topic is those five rows, written once, checked on every build. Now the two files that make the tree buildable.</p>
+
+<pre class="l2">&lt;!-- pom.xml -- the only place a version number appears. --&gt;
+&lt;project xmlns="http://maven.apache.org/POM/4.0.0"&gt;
+  &lt;modelVersion&gt;4.0.0&lt;/modelVersion&gt;
+
+  &lt;!-- The parent supplies a curated version for every Spring dependency
+       and for a hundred others. Its version is the single upgrade lever
+       for this repository: bump it deliberately, on purpose, and read the
+       release notes. Nothing below states a version of its own. --&gt;
+  &lt;parent&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-parent&lt;/artifactId&gt;
+    &lt;version&gt;3.5.5&lt;/version&gt;
+    &lt;relativePath/&gt;
+  &lt;/parent&gt;
+
+  &lt;groupId&gt;info.jaspreet&lt;/groupId&gt;
+  &lt;artifactId&gt;shortlink&lt;/artifactId&gt;
+  &lt;version&gt;0.1.0&lt;/version&gt;
+
+  &lt;properties&gt;
+    &lt;java.version&gt;21&lt;/java.version&gt;
+    &lt;archunit.version&gt;1.3.0&lt;/archunit.version&gt;
+  &lt;/properties&gt;
+
+  &lt;dependencies&gt;
+    &lt;!-- The web starter brings Tomcat, Jackson and the MVC stack. --&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+      &lt;artifactId&gt;spring-boot-starter-web&lt;/artifactId&gt;
+    &lt;/dependency&gt;
+    &lt;!-- Validation is a separate starter since Boot 2.3. Without it,
+         @Valid on a controller argument silently does nothing. --&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+      &lt;artifactId&gt;spring-boot-starter-validation&lt;/artifactId&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+      &lt;artifactId&gt;spring-boot-starter-data-jpa&lt;/artifactId&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+      &lt;artifactId&gt;spring-boot-starter-data-redis&lt;/artifactId&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+      &lt;artifactId&gt;spring-boot-starter-security&lt;/artifactId&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+      &lt;artifactId&gt;spring-boot-starter-actuator&lt;/artifactId&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.flywaydb&lt;/groupId&gt;
+      &lt;artifactId&gt;flyway-database-postgresql&lt;/artifactId&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.postgresql&lt;/groupId&gt;
+      &lt;artifactId&gt;postgresql&lt;/artifactId&gt;
+      &lt;scope&gt;runtime&lt;/scope&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;io.micrometer&lt;/groupId&gt;
+      &lt;artifactId&gt;micrometer-registry-prometheus&lt;/artifactId&gt;
+      &lt;scope&gt;runtime&lt;/scope&gt;
+    &lt;/dependency&gt;
+
+    &lt;!-- Test scope. None of this is in the shipped jar. --&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+      &lt;artifactId&gt;spring-boot-starter-test&lt;/artifactId&gt;
+      &lt;scope&gt;test&lt;/scope&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.springframework.security&lt;/groupId&gt;
+      &lt;artifactId&gt;spring-security-test&lt;/artifactId&gt;
+      &lt;scope&gt;test&lt;/scope&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+      &lt;artifactId&gt;spring-boot-testcontainers&lt;/artifactId&gt;
+      &lt;scope&gt;test&lt;/scope&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;org.testcontainers&lt;/groupId&gt;
+      &lt;artifactId&gt;postgresql&lt;/artifactId&gt;
+      &lt;scope&gt;test&lt;/scope&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+      &lt;groupId&gt;com.tngtech.archunit&lt;/groupId&gt;
+      &lt;artifactId&gt;archunit-junit5&lt;/artifactId&gt;
+      &lt;version&gt;${archunit.version}&lt;/version&gt;
+      &lt;scope&gt;test&lt;/scope&gt;
+    &lt;/dependency&gt;
+  &lt;/dependencies&gt;
+
+  &lt;build&gt;
+    &lt;plugins&gt;
+      &lt;plugin&gt;
+        &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+        &lt;artifactId&gt;spring-boot-maven-plugin&lt;/artifactId&gt;
+      &lt;/plugin&gt;
+      &lt;!-- Surefire runs *Test; failsafe runs *IT in the integration-test
+           phase, after the app is packaged. Keeping them apart is what
+           lets `mvn test` stay fast enough to run on every save. --&gt;
+      &lt;plugin&gt;
+        &lt;groupId&gt;org.apache.maven.plugins&lt;/groupId&gt;
+        &lt;artifactId&gt;maven-failsafe-plugin&lt;/artifactId&gt;
+        &lt;executions&gt;
+          &lt;execution&gt;
+            &lt;goals&gt;&lt;goal&gt;integration-test&lt;/goal&gt;&lt;goal&gt;verify&lt;/goal&gt;&lt;/goals&gt;
+          &lt;/execution&gt;
+        &lt;/executions&gt;
+      &lt;/plugin&gt;
+    &lt;/plugins&gt;
+  &lt;/build&gt;
+&lt;/project&gt;</pre>
+
+      <div class="note warn">
+        <h4>A version range is not a dependency, it is a promise you cannot keep</h4>
+        <p>Nothing in that pom except the parent and ArchUnit states a version, and neither states a range. Maven resolves ranges at build time, which means the artifact your CI produces on Tuesday is not the one it produced on Monday, and the difference is invisible in the diff. Pin exactly, upgrade in a commit that says so, and let a bot open that commit for you. The parent doing the pinning for forty transitive libraries is the reason Spring Boot is worth using at all &mdash; it is a curated dependency set with a starter API on top, not just a framework.</p>
+      </div>
+
+<pre class="l1"># Makefile -- four verbs, the same four in every repository you own.
+# CI runs these exact targets, so "works on my machine" has one less place to hide.
+.PHONY: up check test run image
+
+up:                     ## Postgres and Redis, nothing else
+	docker compose up -d
+
+check:                  ## compile, and fail on anything a human would comment on
+	./mvnw -B -ntp verify -DskipTests
+
+test:                   ## unit tests, then the ones that start containers
+	./mvnw -B -ntp verify
+
+run: up                 ## the local profile, against the compose services
+	SPRING_PROFILES_ACTIVE=local ./mvnw -B -ntp spring-boot:run
+
+image:                  ## exactly what CI builds, byte for byte
+	docker build -t shortlink:$(shell git rev-parse --short HEAD) .</pre>
+    </section>
+
+    <section class="topic" id="svc-config">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Configuration, typed and validated at boot</h3>
+        <p class="lede">A service reads its environment exactly once, on the way up, into objects whose types are checked. The failure mode you are designing against is the one where a mistyped variable is discovered on the tenth request in production instead of in the first second of the deploy &mdash; and Spring will do that for you, but only if you stop reading settings with <code>@Value</code>.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/config/ShortlinkProperties.java
+package info.jaspreet.shortlink.config;
+
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+import java.net.URI;
+import java.time.Duration;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
+
+/**
+ * Every setting this service has, in one type. A record gets constructor
+ * binding for free, which means the object is immutable and complete or it
+ * does not exist -- there is no half-configured instance for a bean to hold.
+ *
+ * @Validated is what turns a bad value into a failed startup rather than a
+ * NullPointerException at 3am. Boot fails the context, prints the property
+ * name and the constraint that rejected it, and exits non-zero, so the
+ * orchestrator never routes traffic here at all.
+ */
+@Validated
+@ConfigurationProperties(prefix = "shortlink")
+public record ShortlinkProperties(
+
+    /** Where the short links point. Used to build the Location header. */
+    @NotNull URI publicBaseUrl,
+
+    /** Characters in a generated code. Seven is ~34 billion codes. */
+    @Min(4) @Max(32) int codeLength,
+
+    /** How long a link lives when the caller does not say. */
+    @NotNull Duration defaultTtl,
+
+    @Valid @NotNull RateLimit rateLimit) {
+
+  public record RateLimit(@Min(1) int perMinute, @NotNull Duration window) {}
+}
+
+// Relaxed binding means public-base-url, PUBLIC_BASE_URL and publicBaseUrl
+// all reach publicBaseUrl. Write kebab-case in YAML and SCREAMING_SNAKE in
+// the environment; both are conventional and both arrive at the same field.
+//
+// Nothing enables this by hand: @ConfigurationPropertiesScan on the
+// application class finds every @ConfigurationProperties in the package tree.
+// Inject the record where you need it. Never inject Environment.</pre>
+
+<pre class="l2"># application.yaml -- the defaults, and the shape of every setting.
+# Anything genuinely secret has no default at all: the ${...} placeholder
+# with no fallback is deliberate, so an unset variable fails the context
+# instead of quietly connecting to something that happens to be listening.
+spring:
+  application:
+    name: shortlink
+  threads:
+    virtual:
+      enabled: true             # Boot 3.2+: one virtual thread per request
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USER}
+    password: ${DATABASE_PASSWORD}
+    hikari:
+      maximum-pool-size: 10     # the real concurrency limit. See the note.
+      minimum-idle: 10          # same as max: a fixed pool has no warm-up
+      connection-timeout: 2000  # milliseconds. HikariConfig takes longs,
+      validation-timeout: 1000  # not Durations, so "2s" will not bind here.
+      max-lifetime: 1500000     # 25 min, under any proxy's idle timeout
+  jpa:
+    open-in-view: false         # see the warning. Default is true. It is wrong.
+    hibernate:
+      ddl-auto: validate        # Flyway owns the schema. Hibernate checks it.
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+  flyway:
+    enabled: true
+    validate-on-migrate: true
+  data:
+    redis:
+      url: ${REDIS_URL}
+      timeout: 250ms            # a slow limiter must not become a slow API
+  mvc:
+    problemdetails:
+      enabled: true             # Spring's own 4xx become application/problem+json
+
+server:
+  shutdown: graceful
+  forward-headers-strategy: framework   # honour X-Forwarded-* behind the LB
+
+shortlink:
+  public-base-url: ${SHORTLINK_PUBLIC_BASE_URL}
+  code-length: 7
+  default-ttl: 90d
+  rate-limit:
+    per-minute: 60
+    window: 1m
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus     # and nothing else, on purpose
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never              # a health page is not a debug console
+
+logging:
+  structured:
+    format:
+      console: ecs                     # Boot 3.4+: JSON logs, no encoder XML</pre>
+
+      <div class="note warn">
+        <h4>Virtual threads did not raise your concurrency limit; the pool did not move</h4>
+        <p>Turning on <code>spring.threads.virtual.enabled</code> means Tomcat stops handing requests to a fixed pool of 200 platform threads, so ten thousand concurrent requests no longer queue at the connector. What it emphatically does not do is let ten thousand of them talk to Postgres: <code>maximum-pool-size: 10</code> is still ten, and requests 11 and up block for a connection with a two-second timeout. That is the correct design &mdash; a database has a real concurrency ceiling and a pool is how you respect it &mdash; but it moves the bottleneck rather than removing it, and it moves it somewhere you have to size on purpose. Load-test the pool, not the thread model.</p>
+      </div>
+
+      <div class="note warn">
+        <h4><code>open-in-view</code> is on by default and it should not be</h4>
+        <p>Boot leaves the Hibernate session open for the whole request so that a lazy association touched inside a Jackson serializer still resolves. That is convenient exactly once and expensive forever: it holds a database connection for the duration of view rendering, it turns an <code>N+1</code> into something that <em>works</em> rather than something that throws, and it means the transaction boundary you carefully drew in the service is not where the database work actually stops. Set it to <code>false</code> on day one, before any code depends on it. You will get a <code>LazyInitializationException</code> the first time it matters, and that exception is the design telling you to fetch what you need inside the transaction.</p>
+      </div>
+
+<pre class="l1"># .env.example -- committed. The real .env is not, and .gitignore says so.
+# The point of this file is that a new engineer can diff it against their
+# own .env and see exactly what they are missing.
+DATABASE_URL=jdbc:postgresql://localhost:5432/shortlink
+DATABASE_USER=shortlink
+DATABASE_PASSWORD=local-only-not-a-secret
+REDIS_URL=redis://localhost:6379
+SHORTLINK_PUBLIC_BASE_URL=http://localhost:8080
+# In production none of these come from a file. They come from the
+# platform's secret store, injected as environment variables, and the
+# application cannot tell the difference -- which is the whole point.</pre>
+
+<pre class="l1">$ SHORTLINK_PUBLIC_BASE_URL= ./mvnw -q spring-boot:run
+***************************
+APPLICATION FAILED TO START
+***************************
+
+Description:
+
+Binding to target info.jaspreet.shortlink.config.ShortlinkProperties failed:
+
+    Property: shortlink.publicBaseUrl
+    Value: ""
+    Reason: must not be null
+
+Action:
+
+Update your application's configuration
+$ echo $?
+1
+# Twelve seconds after the deploy started, not on the tenth request.</pre>
+    </section>
+
+    <section class="topic" id="svc-domain">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>The core, which knows nothing about Spring</h3>
+        <p class="lede">This package imports the JDK and nothing else. No annotations, no framework, no database &mdash; which is why its tests run in a millisecond and why the rules survive the day someone rewrites the web layer. The technique it leans on is the one the records topic introduced: make illegal states unrepresentable by validating in the constructor, so a <code>ShortCode</code> that exists is a <code>ShortCode</code> that is well formed.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/domain/ShortCode.java
+package info.jaspreet.shortlink.domain;
+
+import java.util.Locale;
+import java.util.Objects;
+import java.util.regex.Pattern;
+
+/**
+ * The code in the short URL. A record over a single String, which sounds
+ * like ceremony until you count the methods that take two Strings and can
+ * be called with them the wrong way round.
+ */
+public record ShortCode(String value) {
+
+  private static final Pattern SHAPE = Pattern.compile("[a-z0-9]{4,32}");
+
+  // A compact constructor may reassign the parameter before it is written
+  // to the field, so normalising and validating happen in one place and
+  // there is no way to construct an instance that skips them.
+  public ShortCode {
+    Objects.requireNonNull(value, "value");
+    value = value.trim().toLowerCase(Locale.ROOT);
+    if (!SHAPE.matcher(value).matches()) {
+      throw new IllegalArgumentException("not a short code: " + value);
+    }
+  }
+
+  @Override
+  public String toString() {
+    return value;
+  }
+}</pre>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/domain/TargetUrl.java
+package info.jaspreet.shortlink.domain;
+
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Locale;
+import java.util.Set;
+
+/** The URL a code points at. Parsing it is a security control, not a format check. */
+public record TargetUrl(URI value) {
+
+  private static final Set&lt;String&gt; SCHEMES = Set.of("http", "https");
+  private static final int MAX_LENGTH = 2048;
+
+  public static TargetUrl parse(String raw) {
+    if (raw == null || raw.isBlank()) {
+      throw new IllegalArgumentException("url is required");
+    }
+    if (raw.length() &gt; MAX_LENGTH) {
+      throw new IllegalArgumentException("url longer than " + MAX_LENGTH);
+    }
+    URI uri;
+    try {
+      uri = new URI(raw.trim()).normalize();
+    } catch (URISyntaxException e) {
+      throw new IllegalArgumentException("url is not a valid URI", e);
+    }
+    // The one that matters: without this, "javascript:alert(1)" is a link
+    // you will happily hand a browser a 302 to, from your own domain.
+    String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+    if (!uri.isAbsolute() || !SCHEMES.contains(scheme)) {
+      throw new IllegalArgumentException("only http and https can be shortened");
+    }
+    if (uri.getHost() == null || uri.getHost().isBlank()) {
+      throw new IllegalArgumentException("url has no host");
+    }
+    // http://user:pass@host is a credential in a database column.
+    if (uri.getUserInfo() != null) {
+      throw new IllegalArgumentException("credentials in a url are not stored");
+    }
+    return new TargetUrl(uri);
+  }
+}</pre>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/domain/Link.java
+package info.jaspreet.shortlink.domain;
+
+import java.time.Instant;
+
+/**
+ * The thing itself. Note what is absent: no @Entity, no @Id, no getters
+ * generated by a library, and no identifier column -- the database's
+ * primary key is the database's business, and this record is what the rest
+ * of the application passes around.
+ *
+ * ownerId is a String here for brevity; in a service with more than one
+ * kind of id, make it a record too. Two adjacent Strings in a signature is
+ * a bug waiting for someone to reorder the arguments.
+ */
+public record Link(
+    ShortCode code,
+    TargetUrl target,
+    String ownerId,
+    Instant createdAt,
+    Instant expiresAt) {
+
+  public boolean isExpired(Instant now) {
+    return expiresAt != null &amp;&amp; !now.isBefore(expiresAt);
+  }
+}</pre>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/domain/CodeGenerator.java
+package info.jaspreet.shortlink.domain;
+
+import java.security.SecureRandom;
+
+/**
+ * Codes are random, not sequential. A sequential code leaks how many links
+ * exist and lets anyone walk every link you have ever made by counting.
+ *
+ * The alphabet has 32 characters, not 36: 0/o, 1/l and their friends are
+ * removed so a code read aloud or copied off a slide survives the trip.
+ */
+public final class CodeGenerator {
+
+  private static final char[] ALPHABET = "23456789abcdefghijkmnpqrstuvwxyz".toCharArray();
+
+  private final SecureRandom random = new SecureRandom();
+  private final int length;
+
+  public CodeGenerator(int length) {
+    this.length = length;
+  }
+
+  public ShortCode next() {
+    char[] out = new char[length];
+    for (int i = 0; i &lt; out.length; i++) {
+      out[i] = ALPHABET[random.nextInt(ALPHABET.length)];
+    }
+    return new ShortCode(new String(out));
+  }
+}
+
+// 32^7 is about 34 billion codes. With ten million links already stored, a
+// fresh code collides roughly once every 3,400 inserts -- rare, but not
+// never, and "rare" is the failure mode that reaches production untested.
+// The unique index catches it and the repository retries; see the next
+// topic. The generator does not have to be perfect, it has to be random.</pre>
+
+      <div class="note warn">
+        <h4>Validating the host is not the same as blocking a private address</h4>
+        <p>It is tempting to add a check here that refuses <code>127.0.0.1</code>, <code>10.x</code> and <code>169.254.169.254</code>, and for a service that <em>fetches</em> the target &mdash; to unfurl a preview, to check liveness &mdash; you must, because otherwise your link shortener is a proxy into your own VPC and the cloud metadata endpoint is one request away. But do it at fetch time, on the resolved IP, not here on the hostname: a name that resolves to a public address when the link is created can resolve to a private one when it is followed, and a check written at creation time cannot see that. This service only ever hands the URL back to a browser, so the parse above is the whole control &mdash; and the day someone adds a preview fetcher, that is the day this note becomes code.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/web/LinkDtos.java
+package info.jaspreet.shortlink.web;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import java.time.Instant;
+
+/**
+ * The wire contract. Three shapes now exist for one concept -- this DTO,
+ * the domain record, and the JPA entity -- and that is the design, not an
+ * accident. They change for different reasons: the DTO when the API's
+ * consumers need something, the entity when the schema does, the domain
+ * record when the rules do. Collapsing them into one class couples all
+ * three, and the first person to add a column discovers they have changed
+ * the public API.
+ */
+final class LinkDtos {
+
+  record CreateLinkRequest(
+      @NotBlank @Size(max = 2048) String url,
+      @Size(max = 64) String alias,          // optional: a vanity code
+      Integer ttlDays) {}                    // optional: null means default
+
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  record LinkResponse(
+      String code,
+      String shortUrl,
+      String url,
+      Instant createdAt,
+      Instant expiresAt) {}
+
+  private LinkDtos() {}
+}
+
+// The constraints are on the DTO rather than in the domain because they
+// are the API's promise about its inputs -- a 400 with a field name is a
+// different thing from an invariant the domain refuses to break. The
+// domain checks the same facts again, in the constructor, and always will:
+// the service has callers that never came through HTTP.</pre>
+    </section>
+
+    <section class="topic" id="svc-db">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>The schema, the entity, and the first migration</h3>
+        <p class="lede">Three lifetimes live in this topic and confusing them is the source of most Spring Data pain: the <em>schema</em>, which Flyway owns and Hibernate is only allowed to check; the <em>entity</em>, which is a mutable class because Hibernate needs one; and the <em>session</em>, which lasts exactly as long as the transaction and not one line longer.</p>
+      </div>
+
+<pre class="l2">-- V1__create_links.sql -- Flyway runs this once, in order, and records it.
+-- Once this file has run anywhere but your laptop it is immutable. A fix
+-- is V2, always, because Flyway checksums what it has already applied and
+-- will refuse to start against a file that changed underneath it.
+
+CREATE TABLE links (
+    id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    code            TEXT        NOT NULL,
+    target_url      TEXT        NOT NULL,
+    owner_id        TEXT        NOT NULL,
+    idempotency_key TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at      TIMESTAMPTZ,
+
+    -- Named, not auto-generated. The service switches on this name to tell
+    -- "that code is taken" apart from "that request already happened", and
+    -- a name Postgres invented is a name someone will change by accident.
+    CONSTRAINT links_code_key UNIQUE (code)
+);
+
+-- Idempotency, as a constraint rather than as a check in application code.
+-- Partial, because most links have no key and NULLs are not equal to each
+-- other -- without the WHERE clause this index would be pointless on
+-- Postgres and wrong on a database where NULLs do compare equal.
+CREATE UNIQUE INDEX links_owner_idempotency_key
+    ON links (owner_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+
+-- The list endpoint's query, in the order it reads.
+CREATE INDEX links_owner_created_at ON links (owner_id, created_at DESC);
+
+CREATE TABLE api_keys (
+    id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    owner_id   TEXT NOT NULL,
+    label      TEXT NOT NULL,
+    key_hash   TEXT NOT NULL,   -- sha-256 hex. Never the key itself.
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at TIMESTAMPTZ,
+
+    CONSTRAINT api_keys_key_hash_key UNIQUE (key_hash)
+);</pre>
+
+      <div class="note warn">
+        <h4><code>TIMESTAMPTZ</code>, every time, with no exceptions worth arguing about</h4>
+        <p>Postgres&rsquo; <code>TIMESTAMP</code> stores a wall-clock reading with no zone, which means it is only meaningful if every writer and every reader agree about which clock they meant &mdash; and they will not, because one of them is a batch job that runs on a machine in a different region and one of them is a laptop in October. <code>TIMESTAMPTZ</code> stores an instant. It maps to <code>java.time.Instant</code>, it survives a daylight-saving boundary, and it makes &ldquo;when did this happen&rdquo; a question with one answer. The only cost is that you must remember it does not store the zone the event happened <em>in</em> &mdash; if that is business data, it is a second column.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/persistence/LinkEntity.java
+package info.jaspreet.shortlink.persistence;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.Objects;
+
+/**
+ * The table, as Hibernate needs to see it: a class with a no-arg
+ * constructor and mutable fields. This is the one place in the service
+ * where "make it a record" is not the answer -- Hibernate constructs
+ * instances reflectively and populates them afterwards, and a record has
+ * nothing to populate.
+ *
+ * It stays package-private to the persistence layer as far as the compiler
+ * allows, and nothing outside this package ever sees one: the repository
+ * hands back domain records.
+ */
+@Entity
+@Table(name = "links")
+public class LinkEntity {
+
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
+
+  @Column(nullable = false, updatable = false)
+  private String code;
+
+  @Column(name = "target_url", nullable = false)
+  private String targetUrl;
+
+  @Column(name = "owner_id", nullable = false, updatable = false)
+  private String ownerId;
+
+  @Column(name = "idempotency_key", updatable = false)
+  private String idempotencyKey;
+
+  @Column(name = "created_at", nullable = false, updatable = false)
+  private Instant createdAt;
+
+  @Column(name = "expires_at")
+  private Instant expiresAt;
+
+  protected LinkEntity() {
+    // for Hibernate, and for nobody else
+  }
+
+  LinkEntity(String code, String targetUrl, String ownerId,
+             String idempotencyKey, Instant createdAt, Instant expiresAt) {
+    this.code = code;
+    this.targetUrl = targetUrl;
+    this.ownerId = ownerId;
+    this.idempotencyKey = idempotencyKey;
+    this.createdAt = createdAt;
+    this.expiresAt = expiresAt;
+  }
+
+  // equals and hashCode over the natural key, not over the id. The id is
+  // null until the row is flushed, so an entity added to a HashSet before
+  // the flush and looked up after it would be gone -- the hash changed
+  // while the object was in the bucket. code is assigned before persist
+  // and never updated, so it is stable for the object's whole life, which
+  // is exactly what the collections topic said the contract requires.
+  @Override
+  public boolean equals(Object other) {
+    return other instanceof LinkEntity that &amp;&amp; Objects.equals(code, that.code);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(code);
+  }
+
+  Long getId() { return id; }
+  String getCode() { return code; }
+  String getTargetUrl() { return targetUrl; }
+  String getOwnerId() { return ownerId; }
+  String getIdempotencyKey() { return idempotencyKey; }
+  Instant getCreatedAt() { return createdAt; }
+  Instant getExpiresAt() { return expiresAt; }
+
+  void setTargetUrl(String targetUrl) { this.targetUrl = targetUrl; }
+  void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
+}</pre>
+
+      <div class="note warn">
+        <h4><code>IDENTITY</code> silently turns off insert batching, and the property that claims otherwise stays in your YAML</h4>
+        <p><code>hibernate.jdbc.batch_size: 50</code> is in the configuration above and it is doing nothing for inserts into this table. To batch inserts, Hibernate has to hold several rows and send them together; to return the generated id of a row, it has to send that row on its own and read back what the database assigned. <code>GenerationType.IDENTITY</code> asks for the second, so it gets the second. For a service that writes one row per request &mdash; this one &mdash; that is free, and IDENTITY is the simpler schema. For anything that imports in bulk, switch the id to a <code>SEQUENCE</code> with an allocation size, let Hibernate pre-allocate a block of ids, and the batching starts working. Knowing <em>why</em> your batch setting is inert is the difference between tuning and guessing.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-repo">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>The repository, and the race you cannot check for</h3>
+        <p class="lede">Two requests arrive at the same millisecond with the same <code>Idempotency-Key</code>. Both look for an existing link, both find nothing, both insert. Reading before writing does not fix that and no amount of application code can, because the gap between the read and the write is where the other request lives. The database closes the gap; the interesting part in Java is that catching the violation is not allowed to happen where you would naturally write it.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/persistence/LinkRecordRepository.java
+package info.jaspreet.shortlink.persistence;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.domain.Limit;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+interface LinkRecordRepository extends JpaRepository&lt;LinkEntity, Long&gt; {
+
+  // Derived queries. The method name is the query, which means renaming
+  // the method is a schema-level change and not a refactor -- one reason
+  // to keep this interface small and its names boring.
+  Optional&lt;LinkEntity&gt; findByCode(String code);
+
+  Optional&lt;LinkEntity&gt; findByOwnerIdAndIdempotencyKey(String ownerId, String idempotencyKey);
+
+  List&lt;LinkEntity&gt; findByOwnerIdOrderByCreatedAtDesc(String ownerId, Limit limit);
+
+  // Written out, because the derived form of "delete only if it is yours"
+  // reads worse than the JPQL and this one has to be exactly right.
+  @Modifying
+  @Query("delete from LinkEntity l where l.code = :code and l.ownerId = :ownerId")
+  int deleteOwnedByCode(@Param("code") String code, @Param("ownerId") String ownerId);
+
+  @Modifying
+  @Query("delete from LinkEntity l where l.expiresAt &lt; :cutoff")
+  int deleteExpiredBefore(@Param("cutoff") Instant cutoff);
+}</pre>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/persistence/LinkWriter.java
+package info.jaspreet.shortlink.persistence;
+
+import info.jaspreet.shortlink.error.ShortlinkException.CodeTaken;
+import info.jaspreet.shortlink.error.ShortlinkException.IdempotencyClash;
+import java.time.Instant;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * The insert, alone, in a transaction of its own -- and this is the whole
+ * point of the class existing rather than being a method on the service.
+ *
+ * A constraint violation marks the current transaction rollback-only. You
+ * cannot catch it and carry on inside the same transaction: the next
+ * statement fails with "Transaction silently rolled back" and the real
+ * cause is three frames further back. So the attempt that might fail gets
+ * its own boundary, and the caller's catch block sits outside it, where
+ * there is nothing broken to continue.
+ *
+ * REQUIRES_NEW rather than the default, so this stays true on the day
+ * somebody annotates the service. And a separate bean rather than a
+ * private method, because @Transactional is a proxy and a call to this.x()
+ * never touches it.
+ */
+@Component
+public class LinkWriter {
+
+  private static final String CODE_UNIQUE = "links_code_key";
+  private static final String IDEMPOTENCY_UNIQUE = "links_owner_idempotency_key";
+
+  private final LinkRecordRepository rows;
+
+  LinkWriter(LinkRecordRepository rows) {
+    this.rows = rows;
+  }
+
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public LinkEntity insert(String code, String targetUrl, String ownerId,
+                           String idempotencyKey, Instant createdAt, Instant expiresAt) {
+    var row = new LinkEntity(code, targetUrl, ownerId, idempotencyKey, createdAt, expiresAt);
+    try {
+      // saveAndFlush, not save. save() only queues the insert; without the
+      // flush the violation surfaces when the transaction commits, which
+      // is after this method returns and outside this try block.
+      return rows.saveAndFlush(row);
+    } catch (DataIntegrityViolationException e) {
+      // Translate infrastructure into domain here, so that nothing above
+      // this package has to know Hibernate exists. Java 21's switch over
+      // a String with a null label makes the three cases explicit.
+      throw switch (constraintOf(e)) {
+        case CODE_UNIQUE -&gt; new CodeTaken(code);
+        case IDEMPOTENCY_UNIQUE -&gt; new IdempotencyClash(idempotencyKey);
+        case null, default -&gt; e;   // some other constraint: not ours to explain
+      };
+    }
+  }
+
+  private static String constraintOf(DataIntegrityViolationException e) {
+    return e.getCause() instanceof ConstraintViolationException violation
+        ? violation.getConstraintName()
+        : null;
+  }
+}</pre>
+
+      <div class="note warn">
+        <h4>Why not just check first?</h4>
+        <p>Because <code>findByOwnerIdAndIdempotencyKey</code> followed by <code>insert</code> is two statements with a gap, and under <code>READ COMMITTED</code> &mdash; Postgres&rsquo; default and almost certainly yours &mdash; another transaction can commit inside that gap. The check is still worth doing as the fast path, because the overwhelmingly common case is a retry seconds later and a read is cheaper than a failed insert; it just cannot be the guarantee. The guarantee is the index. Everything else is an optimisation, and describing it that way in an interview is most of the answer.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/service/LinkService.java
+package info.jaspreet.shortlink.service;
+
+import info.jaspreet.shortlink.domain.CodeGenerator;
+import info.jaspreet.shortlink.domain.Link;
+import info.jaspreet.shortlink.domain.ShortCode;
+import info.jaspreet.shortlink.domain.TargetUrl;
+import info.jaspreet.shortlink.error.ShortlinkException.AliasTaken;
+import info.jaspreet.shortlink.error.ShortlinkException.CodeTaken;
+import info.jaspreet.shortlink.error.ShortlinkException.IdempotencyClash;
+import info.jaspreet.shortlink.error.ShortlinkException.LinkExpired;
+import info.jaspreet.shortlink.error.ShortlinkException.LinkNotFound;
+import info.jaspreet.shortlink.error.ShortlinkException.NoCodeAvailable;
+import info.jaspreet.shortlink.persistence.LinkStore;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+
+/**
+ * The use cases, and the only place the business rules are sequenced.
+ * No HttpServletRequest, no ResponseEntity, no status codes -- everything
+ * here would work unchanged from a message consumer or a CLI, which is the
+ * test for whether a service layer is worth having at all.
+ *
+ * There is no @Service on it either, and no Spring import in this file at
+ * all. It is a plain object with four constructor arguments; the
+ * configuration class decides what those are. That costs four lines there
+ * and buys a rule ArchUnit can state without exceptions -- the service
+ * package does not depend on the framework -- plus a constructor a test
+ * can call with a fake clock and no context at all.
+ */
+public class LinkService {
+
+  private static final int MAX_CODE_ATTEMPTS = 5;
+
+  private final LinkStore links;
+  private final CodeGenerator codes;
+  private final Clock clock;
+  private final Duration defaultTtl;
+
+  public LinkService(LinkStore links, CodeGenerator codes, Clock clock, Duration defaultTtl) {
+    this.links = links;
+    this.codes = codes;
+    this.clock = clock;          // injected, so a test can freeze time
+    this.defaultTtl = defaultTtl;
+  }
+
+  /** Everything one create needs, so the signature cannot be called wrong. */
+  public record NewLink(String ownerId, TargetUrl target,
+                        ShortCode alias, Duration ttl, String idempotencyKey) {}
+
+  public Link shorten(NewLink request) {
+    // The fast path: a client retrying after a timeout, seconds later.
+    if (request.idempotencyKey() != null) {
+      var existing = links.findByIdempotencyKey(request.ownerId(), request.idempotencyKey());
+      if (existing.isPresent()) {
+        return existing.get();
+      }
+    }
+
+    Instant now = clock.instant();
+    Instant expiresAt = now.plus(request.ttl() == null ? defaultTtl : request.ttl());
+
+    for (int attempt = 1; attempt &lt;= MAX_CODE_ATTEMPTS; attempt++) {
+      ShortCode code = request.alias() != null ? request.alias() : codes.next();
+      try {
+        return links.insert(code, request, now, expiresAt);
+      } catch (IdempotencyClash clash) {
+        // The slow path: a genuine race. The other request won, and its
+        // link is the correct answer to both of them.
+        return links.findByIdempotencyKey(request.ownerId(), request.idempotencyKey())
+            .orElseThrow(() -&gt; new IllegalStateException("clash with no winner", clash));
+      } catch (CodeTaken taken) {
+        // A caller's chosen alias is a 409 they can act on. A generated
+        // code that collided is our problem, and the fix is another code.
+        if (request.alias() != null) {
+          throw new AliasTaken(code);
+        }
+      }
+    }
+    throw new NoCodeAvailable(MAX_CODE_ATTEMPTS);
+  }
+
+  public Link resolve(ShortCode code) {
+    Link link = links.findByCode(code).orElseThrow(() -&gt; new LinkNotFound(code));
+    if (link.isExpired(clock.instant())) {
+      // Deliberately not 404: a client that gets "gone" can stop retrying,
+      // and an operator reading the logs can tell the two apart.
+      throw new LinkExpired(code);
+    }
+    return link;
+  }
+
+  public Link readOwned(String ownerId, ShortCode code) {
+    return links.findByCode(code)
+        .filter(link -&gt; link.ownerId().equals(ownerId))
+        .orElseThrow(() -&gt; new LinkNotFound(code));
+  }
+
+  public List&lt;Link&gt; listOwned(String ownerId, int limit) {
+    return links.listOwned(ownerId, Math.clamp(limit, 1, 500));
+  }
+
+  public void delete(String ownerId, ShortCode code) {
+    if (links.deleteOwned(ownerId, code) == 0) {
+      // Zero rows means it does not exist or it is not yours, and the API
+      // says the same thing for both. Telling an unauthorised caller that
+      // a code exists is how you enumerate a database.
+      throw new LinkNotFound(code);
+    }
+  }
+}</pre>
+
+      <p><code>LinkStore</code> is a small interface in the persistence package &mdash; <code>findByCode</code>, <code>findByIdempotencyKey</code>, <code>insert</code>, <code>deleteOwned</code> &mdash; implemented by a class that owns the repository and the writer and does the entity-to-domain mapping. It exists so that the service depends on four methods it defined rather than on the twenty <code>JpaRepository</code> supplies, and so that <code>ArchitectureTest</code> can say the service package does not import Spring Data at all.</p>
+    </section>
+
+    <section class="topic" id="svc-api">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>The HTTP edge, and the beans that wire it</h3>
+        <p class="lede">The controllers are thin on purpose. Everything they do is HTTP: bind a body, resolve who is calling, pick a status code, build a <code>Location</code> header. Every decision that would still be a decision if this were a queue consumer has already happened one layer down.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/web/LinkController.java
+package info.jaspreet.shortlink.web;
+
+import info.jaspreet.shortlink.domain.Link;
+import info.jaspreet.shortlink.domain.ShortCode;
+import info.jaspreet.shortlink.config.ShortlinkProperties;
+import info.jaspreet.shortlink.domain.TargetUrl;
+import info.jaspreet.shortlink.security.ApiKey;
+import info.jaspreet.shortlink.service.LinkService;
+import info.jaspreet.shortlink.service.LinkService.NewLink;
+import info.jaspreet.shortlink.web.LinkDtos.CreateLinkRequest;
+import info.jaspreet.shortlink.web.LinkDtos.LinkResponse;
+import jakarta.validation.Valid;
+import java.net.URI;
+import java.time.Duration;
+import java.util.List;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/v1/links")
+class LinkController {
+
+  private final LinkService links;
+  private final URI publicBaseUrl;
+
+  LinkController(LinkService links, ShortlinkProperties properties) {
+    this.links = links;
+    this.publicBaseUrl = properties.publicBaseUrl();
+  }
+
+  // 201 with a Location header, because the request created a resource and
+  // the caller should not have to build its URL by string concatenation.
+  @PostMapping
+  ResponseEntity&lt;LinkResponse&gt; create(
+      @Valid @RequestBody CreateLinkRequest body,
+      @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
+      @AuthenticationPrincipal ApiKey caller) {
+
+    // The two parses are the layer boundary made concrete: strings arrive,
+    // value objects go on. Both throw IllegalArgumentException, which the
+    // advice turns into a 400 with the message -- see the next topic.
+    var request = new NewLink(
+        caller.ownerId(),
+        TargetUrl.parse(body.url()),
+        body.alias() == null ? null : new ShortCode(body.alias()),
+        body.ttlDays() == null ? null : Duration.ofDays(body.ttlDays()),
+        idempotencyKey);
+
+    Link link = links.shorten(request);
+    return ResponseEntity.created(shortUrl(link)).body(toResponse(link));
+  }
+
+  @GetMapping("/{code}")
+  LinkResponse read(@PathVariable String code, @AuthenticationPrincipal ApiKey caller) {
+    return toResponse(links.readOwned(caller.ownerId(), new ShortCode(code)));
+  }
+
+  @GetMapping
+  List&lt;LinkResponse&gt; list(@AuthenticationPrincipal ApiKey caller) {
+    return links.listOwned(caller.ownerId(), 100).stream()
+        .map(this::toResponse)
+        .toList();
+  }
+
+  // 204: it is gone, there is nothing to say about it, and a body on a
+  // delete is a thing clients start depending on.
+  @DeleteMapping("/{code}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void delete(@PathVariable String code, @AuthenticationPrincipal ApiKey caller) {
+    links.delete(caller.ownerId(), new ShortCode(code));
+  }
+
+  private URI shortUrl(Link link) {
+    return publicBaseUrl.resolve("/" + link.code().value());
+  }
+
+  private LinkResponse toResponse(Link link) {
+    return new LinkResponse(
+        link.code().value(),
+        shortUrl(link).toString(),
+        link.target().value().toString(),
+        link.createdAt(),
+        link.expiresAt());
+  }
+}</pre>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/web/RedirectController.java
+package info.jaspreet.shortlink.web;
+
+import info.jaspreet.shortlink.domain.Link;
+import info.jaspreet.shortlink.domain.ShortCode;
+import info.jaspreet.shortlink.service.LinkService;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * The only unauthenticated route in the service, and the only one that
+ * gets any real traffic. It is a separate controller from the management
+ * API because it has a different audience, a different security rule and a
+ * different failure budget -- and because "/{code}" at the root would be a
+ * frightening thing to find in a class also mapped to /v1/links.
+ */
+@RestController
+class RedirectController {
+
+  private final LinkService links;
+
+  RedirectController(LinkService links) {
+    this.links = links;
+  }
+
+  // The regex in the path variable is load-bearing: without it this maps
+  // every single-segment path in the application, including ones a future
+  // route wants. With it, only things shaped like a code get here.
+  @GetMapping("/{code:[a-z0-9]{4,32}}")
+  ResponseEntity&lt;Void&gt; follow(@PathVariable String code) {
+    Link link = links.resolve(new ShortCode(code));
+    return ResponseEntity.status(HttpStatus.FOUND)
+        .location(link.target().value())
+        .cacheControl(CacheControl.noStore())
+        .build();
+  }
+}</pre>
+
+      <div class="note warn">
+        <h4>302 and <code>no-store</code>, not 301 &mdash; and this is not a style preference</h4>
+        <p>A 301 is <em>permanent</em>, and browsers treat it that way: Chrome will cache it, often for the life of the profile, and will not ask you again. Ship a 301 and you have given away the three things a link shortener exists to have. You can never re-point the link, because the browser stops asking. You can never expire or delete it, for the same reason. And your click metrics fall off a cliff, because after the first visit each user redirects locally and you never see it. The 301 is faster for the user by exactly one round trip and costs you the product. Send 302 with <code>Cache-Control: no-store</code>, and if the latency ever genuinely matters, buy it back at the CDN where you can still purge.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/ShortlinkApplication.java
+package info.jaspreet.shortlink;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+
+@SpringBootApplication
+@ConfigurationPropertiesScan
+public class ShortlinkApplication {
+
+  public static void main(String[] args) {
+    SpringApplication.run(ShortlinkApplication.class, args);
+  }
+}</pre>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/config/ShortlinkConfig.java
+package info.jaspreet.shortlink.config;
+
+import info.jaspreet.shortlink.domain.CodeGenerator;
+import info.jaspreet.shortlink.persistence.LinkStore;
+import info.jaspreet.shortlink.service.LinkService;
+import java.time.Clock;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * The four lines that pay for a framework-free service package. Every bean
+ * here is a plain object whose dependencies are explicit at the call site,
+ * which is also the reason this file is worth reading first when you are
+ * new: it is the whole object graph on one screen.
+ */
+@Configuration
+class ShortlinkConfig {
+
+  // Never Instant.now() inside a method. A clock you can inject is a test
+  // that can be about expiry without being about sleeping.
+  @Bean
+  Clock clock() {
+    return Clock.systemUTC();
+  }
+
+  @Bean
+  CodeGenerator codeGenerator(ShortlinkProperties properties) {
+    return new CodeGenerator(properties.codeLength());
+  }
+
+  @Bean
+  LinkService linkService(LinkStore links, CodeGenerator codes,
+                          Clock clock, ShortlinkProperties properties) {
+    return new LinkService(links, codes, clock, properties.defaultTtl());
+  }
+}</pre>
+    </section>
+
+    <section class="topic" id="svc-errors">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Failure is part of the contract</h3>
+        <p class="lede">A service has two APIs and only one of them is documented. The other is what happens when things go wrong, and it is the one a client actually integrates against: which status codes mean retry, which mean stop, and whether the body is parseable when it is not a 200. Spring gives you <code>ProblemDetail</code> for the shape; a sealed hierarchy gives you a compiler that will not let you forget a case.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/error/ShortlinkException.java
+package info.jaspreet.shortlink.error;
+
+import info.jaspreet.shortlink.domain.ShortCode;
+
+/**
+ * Every failure this service raises on purpose, in one sealed hierarchy.
+ *
+ * Sealed is the point. The handler switches over this type, and because
+ * the compiler knows the complete list of subclasses it will reject the
+ * switch the moment somebody adds a seventh -- so a new failure mode
+ * cannot reach a client as an unmapped 500 six weeks later. That is the
+ * same guarantee the sealed-interfaces topic promised, applied to the one
+ * place in a service where "I forgot a case" is most expensive.
+ *
+ * Note what is not here: no status codes, no HTTP. This package is
+ * importable from a batch job.
+ */
+public abstract sealed class ShortlinkException extends RuntimeException {
+
+  protected ShortlinkException(String message) {
+    // No cause, no stack trace filled in for the expected ones: these are
+    // control flow, not incidents, and a stack trace per 404 is a bill.
+    super(message, null, false, false);
+  }
+
+  public static final class LinkNotFound extends ShortlinkException {
+    public LinkNotFound(ShortCode code) {
+      super("no link with code " + code.value());
+    }
+  }
+
+  public static final class LinkExpired extends ShortlinkException {
+    public LinkExpired(ShortCode code) {
+      super("link " + code.value() + " has expired");
+    }
+  }
+
+  public static final class AliasTaken extends ShortlinkException {
+    public AliasTaken(ShortCode code) {
+      super("the alias " + code.value() + " is already in use");
+    }
+  }
+
+  public static final class CodeTaken extends ShortlinkException {
+    public CodeTaken(String code) {
+      super("code " + code + " is already in use");
+    }
+  }
+
+  public static final class IdempotencyClash extends ShortlinkException {
+    public IdempotencyClash(String key) {
+      super("concurrent request with idempotency key " + key);
+    }
+  }
+
+  public static final class NoCodeAvailable extends ShortlinkException {
+    public NoCodeAvailable(int attempts) {
+      super("no free code after " + attempts + " attempts");
+    }
+  }
+}</pre>
+
+      <p>A sealed class whose subclasses are nested inside it needs no <code>permits</code> clause &mdash; the compiler takes the enclosing file as the permitted set, which is exactly the boundary you want here. Now the one place that knows these are HTTP.</p>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/web/ApiExceptionHandler.java
+package info.jaspreet.shortlink.web;
+
+import info.jaspreet.shortlink.error.ShortlinkException;
+import info.jaspreet.shortlink.error.ShortlinkException.AliasTaken;
+import info.jaspreet.shortlink.error.ShortlinkException.CodeTaken;
+import info.jaspreet.shortlink.error.ShortlinkException.IdempotencyClash;
+import info.jaspreet.shortlink.error.ShortlinkException.LinkExpired;
+import info.jaspreet.shortlink.error.ShortlinkException.LinkNotFound;
+import info.jaspreet.shortlink.error.ShortlinkException.NoCodeAvailable;
+import java.net.URI;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+/**
+ * One advice, one media type, one shape. RFC 9457 problem+json, which is
+ * what Spring's ProblemDetail already produces, so the framework's own
+ * 404s and 415s match the ones written here instead of being a second,
+ * undocumented error format the client also has to parse.
+ */
+@RestControllerAdvice
+class ApiExceptionHandler {
+
+  private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+  private static final String TYPES = "https://study.jaspreet.info/problems/";
+
+  @ExceptionHandler(ShortlinkException.class)
+  ProblemDetail onDomainFailure(ShortlinkException failure) {
+    // Exhaustive over a sealed type: no default branch, and adding a
+    // subclass to the hierarchy breaks this build rather than production.
+    ProblemDetail problem = switch (failure) {
+      case LinkNotFound e -&gt; of(HttpStatus.NOT_FOUND, "Link not found", e, "link-not-found");
+      case LinkExpired e -&gt; of(HttpStatus.GONE, "Link expired", e, "link-expired");
+      case AliasTaken e -&gt; of(HttpStatus.CONFLICT, "Alias taken", e, "alias-taken");
+      case CodeTaken e -&gt; of(HttpStatus.CONFLICT, "Code taken", e, "code-taken");
+      case IdempotencyClash e -&gt; of(HttpStatus.CONFLICT, "Request in flight", e, "in-flight");
+      case NoCodeAvailable e -&gt; of(HttpStatus.SERVICE_UNAVAILABLE, "Try again", e, "no-code");
+    };
+    return problem;
+  }
+
+  // Bean validation failures: 400, and say which field, because "invalid
+  // request" costs the caller an hour and costs you a support ticket.
+  @ExceptionHandler(MethodArgumentNotValidException.class)
+  ProblemDetail onInvalidBody(MethodArgumentNotValidException invalid) {
+    ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+        HttpStatus.BAD_REQUEST, "One or more fields are invalid");
+    problem.setTitle("Invalid request");
+    problem.setType(URI.create(TYPES + "invalid-request"));
+    problem.setProperty("errors", invalid.getBindingResult().getFieldErrors().stream()
+        .map(field -&gt; java.util.Map.of(
+            "field", field.getField(),
+            "message", String.valueOf(field.getDefaultMessage())))
+        .toList());
+    return problem;
+  }
+
+  // The value objects reject bad input by throwing this, and a rejected
+  // URL is the caller's mistake, not ours.
+  @ExceptionHandler(IllegalArgumentException.class)
+  ProblemDetail onIllegalArgument(IllegalArgumentException bad) {
+    ProblemDetail problem =
+        ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, bad.getMessage());
+    problem.setTitle("Invalid request");
+    problem.setType(URI.create(TYPES + "invalid-request"));
+    return problem;
+  }
+
+  // The catch-all. Log everything, tell the client nothing: a stack trace
+  // in a response body is a map of your dependencies and their versions.
+  @ExceptionHandler(Exception.class)
+  ProblemDetail onUnexpected(Exception unexpected) {
+    log.error("unhandled exception", unexpected);
+    ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+        HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error");
+    problem.setTitle("Internal server error");
+    problem.setType(URI.create(TYPES + "internal"));
+    return problem;
+  }
+
+  private static ProblemDetail of(HttpStatus status, String title,
+                                  ShortlinkException failure, String type) {
+    ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, failure.getMessage());
+    problem.setTitle(title);
+    problem.setType(URI.create(TYPES + type));
+    return problem;
+  }
+}</pre>
+
+<pre class="l1">$ curl -sS -i -X POST localhost:8080/v1/links \
+    -H 'Authorization: Bearer sl_live_notarealkey' \
+    -H 'Content-Type: application/json' \
+    -d '{"url":"javascript:alert(1)"}'
+HTTP/1.1 400
+Content-Type: application/problem+json
+
+{
+  "type": "https://study.jaspreet.info/problems/invalid-request",
+  "title": "Invalid request",
+  "status": 400,
+  "detail": "only http and https can be shortened",
+  "instance": "/v1/links"
+}
+
+# and the one every client actually codes against:
+$ curl -sS -o /dev/null -w '%{http_code}\n' localhost:8080/gone4evr
+410</pre>
+
+      <div class="note warn">
+        <h4>The catch-all advice will swallow your framework&rsquo;s errors if you let it</h4>
+        <p><code>@ExceptionHandler(Exception.class)</code> is broad enough to catch things Spring already handles well &mdash; a 404 for an unmapped route, a 405, a 415 for the wrong content type &mdash; and turn all of them into your 500. Spring resolves the <em>most specific</em> handler, so the built-in <code>ResponseEntityExceptionHandler</code> paths still win as long as you do not also extend that class and override them badly; but the moment somebody adds a handler for <code>RuntimeException</code> the ordering becomes something you have to reason about. Two habits keep this safe: extend <code>ResponseEntityExceptionHandler</code> when you want to customise the framework&rsquo;s own errors rather than shadowing them, and write a test that asserts a request to <code>/nope</code> is still a 404 with problem+json. That test has caught this for me more than once.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-auth">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Who is calling, and how often</h3>
+        <p class="lede">Two controls, and they fail in opposite directions. Authentication decides whether a request happens at all, so it must be impossible to skip &mdash; which is why it is a filter chain rule and not a check at the top of a method somebody will forget. Rate limiting decides how much of you one caller gets, so it must be shared across every replica &mdash; which is why it is in Redis and not in a field.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/config/SecurityConfig.java
+package info.jaspreet.shortlink.config;
+
+import info.jaspreet.shortlink.security.ApiKeyFilter;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+@Configuration
+@EnableWebSecurity
+class SecurityConfig {
+
+  @Bean
+  SecurityFilterChain filterChain(HttpSecurity http, ApiKeyFilter apiKeys) throws Exception {
+    return http
+        // No cookies, no sessions, no browser form anywhere in this service,
+        // so there is no credential a browser attaches automatically and
+        // therefore nothing for CSRF to forge. Disabling it here is correct
+        // and disabling it in a cookie-session app is a vulnerability; the
+        // difference is the whole reason to write this comment rather than
+        // copy the line.
+        .csrf(csrf -&gt; csrf.disable())
+        .sessionManagement(s -&gt; s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .httpBasic(AbstractHttpConfigurer::disable)
+        .formLogin(AbstractHttpConfigurer::disable)
+
+        .authorizeHttpRequests(auth -&gt; auth
+            .requestMatchers("/actuator/health/**").permitAll()
+            .requestMatchers(HttpMethod.GET, "/{code:[a-z0-9]{4,32}}").permitAll()
+            .requestMatchers("/v1/**").authenticated()
+            // Everything not named above is denied. The alternative,
+            // anyRequest().permitAll(), means the next route somebody adds
+            // is public until they remember it should not be.
+            .anyRequest().denyAll())
+
+        .addFilterBefore(apiKeys, UsernamePasswordAuthenticationFilter.class)
+
+        .exceptionHandling(e -&gt; e
+            .authenticationEntryPoint((request, response, failure) -&gt; {
+              response.setStatus(401);
+              response.setHeader("WWW-Authenticate", "Bearer");
+              response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+              response.getWriter().write("""
+                  {"type":"https://study.jaspreet.info/problems/unauthorized",\
+                  "title":"Unauthorized","status":401,\
+                  "detail":"a valid API key is required"}""");
+            }))
+
+        .headers(Customizer.withDefaults())
+        .build();
+  }
+}</pre>
+
+      <p>Note what the filter does <em>not</em> do below: it never rejects a request. A missing or unusable key leaves the security context empty and the chain carries on, and the rule in <code>authorizeHttpRequests</code> is what produces the 401 through the entry point above. Filters that write their own 401s end up with two answers for the same question, and the one they write is always the one that forgets the <code>WWW-Authenticate</code> header.</p>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/security/ApiKey.java
+package info.jaspreet.shortlink.security;
+
+/** Who is calling. A record, so nothing downstream can edit it. */
+public record ApiKey(String ownerId, String label) {}
+
+
+// src/main/java/info/jaspreet/shortlink/security/ApiKeyFilter.java
+package info.jaspreet.shortlink.security;
+
+import info.jaspreet.shortlink.persistence.ApiKeyStore;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.List;
+import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+@Component
+public class ApiKeyFilter extends OncePerRequestFilter {
+
+  private static final String SCHEME = "Bearer ";
+
+  private final ApiKeyStore keys;
+  private final RateLimiter limiter;
+
+  ApiKeyFilter(ApiKeyStore keys, RateLimiter limiter) {
+    this.keys = keys;
+    this.limiter = limiter;
+  }
+
+  @Override
+  protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                                  FilterChain chain) throws ServletException, IOException {
+    String header = request.getHeader("Authorization");
+    if (header != null &amp;&amp; header.startsWith(SCHEME)) {
+      String presented = header.substring(SCHEME.length()).trim();
+      String digest = sha256Hex(presented);
+
+      // The lookup is by hash, so a database that leaks tells an attacker
+      // nothing usable: they get the digests, and a 256-bit random key is
+      // not coming back out of one.
+      keys.findActiveByHash(digest)
+          // Redundant on its face -- we found the row by this hash -- and
+          // kept anyway, because it is the line that stays correct if the
+          // lookup ever becomes a prefix scan or a cache. Constant time,
+          // so no attacker learns anything from how long a miss took.
+          .filter(stored -&gt; MessageDigest.isEqual(
+              stored.keyHash().getBytes(StandardCharsets.UTF_8),
+              digest.getBytes(StandardCharsets.UTF_8)))
+          .ifPresent(stored -&gt; authenticate(new ApiKey(stored.ownerId(), stored.label())));
+    }
+
+    // No key, or a key we do not know: the context stays empty and the
+    // authorization rules decide. This filter has no opinion about 401.
+    var caller = SecurityContextHolder.getContext().getAuthentication();
+    if (caller != null &amp;&amp; caller.getPrincipal() instanceof ApiKey key
+        &amp;&amp; !limiter.tryAcquire(key.ownerId())) {
+      tooManyRequests(response);
+      return;
+    }
+    try {
+      chain.doFilter(request, response);
+    } finally {
+      // A pooled thread outlives the request. Clearing is not optional.
+      SecurityContextHolder.clearContext();
+    }
+  }
+
+  private static void authenticate(ApiKey key) {
+    var token = new UsernamePasswordAuthenticationToken(
+        key, null, List.of(new SimpleGrantedAuthority("ROLE_API")));
+    SecurityContextHolder.getContext().setAuthentication(token);
+  }
+
+  private void tooManyRequests(HttpServletResponse response) throws IOException {
+    response.setStatus(429);
+    response.setHeader("Retry-After", "60");   // seconds, and mean it
+    response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+    response.getWriter().write("""
+        {"type":"https://study.jaspreet.info/problems/rate-limited",\
+        "title":"Too many requests","status":429,\
+        "detail":"the per-minute quota for this key is spent"}""");
+  }
+
+  private static String sha256Hex(String value) {
+    try {
+      var sha256 = MessageDigest.getInstance("SHA-256");
+      return HexFormat.of().formatHex(sha256.digest(value.getBytes(StandardCharsets.UTF_8)));
+    } catch (NoSuchAlgorithmException impossible) {
+      throw new IllegalStateException("every JVM has SHA-256", impossible);
+    }
+  }
+}</pre>
+
+      <div class="note warn">
+        <h4>SHA-256 for an API key, bcrypt for a password &mdash; and swapping them is a bug both ways</h4>
+        <p>A password is a low-entropy secret a human chose, so the defence against a stolen hash table is to make each guess expensive: bcrypt, scrypt or argon2, deliberately slow, with a per-row salt. An API key is 256 bits from <code>SecureRandom</code>; there is no dictionary to run against it and no amount of GPU that gets through the search space, so a plain SHA-256 is enough. It is also <em>necessary</em> &mdash; put bcrypt on the API key path and you have added a hundred milliseconds of CPU to every single request, which at any real rate is a fleet of pods spent hashing. Use a fast hash for high-entropy secrets and a slow one for human-chosen ones, and be able to say why in one sentence, because this is asked constantly.</p>
+        <p style="margin:0">The other half of the rule is the key&rsquo;s life: generate it with <code>SecureRandom</code>, show the plaintext to the user exactly once at creation, store only the digest, and give every key a <code>revoked_at</code> so revocation is an update rather than a delete you cannot audit. A prefix like <code>sl_live_</code> costs nothing and lets a secret scanner find it in a public repository before an attacker does.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/security/RateLimiter.java
+package info.jaspreet.shortlink.security;
+
+import info.jaspreet.shortlink.config.ShortlinkProperties;
+import java.time.Duration;
+import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.stereotype.Component;
+
+/**
+ * A fixed window counter in Redis. Not a HashMap: four replicas each with
+ * their own map give a caller four times the quota, and a deploy resets
+ * everyone's limit to zero -- which is exactly when you least want it.
+ */
+@Component
+public class RateLimiter {
+
+  private static final Logger log = LoggerFactory.getLogger(RateLimiter.class);
+
+  // Two commands as one round trip and one atomic step. INCR then EXPIRE
+  // as separate calls has a window where the process dies in between and
+  // leaves a key with no TTL -- which bans that caller permanently.
+  private static final RedisScript&lt;Long&gt; INCREMENT = new DefaultRedisScript&lt;&gt;("""
+      local hits = redis.call('INCR', KEYS[1])
+      if hits == 1 then
+        redis.call('PEXPIRE', KEYS[1], ARGV[1])
+      end
+      return hits
+      """, Long.class);
+
+  private final StringRedisTemplate redis;
+  private final int permitted;
+  private final Duration window;
+
+  RateLimiter(StringRedisTemplate redis, ShortlinkProperties properties) {
+    this.redis = redis;
+    this.permitted = properties.rateLimit().perMinute();
+    this.window = properties.rateLimit().window();
+  }
+
+  public boolean tryAcquire(String ownerId) {
+    // The key carries the window, so the old window's key expires on its
+    // own and there is nothing to clean up.
+    long bucket = System.currentTimeMillis() / window.toMillis();
+    String key = "rl:" + ownerId + ":" + bucket;
+    try {
+      Long hits = redis.execute(INCREMENT, List.of(key), String.valueOf(window.toMillis()));
+      return hits == null || hits &lt;= permitted;
+    } catch (RuntimeException redisIsDown) {
+      // Fail open, and say so loudly. A limiter that fails closed turns a
+      // Redis blip into a total outage, which is a worse day than a minute
+      // of unlimited traffic. If the limit is protecting something that
+      // cannot survive that -- a payment endpoint, a third-party quota --
+      // then fail closed instead, on purpose, and write that down.
+      log.warn("rate limiter unavailable, allowing request", redisIsDown);
+      return true;
+    }
+  }
+}
+
+// A fixed window lets a caller spend 2x the quota across a boundary: sixty
+// at 11:59:59 and sixty more at 12:00:00. For an API key that is fine and
+// the simplicity is worth it. When it is not, the next step is a sliding
+// window log or a token bucket -- both are the same INCR-in-Lua shape with
+// more arithmetic, and both still live in Redis for the same reason.</pre>
+    </section>
+
+    <section class="topic" id="svc-obs">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Logs, metrics, and the two health checks</h3>
+        <p class="lede">The question you are building for is &ldquo;a customer says their request failed at 14:32, what happened&rdquo;, and it has to be answerable from a laptop in under a minute. That needs three things: every log line from one request carrying the same id, metrics you did not have to invent, and two health endpoints that answer genuinely different questions.</p>
+      </div>
+
+<pre class="l2">// src/main/java/info/jaspreet/shortlink/web/RequestIdFilter.java
+package info.jaspreet.shortlink.web;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.UUID;
+import java.util.regex.Pattern;
+import org.slf4j.MDC;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
+public class RequestIdFilter extends OncePerRequestFilter {
+
+  private static final String HEADER = "X-Request-Id";
+  // An id from outside goes into every log line. Unvalidated, that is a
+  // log injection: a newline in the header writes a fake log entry.
+  private static final Pattern SAFE = Pattern.compile("[A-Za-z0-9._-]{1,64}");
+
+  @Override
+  protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                                  FilterChain chain) throws ServletException, IOException {
+    String inbound = request.getHeader(HEADER);
+    String requestId = inbound != null &amp;&amp; SAFE.matcher(inbound).matches()
+        ? inbound
+        : UUID.randomUUID().toString();
+
+    MDC.put("requestId", requestId);
+    // Echo it, so support can paste the header from a customer's HAR file
+    // straight into the log search.
+    response.setHeader(HEADER, requestId);
+    try {
+      chain.doFilter(request, response);
+    } finally {
+      // Mandatory. MDC is a ThreadLocal, threads are reused, and an id left
+      // behind attaches somebody else's request to this customer's trace.
+      MDC.remove("requestId");
+    }
+  }
+}</pre>
+
+      <div class="note warn">
+        <h4>MDC does not follow work you hand to another thread</h4>
+        <p>With <code>spring.threads.virtual.enabled</code> every request gets a fresh virtual thread, so the <code>MDC</code> set here is visible to everything that request does inline &mdash; and nothing else. The moment you submit to an <code>ExecutorService</code>, the pool&rsquo;s thread has an empty context and those log lines lose the id, which is precisely when you needed it most. Logback&rsquo;s <code>MDC.getCopyOfContextMap()</code> copied into the task is the manual fix, Micrometer&rsquo;s <code>ContextSnapshot</code> is the framework one, and structured concurrency&rsquo;s <code>ScopedValue</code> is where this is going. Whichever you pick, decide it once, in one wrapper, and never call <code>executor.submit</code> directly again.</p>
+      </div>
+
+<pre class="l1"># application.yaml -- the observability half, and the one distinction
+# in this file that people get wrong more often than any other.
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        # Liveness answers: is this JVM broken beyond recovery? Only a
+        # restart fixes that, and a restart is what a failed liveness probe
+        # causes. So it checks nothing external. Put the database in here
+        # and a thirty-second Postgres failover restarts every pod you own,
+        # simultaneously, which turns a blip into an outage.
+        liveness:
+          include: livenessState
+        # Readiness answers: should traffic come here right now? A pod with
+        # no database cannot serve, but it will recover on its own, so the
+        # right response is to stop routing to it -- not to kill it.
+        readiness:
+          include: readinessState,db,redis
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: shortlink        # every metric, one tag, free grouping</pre>
+
+<pre class="l1">{
+  "@timestamp": "2026-08-31T14:32:07.418Z",
+  "log.level": "WARN",
+  "service.name": "shortlink",
+  "process.thread.name": "VirtualThread[#742]/runnable",
+  "log.logger": "info.jaspreet.shortlink.security.RateLimiter",
+  "message": "rate limiter unavailable, allowing request",
+  "requestId": "6f1c2a94-3d55-4c1e-9f0a-2b7e6d4a1c33",
+  "trace.id": "0af7651916cd43dd8448eb211c80319c",
+  "span.id": "b7ad6b7169203331"
+}</pre>
+
+      <p>That is one line of <code>logging.structured.format.console: ecs</code> from the configuration topic &mdash; Boot 3.4 and later emit JSON with no encoder XML and no <code>logback-spring.xml</code> at all. <code>requestId</code> is there because the filter put it in the MDC; <code>trace.id</code> and <code>span.id</code> are there because Micrometer Tracing is on the classpath and propagates W3C <code>traceparent</code> headers between services. The rule that makes this worth having: <b>never build a log message with string concatenation.</b> <code>log.warn("link {} expired for owner {}", code, ownerId)</code> keeps <code>code</code> and <code>ownerId</code> as fields you can filter on; <code>log.warn("link " + code + " expired")</code> produces a sentence you can only grep.</p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>What you want to know</th><th>Where it already is</th></tr></thead>
+          <tbody>
+            <tr><td>Request rate, error rate, latency by route</td><td><code>http_server_requests_seconds</code>, tagged <code>uri</code>, <code>status</code>, <code>outcome</code>. Free with actuator. Do not write your own counter for this.</td></tr>
+            <tr><td>Is the connection pool the bottleneck</td><td><code>hikaricp_connections_pending</code> and <code>_acquire</code>. If pending is ever non-zero, the pool is your ceiling.</td></tr>
+            <tr><td>GC pauses, heap after collection</td><td><code>jvm_gc_pause_seconds</code>, <code>jvm_memory_used_bytes</code>. The memory topic&rsquo;s numbers, exported.</td></tr>
+            <tr><td>How full is the code space</td><td><em>Nowhere.</em> This is the one worth adding: count generation retries. It is invisible from outside, no status code reflects it, and it is the only early warning that seven characters have stopped being enough.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-tests">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>Tests that would actually have caught it</h3>
+        <p class="lede">Three tests, and each one is a different kind. The architecture rule is a test because a diagram cannot fail a build. The domain tests need no context and run in milliseconds. And the integration tests run against a real Postgres in a container, because the one guarantee this service makes &mdash; that the same idempotency key produces one link &mdash; is a guarantee about a database, and a mock cannot have it.</p>
+      </div>
+
+<pre class="l2">// src/test/java/info/jaspreet/shortlink/ArchitectureTest.java
+package info.jaspreet.shortlink;
+
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
+
+import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.junit.AnalyzeClasses;
+import com.tngtech.archunit.junit.ArchTest;
+import com.tngtech.archunit.lang.ArchRule;
+
+/** The table from the layout topic, as a test. This is the whole point of it. */
+@AnalyzeClasses(packages = "info.jaspreet.shortlink",
+                importOptions = ImportOption.DoNotIncludeTests.class)
+class ArchitectureTest {
+
+  @ArchTest
+  static final ArchRule layers = layeredArchitecture().consideringAllDependencies()
+      .layer("web").definedBy("..web..")
+      .layer("service").definedBy("..service..")
+      .layer("persistence").definedBy("..persistence..")
+      .layer("domain").definedBy("..domain..")
+      .layer("config").definedBy("..config..")
+
+      .whereLayer("web").mayNotBeAccessedByAnyLayer()
+      .whereLayer("service").mayOnlyBeAccessedByLayers("web", "config")
+      .whereLayer("persistence").mayOnlyBeAccessedByLayers("service", "config", "security");
+
+  // The rule that pays for itself: the domain stays plain Java. Every one
+  // of these packages arriving in ..domain.. is somebody solving a problem
+  // in the wrong place, and it is much cheaper to say so at compile time
+  // than in a code review six months from now.
+  @ArchTest
+  static final ArchRule domainIsPlainJava = noClasses()
+      .that().resideInAPackage("..domain..")
+      .should().dependOnClassesThat().resideInAnyPackage(
+          "org.springframework..", "jakarta..", "org.hibernate..", "com.fasterxml..");
+
+  @ArchTest
+  static final ArchRule serviceKnowsNoFramework = noClasses()
+      .that().resideInAPackage("..service..")
+      .should().dependOnClassesThat().resideInAnyPackage(
+          "org.springframework..", "jakarta.servlet..");
+
+  // Entities do not leave the persistence package. If one ever appears in
+  // a controller signature, the API's shape is now the schema's shape.
+  @ArchTest
+  static final ArchRule entitiesStayHome = noClasses()
+      .that().resideOutsideOfPackage("..persistence..")
+      .should().dependOnClassesThat().areAnnotatedWith(jakarta.persistence.Entity.class);
+}</pre>
+
+<pre class="l1">$ ./mvnw -q test -Dtest=ArchitectureTest
+[ERROR] domainIsPlainJava
+Architecture Violation [Priority: MEDIUM] - Rule 'no classes that reside in a
+package '..domain..' should depend on classes that reside in any package
+['org.springframework..', 'jakarta..', ...]' was violated (1 times):
+
+  Class &lt;info.jaspreet.shortlink.domain.Link&gt; depends on
+  &lt;jakarta.persistence.Entity&gt; in (Link.java:0)
+
+# Somebody put @Entity on the domain record because it was convenient.
+# It took four seconds to find out, and the fix is still cheap.</pre>
+
+<pre class="l2">// src/test/java/info/jaspreet/shortlink/IntegrationTest.java
+package info.jaspreet.shortlink;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.PostgreSQLContainer;
+
+/**
+ * The containers are static and started in a static initialiser rather than
+ * with @Container, on purpose: @Container ties a container's life to one
+ * test class, so eight test classes start and stop Postgres eight times and
+ * your suite takes four minutes instead of forty seconds. Started this way
+ * they live for the JVM and Testcontainers' reaper stops them at the end.
+ *
+ * Every subclass shares this exact configuration, which also means Spring
+ * caches one application context for the whole suite. Both halves matter:
+ * an @MockitoBean in one test class would fork the cache and start a second
+ * context, and that is usually where a slow suite's time actually went.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+abstract class IntegrationTest {
+
+  @ServiceConnection
+  static final PostgreSQLContainer&lt;?&gt; POSTGRES =
+      new PostgreSQLContainer&lt;&gt;("postgres:16-alpine");
+
+  @ServiceConnection(name = "redis")
+  static final GenericContainer&lt;?&gt; REDIS =
+      new GenericContainer&lt;&gt;("redis:7-alpine").withExposedPorts(6379);
+
+  static {
+    POSTGRES.start();
+    REDIS.start();
+  }
+
+  // Not @Transactional. A transactional test rolls back at the end, which
+  // is fast and convenient and would quietly break the most important test
+  // in this file: LinkWriter uses REQUIRES_NEW, so its insert commits in a
+  // transaction the test does not own and cannot roll back. Truncating is
+  // honest, and it tests the code that actually runs in production.
+  @BeforeEach
+  void emptyTheTables(@Autowired JdbcClient jdbc) {
+    jdbc.sql("truncate table links, api_keys restart identity cascade").update();
+  }
+}
+
+// Flyway runs against the container on context start, so the schema under
+// test is the schema the migration produces -- not one Hibernate invented
+// from the entities, which is the version of this that passes while
+// production fails.</pre>
+
+<pre class="l2">// src/test/java/info/jaspreet/shortlink/web/LinkApiTest.java
+package info.jaspreet.shortlink.web;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import info.jaspreet.shortlink.IntegrationTest;
+import info.jaspreet.shortlink.domain.TargetUrl;
+import info.jaspreet.shortlink.service.LinkService;
+import info.jaspreet.shortlink.service.LinkService.NewLink;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.IntStream;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+class LinkApiTest extends IntegrationTest {
+
+  // The plaintext key never exists in production; here it is a constant so
+  // the test can send it and store only its digest, exactly as the real
+  // key-issuing path does.
+  private static final String KEY = "sl_live_thisisatestkeyonly";
+
+  @Autowired MockMvcTester mvc;
+  @Autowired JdbcClient jdbc;
+  @Autowired LinkService links;
+
+  @BeforeEach
+  void issueAKey() throws Exception {
+    // Hashed here exactly as the filter hashes it, so the test exercises
+    // the real comparison rather than a fixture that agrees with itself.
+    String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+        .digest(KEY.getBytes(StandardCharsets.UTF_8)));
+    jdbc.sql("insert into api_keys (owner_id, label, key_hash) values (?, ?, ?)")
+        .params("owner-1", "test", digest)
+        .update();
+  }
+
+  @Test
+  void creates_a_link_and_answers_with_its_public_url() {
+    assertThat(mvc.post().uri("/v1/links")
+        .header("Authorization", "Bearer " + KEY)
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("""
+            {"url": "https://example.com/a/very/long/path?utm_source=x"}"""))
+        .hasStatus(HttpStatus.CREATED)
+        .bodyJson().extractingPath("$.shortUrl").asString()
+        .startsWith("http://localhost:8080/");
+  }
+
+  @Test
+  void refuses_a_scheme_that_is_not_http() {
+    assertThat(mvc.post().uri("/v1/links")
+        .header("Authorization", "Bearer " + KEY)
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("""
+            {"url": "javascript:alert(1)"}"""))
+        .hasStatus(HttpStatus.BAD_REQUEST);
+  }
+
+  @Test
+  void refuses_a_request_with_no_key_and_says_how_to_fix_it() {
+    assertThat(mvc.get().uri("/v1/links"))
+        .hasStatus(HttpStatus.UNAUTHORIZED)
+        .headers().containsKey("WWW-Authenticate");
+  }
+
+  // The one a mocked repository cannot express. Sixteen threads released
+  // at the same instant with one idempotency key between them; the answer
+  // has to be one link, and it has to be the same link for all sixteen.
+  @Test
+  void the_same_idempotency_key_creates_exactly_one_link() throws Exception {
+    var request = new NewLink("owner-1", TargetUrl.parse("https://example.com"),
+                              null, null, "key-42");
+    var releaseThemAll = new CountDownLatch(1);
+
+    List&lt;Future&lt;String&gt;&gt; attempts;
+    try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+      attempts = IntStream.range(0, 16)
+          .mapToObj(i -&gt; pool.submit(() -&gt; {
+            releaseThemAll.await();
+            return links.shorten(request).code().value();
+          }))
+          .toList();
+      releaseThemAll.countDown();
+    }
+
+    assertThat(attempts.stream().map(LinkApiTest::get).distinct().toList())
+        .as("every caller got the same code")
+        .hasSize(1);
+    assertThat(jdbc.sql("select count(*) from links").query(Integer.class).single())
+        .as("and the database has one row, not sixteen")
+        .isEqualTo(1);
+  }
+
+  private static String get(Future&lt;String&gt; future) {
+    try {
+      return future.get();
+    } catch (Exception e) {
+      throw new AssertionError("a caller failed instead of sharing the link", e);
+    }
+  }
+}</pre>
+
+      <div class="note warn">
+        <h4>That last test fails without the partial unique index, and passes without a single line of the retry code</h4>
+        <p>Delete the index from <code>V1</code> and run it: sixteen rows, sixteen codes, and the API cheerfully told sixteen callers they had each created something. Now put the index back and delete the <code>catch (IdempotencyClash)</code> branch instead: fifteen callers get a 500, which is worse than the first failure in every way that matters to a client. The test tells the two apart, which is the property you want &mdash; and it is why it is worth the eight seconds a container costs. This is also, almost word for word, a question you will be asked: <em>how do you make this endpoint idempotent</em>. The answer is a constraint, a translated violation, and a re-read &mdash; in that order.</p>
+      </div>
+    </section>
+
+    <section class="topic" id="svc-ship">
+      <div class="topic-head">
+        <span class="kicker">Java &middot; 00</span>
+        <h3>The image, the pipeline, and the last mile</h3>
+        <p class="lede">The <a href="#ship">packaging topic</a> already covered layered extraction, the actuator probes and graceful shutdown, and none of that changes here. What is left is the part that only appears when there is a whole repository: an image built from source so that CI needs nothing installed, a pipeline that runs the same four commands a developer runs, and the short list of things that are still not done when the tests are green.</p>
+      </div>
+
+<pre class="l2"># Dockerfile -- built from source. A machine with Docker and nothing else
+# can produce this image, which is what makes CI reproducible and what
+# makes "works on my machine" a much shorter conversation.
+FROM eclipse-temurin:21-jdk-jammy AS build
+WORKDIR /build
+
+# The wrapper and the pom, alone, first. This layer is invalidated only
+# when a dependency changes -- which is rare -- so the ninety seconds of
+# dependency download is paid once and then cached for weeks.
+COPY .mvn/ .mvn/
+COPY mvnw pom.xml ./
+RUN ./mvnw -B -ntp dependency:go-offline
+
+COPY src/ src/
+RUN ./mvnw -B -ntp -DskipTests package
+RUN cp target/shortlink-0.1.0.jar app.jar
+RUN java -Djarmode=tools -jar app.jar extract --layers --destination extracted
+
+FROM eclipse-temurin:21-jre-jammy AS runtime
+WORKDIR /app
+
+# A numeric uid, not just a name: Kubernetes' runAsNonRoot can verify a
+# number in the manifest and cannot verify a name inside the image.
+RUN useradd --system --uid 10001 --no-create-home app
+
+COPY --from=build --chown=10001:10001 /build/extracted/dependencies/          ./
+COPY --from=build --chown=10001:10001 /build/extracted/spring-boot-loader/    ./
+COPY --from=build --chown=10001:10001 /build/extracted/snapshot-dependencies/ ./
+COPY --from=build --chown=10001:10001 /build/extracted/application/           ./
+
+USER 10001
+EXPOSE 8080
+
+# The JVM reads the cgroup limit, not the host's memory, but only if you
+# let it size the heap as a percentage. ExitOnOutOfMemoryError because a
+# JVM that has thrown OOM on one thread still answers liveness probes and
+# is better dead than limping.
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+
+# Exec form, so java is PID 1 and SIGTERM reaches it. The shell form runs
+# /bin/sh -c, the shell does not forward signals, and every deploy becomes
+# a ten-second hang followed by SIGKILL and dropped requests.
+ENTRYPOINT ["java", "-jar", "app.jar"]</pre>
+
+<pre class="l2"># .github/workflows/ci.yaml -- the same commands the Makefile runs, so a
+# red build is reproducible locally with one line and no guessing.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read          # the default is write. It should not be.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven    # ~/.m2 keyed on the pom's hash
+
+      # verify runs the unit tests, then the container ones. Testcontainers
+      # uses the runner's own Docker daemon; nothing extra to install.
+      - run: ./mvnw -B -ntp verify
+
+      # Fail the build on a known-vulnerable dependency. This is the supply
+      # chain, and it is now part of the definition of a passing build.
+      - run: ./mvnw -B -ntp org.owasp:dependency-check-maven:check
+
+      - name: Build the image
+        run: docker build -t shortlink:${{ github.sha }} .
+
+      - name: Scan the image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: shortlink:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: '1'</pre>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Before it is &ldquo;done&rdquo;</th><th>Why it is on this list</th></tr></thead>
+          <tbody>
+            <tr><td>Flyway runs as a separate step, not on start-up</td><td>Four replicas starting together run four migrations. Postgres&rsquo; advisory lock means three of them wait rather than corrupt anything, but they wait through their readiness deadline. Run migrations once, in a job, before the new version rolls.</td></tr>
+            <tr><td><code>readiness</code> wired to the readiness probe, <code>liveness</code> to the liveness probe</td><td>They are different endpoints because they answer different questions. Pointing both at <code>/actuator/health</code> restarts your pods every time the database hiccups.</td></tr>
+            <tr><td>Memory <em>request</em> equal to the limit, and the limit above <code>MaxRAMPercentage</code> of the heap plus overhead</td><td>A JVM is heap plus metaspace plus thread stacks plus direct buffers plus the code cache. Size the container for all of it or the kernel kills the process with no stack trace and no log line.</td></tr>
+            <tr><td>Logs to stdout, and nowhere else</td><td>The platform collects stdout. A log file inside a container is a disk that fills and an incident nobody can explain.</td></tr>
+            <tr><td>The dependency graph audited on every build, not on a calendar</td><td>Two of the last decade&rsquo;s worst Java incidents were a transitive dependency nobody had listed. <code>./mvnw dependency:tree</code> is how you find out you have it.</td></tr>
+            <tr><td>Alerts on the 500 rate and on p99 latency, not just dashboards</td><td>A dashboard is for after somebody noticed. An alert is for before.</td></tr>
+            <tr><td>A rollback that is one command, and that somebody has run</td><td>Every deploy plan has one. The ones that work have been rehearsed on a Tuesday afternoon rather than discovered at 2am.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Read this part next to the Python page&rsquo;s and the differences are smaller than the languages suggest. Both put the rules in a layer that imports nothing, both make idempotency a database constraint rather than a check, both keep one error shape, both hash the API key and share the rate limit, and both fail the boot rather than the tenth request. What Java adds is enforcement: the sealed hierarchy makes the error switch exhaustive, the type system makes a <code>ShortCode</code> impossible to confuse with a <code>String</code>, and ArchUnit makes the layering a failing build rather than a convention. What it costs is the file count on this page. That trade &mdash; more ceremony up front, more caught by the compiler &mdash; is the entire argument for Java in a service, and it is the answer to give when somebody asks why you would choose it.</p>
+    </section>
+  </div>
+</section>

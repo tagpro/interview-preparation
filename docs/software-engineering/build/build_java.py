@@ -6,7 +6,8 @@ PAGE, TITLE, MARK = 'java-spring.html', 'Java, Then Spring', 'Java, Then Spring'
 hero = open('java_hero.html', encoding='utf-8').read()
 def read(f): return open(f, encoding='utf-8').read().strip()
 parts = "\n\n".join([read('java_a.html'), read('java_b.html'),
-                     read('java_c.html'), read('java_d.html')])
+                     read('java_c.html'), read('java_d.html'),
+                     read('java_svc.html')])
 
 foot = """<footer class="footer">
   <div class="shell col">
@@ -22,8 +23,10 @@ s = open(PAGE, encoding='utf-8').read()
 kick = list(re.finditer(r'<span class="kicker">Java &middot; (\w+)</span>', s))
 for i, m in enumerate(reversed(kick)):
     s = s[:m.start()] + '<span class="kicker">Java &middot; %02d</span>' % (len(kick) - i) + s[m.end():]
-words = ['one','two','three','four','five','six','seven','eight','nine','ten']
+words = ['one','two','three','four','five','six','seven','eight','nine','ten',
+         'eleven','twelve']
 pw = list(re.finditer(r'<span class="kicker">Part (\w+)</span>', s))
+assert len(pw) <= len(words), 'more parts than number words: extend the list'
 for i, m in enumerate(reversed(pw)):
     s = s[:m.start()] + '<span class="kicker">Part %s</span>' % words[len(pw) - 1 - i] + s[m.end():]
 

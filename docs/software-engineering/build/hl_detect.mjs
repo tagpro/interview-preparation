@@ -39,6 +39,9 @@ const BY_EXT = {
   json: 'json', toml: 'toml', xml: 'html', html: 'html', sh: 'shell',
   ts: 'ts', js: 'js', tf: 'hcl', mod: 'gomod', env: 'env',
   properties: 'env', txt: 'plaintext', md: 'markdown',
+  // Extension-less filenames, keyed by the name itself. A Makefile's
+  // recipes are shell, which is what the reader is being shown.
+  dockerfile: 'dockerfile', makefile: 'shell',
 };
 
 // Each page is overwhelmingly one language; used only as a last resort.
@@ -91,11 +94,12 @@ export function detect(body, attrs, page) {
 
   // --- filename in the opening comment ----------------------------------
   const fn = /^\s*(?:\/\/|#|--)\s*(?:[\w./-]*\/)?([\w.-]+\.(\w+))\b/.exec(t) ||
-             /^\s*(?:\/\/|#)\s*(Dockerfile)\b/i.exec(t);
+             /^\s*(?:\/\/|#)\s*(Dockerfile|Makefile)\b/i.exec(t);
   if (fn) {
     // .env, .env.example, .env.local -- the extension is not the useful part
     if (/^\.env\b/.test(fn[1])) return 'env';
-    const ext = (fn[2] || 'dockerfile').toLowerCase();
+    // No extension: the whole name is the key (Dockerfile, Makefile).
+    const ext = (fn[2] || fn[1]).toLowerCase();
     if (BY_EXT[ext]) return BY_EXT[ext];
   }
 

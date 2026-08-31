@@ -72,6 +72,7 @@ java_b.html
 java_c.html
 java_d.html
 java_hero.html
+java_svc.html
 manifest.txt
 offline_check.mjs
 package-lock.json
@@ -81,14 +82,7 @@ pillar-b-go.html
 pillar-c-cloud.html
 pipeline_check.sh
 print.css
-print_check.py
-print_contrast.py
 print_inject.mjs
-print_ink.mjs
-print_page.py
-print_pdf.mjs
-print_same.py
-print_sheet.py
 print_theme.mjs
 py_a.html
 py_b.html
@@ -101,7 +95,6 @@ py_foot.html
 py_hero.html
 py_svc.html
 python-foundations.html
-requirements.txt
 series.py
 series_sync.py
 site_build.mjs

@@ -5,7 +5,7 @@
  * activation. That is the whole update story: there is no manual versioning to
  * forget, and no way to serve a stale page from a previous deploy.
  */
-const CACHE = 'ladder-f8aff693edbd';
+const CACHE = 'ladder-8ba1bf4ef237';
 
 const PRECACHE = [
   '.',
